@@ -25,7 +25,8 @@
     "nanoid": "^5.1.5",
     "serverless-http": "^3.2.0",
     "xlsx": "^0.18.5",
-    "xml2js": "^0.6.2"
+    "xml2js": "^0.6.2",
+    "exceljs": "^4.3.0"
   },
   "devDependencies": {
     "dotenv-cli": "^8.0.0",
