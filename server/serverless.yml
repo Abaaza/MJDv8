@@ -1,0 +1,38 @@
+# serverless.yml
+
+service: mjd-backend-3
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: me-south-1
+  stage: ${opt:stage, 'prod'}
+  environment:
+    CONNECTION_STRING: ${env:CONNECTION_STRING, ''}
+
+
+  # --- MOVED HERE ---
+  # Global HTTP API configuration belongs inside the provider block
+  httpApi:
+    cors: true # wildcard CORS is fine while debugging
+    payload: "2.0"
+
+functions:
+  api:
+    handler: src/handler.handler
+    timeout: 900 # increase timeout to 60 seconds (adjust as needed)
+    memorySize: 2048 # increase memory to 1024 MB (adjustable up to 10240 MB)
+    events:
+      - httpApi:
+          path: /{proxy+}
+          method: ANY
+
+plugins:
+  - serverless-dotenv-plugin
+
+package:
+  individually: true
+  patterns:
+    - "src/**"
+
