@@ -70,8 +70,8 @@ export function PriceListHeader({ totalItems, priceItems, onDeleteAll, onRefresh
 
   return (
     <div className="flex items-center justify-between">
-      <div>
-        <h1 className="text-3xl font-bold">Price List</h1>
+      <div className="text-left">
+        <h1 className="text-3xl font-bold mt-0">Price List</h1>
         <p className="text-muted-foreground">
           Manage your construction pricing database • {totalItems.toLocaleString()} items total
         </p>

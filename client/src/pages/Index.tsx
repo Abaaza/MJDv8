@@ -1,4 +1,3 @@
-
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { 
@@ -76,10 +75,10 @@ export default function Index() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="pt-[10px] px-6 pb-6 space-y-3">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
+        <div className="text-left">
+          <h1 className="text-3xl font-bold mt-0">Dashboard</h1>
           <p className="text-muted-foreground">Welcome back to your construction CRM</p>
         </div>
       </div>

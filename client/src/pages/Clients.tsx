@@ -50,7 +50,7 @@ export default function Clients() {
     <div className="pt-[10px] px-6 pb-6 space-y-3">
       <div className="flex items-center justify-between">
         <div className="text-left">
-          <h1 className="text-3xl font-bold page-title">Clients</h1>
+          <h1 className="text-3xl font-bold mt-0">Clients</h1>
           <p className="text-muted-foreground">Manage your client relationships</p>
         </div>
         <Button onClick={() => setIsAddDialogOpen(true)}>
@@ -62,7 +62,7 @@ export default function Clients() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <div>
+            <div className="text-left">
               <CardTitle>Client Directory</CardTitle>
               <CardDescription>All your clients and prospects ({filteredClients.length} total)</CardDescription>
             </div>

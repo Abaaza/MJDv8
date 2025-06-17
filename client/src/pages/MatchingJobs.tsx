@@ -4,21 +4,15 @@ import { PriceMatching } from "@/components/PriceMatching"
 
 export default function MatchingJobs() {
   return (
-    <div className="min-h-screen w-full">
-      {/* Header */}
-      <div className="pt-[10px] px-6 pb-2">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1 text-left">
-            <h1 className="text-3xl font-bold page-title">Price Matcher</h1>
-            <p className="text-muted-foreground">AI-powered BOQ price matching and analysis using Cohere embeddings</p>
-          </div>
+    <div className="pt-[10px] px-6 pb-6 space-y-3">
+      <div className="flex items-start justify-between">
+        <div className="text-left">
+          <h1 className="text-3xl font-bold mt-0">Price Matcher</h1>
+          <p className="text-muted-foreground">AI-powered BOQ price matching and analysis using Cohere embeddings</p>
         </div>
       </div>
 
-      {/* Price Matching Component */}
-      <div className="px-6 pb-6">
-        <PriceMatching />
-      </div>
+      <PriceMatching />
     </div>
   )
 }

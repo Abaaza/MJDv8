@@ -150,8 +150,8 @@ export default function Profile() {
   return (
     <div className="pt-[10px] px-6 pb-6 space-y-3">
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold page-title">Profile</h1>
+        <div className="text-left">
+          <h1 className="text-3xl font-bold mt-0">Profile</h1>
           <p className="text-muted-foreground">Manage your account settings and preferences</p>
         </div>
         <Button onClick={updateProfile} disabled={saving} size="lg">
@@ -159,149 +159,145 @@ export default function Profile() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="space-y-3">
         {/* Profile Information */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Information</CardTitle>
-              <CardDescription>Update your personal information</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center space-x-4">
-                <Avatar className="h-20 w-20">
-                  <AvatarImage src={`https://avatar.vercel.sh/${user?.email}.png`} />
-                  <AvatarFallback className="text-lg font-semibold">
-                    {getInitials(name, user?.email || '')}
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <h3 className="text-lg font-medium">{name || 'No name set'}</h3>
-                  <p className="text-muted-foreground">{user?.email}</p>
-                </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Profile Information</CardTitle>
+            <CardDescription>Update your personal information</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center space-x-4">
+              <Avatar className="h-20 w-20">
+                <AvatarImage src={`https://avatar.vercel.sh/${user?.email}.png`} />
+                <AvatarFallback className="text-lg font-semibold">
+                  {getInitials(name, user?.email || '')}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <h3 className="text-lg font-medium">{name || 'No name set'}</h3>
+                <p className="text-muted-foreground">{user?.email}</p>
               </div>
+            </div>
 
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter your full name"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    value={user?.email || ''}
-                    disabled
-                    className="bg-muted"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Email cannot be changed
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Preferences */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Preferences</CardTitle>
-              <CardDescription>Customize your experience</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Theme</Label>
-                  <p className="text-sm text-muted-foreground">Choose your preferred theme</p>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      {getThemeIcon(selectedTheme)}
-                      <span className="ml-2">{getThemeLabel(selectedTheme)}</span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => handleThemeChange("light")}>
-                      <Sun className="mr-2 h-4 w-4" />
-                      <span>Light</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleThemeChange("dark")}>
-                      <Moon className="mr-2 h-4 w-4" />
-                      <span>Dark</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleThemeChange("system")}>
-                      <Monitor className="mr-2 h-4 w-4" />
-                      <span>System</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Notification Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Notification Settings</CardTitle>
-              <CardDescription>Manage your notification preferences</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Email Notifications</Label>
-                  <p className="text-sm text-muted-foreground">Receive notifications via email</p>
-                </div>
-                <Switch
-                  checked={emailNotifications}
-                  onCheckedChange={setEmailNotifications}
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="name">Full Name</Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Enter your full name"
                 />
               </div>
-            </CardContent>
-          </Card>
-        </div>
+
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  value={user?.email || ''}
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Email cannot be changed
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Preferences */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Preferences</CardTitle>
+            <CardDescription>Customize your experience</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Label>Theme</Label>
+                <span className="text-sm text-muted-foreground">• Choose your preferred theme</span>
+              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    {getThemeIcon(selectedTheme)}
+                    <span className="ml-2">{getThemeLabel(selectedTheme)}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => handleThemeChange("light")}>
+                    <Sun className="mr-2 h-4 w-4" />
+                    <span>Light</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleThemeChange("dark")}>
+                    <Moon className="mr-2 h-4 w-4" />
+                    <span>Dark</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleThemeChange("system")}>
+                    <Monitor className="mr-2 h-4 w-4" />
+                    <span>System</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Notification Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Notification Settings</CardTitle>
+            <CardDescription>Manage your notification preferences</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Label>Email Notifications</Label>
+                <span className="text-sm text-muted-foreground">• Receive notifications via email</span>
+              </div>
+              <Switch
+                checked={emailNotifications}
+                onCheckedChange={setEmailNotifications}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Account Details */}
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Account Details</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center space-x-3">
-                <Mail className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Email</p>
-                  <p className="text-sm text-muted-foreground">{user?.email}</p>
-                </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Account Details</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center space-x-3">
+              <Mail className="h-4 w-4 text-muted-foreground" />
+              <div className="flex items-center space-x-2">
+                <p className="text-sm font-medium">Email:</p>
+                <p className="text-sm text-muted-foreground">{user?.email}</p>
               </div>
+            </div>
 
-              <div className="flex items-center space-x-3">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Member since</p>
-                  <p className="text-sm text-muted-foreground">
-                    {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown'}
-                  </p>
-                </div>
+            <div className="flex items-center space-x-3">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <div className="flex items-center space-x-2">
+                <p className="text-sm font-medium">Member since:</p>
+                <p className="text-sm text-muted-foreground">
+                  {user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown'}
+                </p>
               </div>
+            </div>
 
-              <div className="flex items-center space-x-3">
-                <User className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-sm font-medium">Account Status</p>
-                  <Badge variant="secondary" className="mt-1">Active</Badge>
-                </div>
+            <div className="flex items-center space-x-3">
+              <User className="h-4 w-4 text-muted-foreground" />
+              <div className="flex items-center space-x-2">
+                <p className="text-sm font-medium">Account Status:</p>
+                <Badge variant="secondary">Active</Badge>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

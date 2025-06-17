@@ -695,7 +695,7 @@ export function PriceMatching() {
   }
 
   return (
-    <div className="min-h-screen w-full max-w-7xl mx-auto p-6 space-y-6">
+    <div className="space-y-3">
       {/* Main Price Matching Form */}
       <Card>
         <CardHeader>
@@ -709,15 +709,6 @@ export function PriceMatching() {
                 Upload your Excel inquiry file and let AI automatically match items with your price list using Cohere embeddings
               </CardDescription>
             </div>
-            <Button
-              onClick={clearTestData}
-              variant="destructive"
-              size="sm"
-              className="shrink-0"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear Test Data
-            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">

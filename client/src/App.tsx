@@ -43,7 +43,7 @@ function App() {
                           <main className={`flex-1 overflow-auto transition-all duration-300 ${
                             isSidebarCollapsed ? 'ml-16' : 'ml-64'
                           }`}>
-                            <div className="p-6">
+                            <div>
                               <Routes>
                                 <Route path="/" element={<Index />} />
                                 <Route path="/clients" element={<Clients />} />

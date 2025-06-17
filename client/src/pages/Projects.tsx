@@ -235,8 +235,8 @@ export default function Projects() {
   return (
     <div className="pt-[10px] px-6 pb-6 space-y-3 w-full">
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold page-title">Matched Jobs</h1>
+        <div className="text-left">
+          <h1 className="text-3xl font-bold mt-0">Matched Jobs</h1>
           <p className="text-muted-foreground">View and manage your completed price matching jobs</p>
         </div>
         <Button variant="outline" onClick={fetchJobs}>
@@ -304,7 +304,7 @@ export default function Projects() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <div>
+            <div className="text-left">
               <CardTitle>Matching Jobs History</CardTitle>
               <CardDescription>Track and download results from your price matching jobs</CardDescription>
             </div>

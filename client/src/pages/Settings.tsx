@@ -1,4 +1,3 @@
-
 import { useAuth } from "@/contexts/AuthContext";
 import { AdminSettingsSection } from "@/components/AdminSettingsSection";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -87,10 +86,10 @@ export default function Settings() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="pt-[10px] px-6 pb-6 space-y-3">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Admin Settings</h1>
+        <div className="text-left">
+          <h1 className="text-3xl font-bold mt-0">Admin Settings</h1>
           <p className="text-muted-foreground">Configure system settings and API keys</p>
         </div>
       </div>

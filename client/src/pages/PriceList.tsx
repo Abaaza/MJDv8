@@ -89,7 +89,7 @@ export default function PriceList() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="pt-[10px] px-6 pb-6 space-y-3">
       <PriceListHeader 
         totalItems={totalItems}
         priceItems={priceItems}
@@ -100,7 +100,7 @@ export default function PriceList() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <div>
+            <div className="text-left">
               <CardTitle>Construction Price Database</CardTitle>
               <CardDescription>
                 Comprehensive pricing for materials, labor, and equipment • 
