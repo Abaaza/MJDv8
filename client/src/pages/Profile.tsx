@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -149,10 +148,10 @@ export default function Profile() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="pt-[10px] px-6 pb-6 space-y-3">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Profile</h1>
+          <h1 className="text-3xl font-bold page-title">Profile</h1>
           <p className="text-muted-foreground">Manage your account settings and preferences</p>
         </div>
         <Button onClick={updateProfile} disabled={saving} size="lg">

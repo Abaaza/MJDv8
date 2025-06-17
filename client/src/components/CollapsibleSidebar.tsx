@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -35,8 +34,8 @@ export function CollapsibleSidebar({ onCollapseChange }: CollapsibleSidebarProps
   }, []);
 
   return (
-    <div className={`flex h-screen flex-col bg-sidebar-background border-r border-sidebar-border transition-all duration-300 fixed inset-y-0 z-30 ${isCollapsed ? 'w-16' : 'w-64'}`}>
-      <div className="flex h-14 items-center border-b border-sidebar-border px-4 justify-between flex-shrink-0 bg-sidebar-background">
+    <div className={`flex h-screen flex-col bg-sidebar transition-all duration-300 fixed inset-y-0 left-0 z-30 ${isCollapsed ? 'w-16' : 'w-64'}`}>
+      <div className="flex h-14 items-center border-b border-sidebar-border px-4 justify-between flex-shrink-0 bg-sidebar">
         {!isCollapsed && (
           <Link to="/" className="flex items-center space-x-2">
             <Building2 className="h-6 w-6 text-sidebar-foreground" />
@@ -53,7 +52,7 @@ export function CollapsibleSidebar({ onCollapseChange }: CollapsibleSidebarProps
         </Button>
       </div>
       
-      <nav className="flex-1 space-y-1 px-2 py-4 overflow-y-auto bg-sidebar-background">
+      <nav className="flex-1 space-y-1 px-2 py-4 overflow-y-auto bg-sidebar">
         {navigation.map((item) => {
           const isActive = location.pathname === item.href;
           return (
@@ -74,7 +73,7 @@ export function CollapsibleSidebar({ onCollapseChange }: CollapsibleSidebarProps
         })}
       </nav>
       
-      <div className="border-t border-sidebar-border p-2 space-y-2 flex-shrink-0 bg-sidebar-background">
+      <div className="border-t border-sidebar-border p-2 space-y-2 flex-shrink-0 bg-sidebar">
         <Link
           to="/profile"
           className={`flex items-center space-x-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${

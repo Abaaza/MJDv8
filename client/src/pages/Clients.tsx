@@ -1,4 +1,3 @@
-
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -48,10 +47,10 @@ export default function Clients() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="pt-[10px] px-6 pb-6 space-y-3">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Clients</h1>
+        <div className="text-left">
+          <h1 className="text-3xl font-bold page-title">Clients</h1>
           <p className="text-muted-foreground">Manage your client relationships</p>
         </div>
         <Button onClick={() => setIsAddDialogOpen(true)}>

@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -234,10 +233,10 @@ export default function Projects() {
   }
 
   return (
-    <div className="p-6 space-y-6 w-full">
-      <div className="flex items-center justify-between">
+    <div className="pt-[10px] px-6 pb-6 space-y-3 w-full">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Matched Jobs</h1>
+          <h1 className="text-3xl font-bold page-title">Matched Jobs</h1>
           <p className="text-muted-foreground">View and manage your completed price matching jobs</p>
         </div>
         <Button variant="outline" onClick={fetchJobs}>
