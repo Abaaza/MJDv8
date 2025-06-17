@@ -1,12 +1,11 @@
-
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Search } from "lucide-react"
+import { Trash2, Search, ChevronLeft, ChevronRight } from "lucide-react"
 import { PriceItemSelectionModal } from "./PriceItemSelectionModal"
 import { supabase } from "@/integrations/supabase/client"
 
@@ -48,6 +47,21 @@ export function EditableMatchResultsTable({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [matchModes, setMatchModes] = useState<Record<string, 'cohere' | 'manual'>>({})
   const [priceItems, setPriceItems] = useState<Record<string, PriceItem>>({})
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(100) // Show 100 items per page
+  
+  // Calculate pagination
+  const totalItems = matchResults.length
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  
+  // Get current page items
+  const currentPageResults = useMemo(() => {
+    return matchResults.slice(startIndex, endIndex)
+  }, [matchResults, startIndex, endIndex])
 
   // Load price items for matched results
   useEffect(() => {
@@ -155,32 +169,32 @@ export function EditableMatchResultsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[300px]">Description</TableHead>
-            <TableHead className="w-[250px]">Match</TableHead>
-            <TableHead className="w-[80px]">Qty</TableHead>
-            <TableHead className="w-[80px]">Unit</TableHead>
-            <TableHead className="w-[100px]">Rate ({currency})</TableHead>
-            <TableHead className="w-[80px]">Conf.</TableHead>
-            <TableHead className="w-[120px]">Total</TableHead>
-            <TableHead className="w-[80px]">Actions</TableHead>
+            <TableHead className="w-[300px] text-left !text-left" style={{ textAlign: 'left' }}>Description</TableHead>
+            <TableHead className="w-[250px] text-left !text-left" style={{ textAlign: 'left' }}>Match</TableHead>
+            <TableHead className="w-[80px] text-left !text-left" style={{ textAlign: 'left' }}>Qty</TableHead>
+            <TableHead className="w-[80px] text-left !text-left" style={{ textAlign: 'left' }}>Unit</TableHead>
+            <TableHead className="w-[100px] text-left !text-left" style={{ textAlign: 'left' }}>Rate ({currency})</TableHead>
+            <TableHead className="w-[80px] text-left !text-left" style={{ textAlign: 'left' }}>Conf.</TableHead>
+            <TableHead className="w-[120px] text-left !text-left" style={{ textAlign: 'left' }}>Total</TableHead>
+            <TableHead className="w-[80px] text-left !text-left" style={{ textAlign: 'left' }}>Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {matchResults.map((result) => {
+          {currentPageResults.map((result) => {
             const currentMode = matchModes[result.id] || 'cohere'
             const total = calculateTotal(result.quantity, result.matched_rate)
             const matchedPriceItem = result.matched_price_item_id ? priceItems[result.matched_price_item_id] : null
             
             return (
               <TableRow key={result.id}>
-                <TableCell>
-                  <div className="text-sm">{result.original_description}</div>
-                  <div className="text-xs text-muted-foreground mt-1">
+                <TableCell className="text-left !text-left">
+                  <div className="text-sm text-left">{result.original_description}</div>
+                  <div className="text-xs text-muted-foreground mt-1 text-left">
                     Row {result.row_number} • {result.sheet_name}
                   </div>
                 </TableCell>
                 
-                <TableCell>
+                <TableCell className="text-left !text-left">
                   <RadioGroup
                     value={currentMode}
                     onValueChange={(value) => handleMatchModeChange(result.id, value as 'cohere' | 'manual')}
@@ -201,16 +215,16 @@ export function EditableMatchResultsTable({
                   </RadioGroup>
                   
                   {currentMode === 'cohere' && (
-                    <div className="mt-2 p-2 border rounded bg-blue-50">
-                      <div className="text-xs font-medium text-blue-800">
-                        {result.matched_description || 'No match found'}
+                    <div className="mt-2 p-2 border rounded bg-blue-50 text-left">
+                      <div className="text-xs font-medium text-blue-800 text-left">
+                        {matchedPriceItem ? matchedPriceItem.description : (result.matched_description || 'No match found')}
                       </div>
-                      {matchedPriceItem && (
-                        <div className="text-xs text-blue-600 mt-1">
-                          Rate: {getCurrencySymbol(currency)}{formatNumber(matchedPriceItem.rate)} per {matchedPriceItem.unit}
+                      {(matchedPriceItem || result.matched_rate) && (
+                        <div className="text-xs text-blue-600 mt-1 text-left">
+                          Rate: {getCurrencySymbol(currency)}{formatNumber(result.matched_rate || matchedPriceItem?.rate || 0)} per {matchedPriceItem?.unit || result.unit || 'unit'}
                         </div>
                       )}
-                      <div className="text-xs text-blue-600 mt-1">
+                      <div className="text-xs text-blue-600 mt-1 text-left">
                         Confidence: {Math.round(result.similarity_score * 100)}%
                       </div>
                     </div>
@@ -232,36 +246,33 @@ export function EditableMatchResultsTable({
                   )}
                 </TableCell>
                 
-                <TableCell>
+                <TableCell className="text-left !text-left">
                   <Input
                     type="number"
                     step="0.01"
                     value={result.quantity || ''}
                     onChange={(e) => handleFieldChange(result.id, 'quantity', parseFloat(e.target.value) || 0)}
-                    className="w-16 text-xs"
+                    className="w-16 text-xs text-left"
                   />
                 </TableCell>
                 
-                <TableCell>
-                  <Input
-                    type="text"
-                    value={result.unit || (matchedPriceItem?.unit || '')}
-                    onChange={(e) => handleFieldChange(result.id, 'unit', e.target.value)}
-                    className="w-16 text-xs"
-                  />
+                <TableCell className="text-left !text-left">
+                  <div className="w-16 text-xs text-left p-2 bg-muted/50 rounded border text-muted-foreground">
+                    {matchedPriceItem?.unit || result.unit || 'N/A'}
+                  </div>
                 </TableCell>
                 
-                <TableCell>
+                <TableCell className="text-left !text-left">
                   <Input
                     type="number"
                     step="0.01"
-                    value={result.matched_rate || (matchedPriceItem?.rate || '')}
+                    value={result.matched_rate || ''}
                     onChange={(e) => handleFieldChange(result.id, 'matched_rate', parseFloat(e.target.value) || 0)}
-                    className="w-20 text-xs"
+                    className="w-20 text-xs text-left"
                   />
                 </TableCell>
                 
-                <TableCell>
+                <TableCell className="text-left !text-left">
                   <Badge 
                     variant={result.similarity_score >= 0.8 ? "default" : "secondary"}
                     className="text-xs"
@@ -270,11 +281,11 @@ export function EditableMatchResultsTable({
                   </Badge>
                 </TableCell>
                 
-                <TableCell className="font-mono text-sm">
+                <TableCell className="font-mono text-sm text-left !text-left">
                   {getCurrencySymbol(currency)}{formatNumber(total)}
                 </TableCell>
                 
-                <TableCell>
+                <TableCell className="text-left !text-left">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -290,9 +301,66 @@ export function EditableMatchResultsTable({
         </TableBody>
       </Table>
       
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border-t pt-4">
+          <div className="text-sm text-muted-foreground text-left">
+            Showing {startIndex + 1} to {Math.min(endIndex, totalItems)} of {totalItems} results
+          </div>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </Button>
+            
+            <div className="flex items-center space-x-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNumber
+                if (totalPages <= 5) {
+                  pageNumber = i + 1
+                } else if (currentPage <= 3) {
+                  pageNumber = i + 1
+                } else if (currentPage >= totalPages - 2) {
+                  pageNumber = totalPages - 4 + i
+                } else {
+                  pageNumber = currentPage - 2 + i
+                }
+                
+                return (
+                  <Button
+                    key={pageNumber}
+                    variant={currentPage === pageNumber ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setCurrentPage(pageNumber)}
+                    className="w-8 h-8 p-0"
+                  >
+                    {pageNumber}
+                  </Button>
+                )
+              })}
+            </div>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+      
       {matchResults.length > 0 && (
-        <div className="flex justify-end border-t pt-4">
-          <div className="text-lg font-semibold">
+        <div className="flex justify-start border-t pt-4">
+          <div className="text-lg font-semibold text-left">
             Grand Total: {getCurrencySymbol(currency)}{formatNumber(grandTotal)}
           </div>
         </div>

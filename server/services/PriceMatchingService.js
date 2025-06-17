@@ -3,6 +3,7 @@ import path from 'path'
 import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import ExcelJS from 'exceljs'
+import XLSX from 'xlsx'
 import { createClient } from '@supabase/supabase-js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -126,12 +127,12 @@ export class PriceMatchingService {
   async createPricelistFile() {
     console.log('Creating pricelist file from database...')
     
-    // Fetch price items from Supabase
+    // Fetch price items from Supabase - include id for proper mapping
     const { data: priceItems, error } = await this.supabase
       .from('price_items')
-      .select('description, rate, full_context')
+      .select('id, description, rate, full_context, unit')
       .not('rate', 'is', null)
-      .not('full_context', 'is', null)
+      .not('description', 'is', null)
 
     if (error) {
       throw new Error(`Failed to fetch price items: ${error.message}`)
@@ -145,14 +146,16 @@ export class PriceMatchingService {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Pricelist')
 
-    // Add headers
-    worksheet.addRow(['Description', 'Rate'])
+    // Add headers - include id and unit for proper matching and mapping
+    worksheet.addRow(['ID', 'Description', 'Rate', 'Unit'])
 
-    // Add data
+    // Add data - use full_context for AI matching but include all necessary data
     priceItems.forEach(item => {
       worksheet.addRow([
-        item.full_context || item.description,
-        item.rate
+        item.id, // Include ID for proper mapping
+        item.full_context || item.description, // Use full_context for AI matching
+        item.rate,
+        item.unit || ''
       ])
     })
 
@@ -580,85 +583,128 @@ Possible causes:
     console.log('Parsing results and saving to database...')
     
     try {
-      const workbook = new ExcelJS.Workbook()
-      await workbook.xlsx.readFile(outputFilePath)
-
+      console.log(`📁 Reading Excel file: ${outputFilePath}`)
+      
+      // Use xlsx library instead of ExcelJS to avoid compatibility issues
+      const workbook = XLSX.readFile(outputFilePath)
+      console.log(`✅ Excel file loaded successfully with xlsx library`)
+      
       const matchResults = []
       let totalMatched = 0
       let totalConfidence = 0
-
-      workbook.eachSheet((worksheet, sheetId) => {
+      
+      // Process each worksheet
+      for (const sheetName of workbook.SheetNames) {
         try {
-          // Find the header row and relevant columns
-          let headerRow = null
-          let descCol = null
-          let rateCol = null
-          let simCol = null
-          let qtyCol = null
-
-          // Scan first 10 rows for headers
-          for (let rowNum = 1; rowNum <= Math.min(10, worksheet.rowCount); rowNum++) {
-            const row = worksheet.getRow(rowNum)
+          console.log(`📊 Processing sheet: ${sheetName}`)
+          const worksheet = workbook.Sheets[sheetName]
+          
+          // Convert worksheet to JSON format for easier processing
+          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+          
+          if (!jsonData || jsonData.length === 0) {
+            console.warn(`⚠️ Sheet ${sheetName} is empty, skipping`)
+            continue
+          }
+          
+          console.log(`📋 Sheet has ${jsonData.length} rows`)
+          
+          // Find header row and column indices
+          let headerRowIndex = -1
+          let descCol = -1
+          let matchedDescCol = -1
+          let rateCol = -1
+          let simCol = -1
+          let qtyCol = -1
+          let matchedIdCol = -1
+          let unitCol = -1
+          
+          // Look for headers in first 10 rows
+          for (let rowIndex = 0; rowIndex < Math.min(10, jsonData.length); rowIndex++) {
+            const row = jsonData[rowIndex]
+            if (!row) continue
             
-            row.eachCell((cell, colNumber) => {
-              const value = cell.value?.toString()?.toLowerCase() || ''
+            for (let colIndex = 0; colIndex < row.length; colIndex++) {
+              const cellValue = String(row[colIndex] || '').toLowerCase()
               
-              if (value.includes('description')) {
-                descCol = colNumber
-                headerRow = rowNum
-              } else if (value.includes('matched rate')) {
-                rateCol = colNumber
-              } else if (value.includes('similarity')) {
-                simCol = colNumber
-              } else if (value.includes('qty') || value.includes('quantity')) {
-                qtyCol = colNumber
+              if (cellValue.includes('description') && !cellValue.includes('matched')) {
+                descCol = colIndex
+                headerRowIndex = rowIndex
+              } else if (cellValue.includes('matched description')) {
+                matchedDescCol = colIndex
+              } else if (cellValue.includes('matched rate')) {
+                rateCol = colIndex
+              } else if (cellValue.includes('similarity score')) {
+                simCol = colIndex
+              } else if (cellValue.includes('qty') || cellValue.includes('quantity')) {
+                qtyCol = colIndex
+              } else if (cellValue.includes('matched id') || cellValue.includes('price item id')) {
+                matchedIdCol = colIndex
+              } else if (cellValue.includes('unit') || cellValue.includes('measure')) {
+                unitCol = colIndex
               }
-            })
-
-            if (descCol && rateCol && simCol) break
+            }
+            
+            if (descCol >= 0 && rateCol >= 0 && simCol >= 0) break
           }
-
-          if (!headerRow || !descCol || !rateCol || !simCol) {
-            console.warn(`Could not find required columns in sheet ${worksheet.name}`)
-            return
+          
+          if (headerRowIndex === -1 || descCol === -1 || rateCol === -1 || simCol === -1) {
+            console.warn(`Could not find required columns in sheet ${sheetName}. Found: desc=${descCol >= 0}, rate=${rateCol >= 0}, sim=${simCol >= 0}`)
+            
+            // Debug: Print headers
+            if (headerRowIndex >= 0 && jsonData[headerRowIndex]) {
+              const headers = jsonData[headerRowIndex].map((h, i) => `${i}: "${h}"`).join(', ')
+              console.log(`Available headers in sheet ${sheetName}: ${headers}`)
+            }
+            continue
           }
-
+          
+          console.log(`Processing sheet ${sheetName} - found columns: desc=${descCol}, matchedDesc=${matchedDescCol}, rate=${rateCol}, sim=${simCol}, qty=${qtyCol}`)
+          
           // Process data rows
-          for (let rowNum = headerRow + 1; rowNum <= worksheet.rowCount; rowNum++) {
+          for (let rowIndex = headerRowIndex + 1; rowIndex < jsonData.length; rowIndex++) {
             try {
-              const row = worksheet.getRow(rowNum)
+              const row = jsonData[rowIndex]
+              if (!row) continue
               
-              const description = row.getCell(descCol).value?.toString()
-              const matchedRate = parseFloat(row.getCell(rateCol).value) || 0
-              const similarity = parseFloat(row.getCell(simCol).value) || 0
-              const quantity = qtyCol ? parseFloat(row.getCell(qtyCol).value) || 0 : 1
-
-              if (description && matchedRate > 0) {
+              const originalDescription = String(row[descCol] || '').trim()
+              const matchedDescription = matchedDescCol >= 0 ? String(row[matchedDescCol] || '').trim() : ''
+              const matchedRate = parseFloat(row[rateCol]) || 0
+              const similarity = parseFloat(row[simCol]) || 0
+              const quantity = qtyCol >= 0 ? parseFloat(row[qtyCol]) || 1 : 1
+              const matchedPriceItemId = matchedIdCol >= 0 ? String(row[matchedIdCol] || '') : null
+              const unit = unitCol >= 0 ? String(row[unitCol] || '') : ''
+              
+              if (originalDescription && matchedRate > 0) {
                 matchResults.push({
                   job_id: jobId,
-                  sheet_name: worksheet.name,
-                  row_number: rowNum,
-                  original_description: description,
+                  sheet_name: sheetName,
+                  row_number: rowIndex + 1, // Excel row numbers start from 1
+                  original_description: originalDescription,
+                  preprocessed_description: originalDescription.toLowerCase().trim(),
+                  matched_description: matchedDescription,
                   matched_rate: matchedRate,
                   similarity_score: similarity,
-                  quantity: quantity
+                  quantity: quantity,
+                  matched_price_item_id: matchedPriceItemId,
+                  unit: unit
                 })
-
+                
                 totalMatched++
                 totalConfidence += similarity
               }
             } catch (rowError) {
-              console.warn(`⚠️ Could not process row ${rowNum} in sheet ${worksheet.name}: ${rowError.message}`)
-              // Skip this row and continue with the next one
+              console.warn(`⚠️ Could not process row ${rowIndex + 1} in sheet ${sheetName}: ${rowError.message}`)
             }
           }
         } catch (sheetError) {
-          console.warn(`⚠️ Could not process sheet ${worksheet.name}: ${sheetError.message}`)
-          return
+          console.warn(`⚠️ Could not process sheet ${sheetName}: ${sheetError.message}`)
         }
-      })
-
+      }
+      
       if (matchResults.length > 0) {
+        console.log(`💾 Saving ${matchResults.length} actual results to database...`)
+        
         // Save to database
         const { error } = await this.supabase
           .from('match_results')
@@ -681,7 +727,7 @@ Possible causes:
           })
           .eq('id', jobId)
 
-        console.log(`✅ Saved ${matchResults.length} match results to database`)
+        console.log(`✅ Saved ${matchResults.length} actual match results to database`)
       } else {
         console.warn('⚠️ No results found to save to database')
         throw new Error('No valid results found in processed file')
@@ -770,12 +816,151 @@ Possible causes:
     try {
       if (await fs.pathExists(filePath)) {
         await fs.remove(filePath)
-      }
-      if (await fs.pathExists(this.pricelistPath)) {
-        await fs.remove(this.pricelistPath)
+        console.log(`Cleaned up temp file: ${filePath}`)
       }
     } catch (error) {
-      console.error('Cleanup error:', error)
+      console.warn(`Could not clean up temp file ${filePath}:`, error.message)
+    }
+  }
+
+  async exportFilteredResults(jobId, matchResults) {
+    console.log(`🚀 STARTING EXPORT: job ${jobId} with ${matchResults.length} filtered results`)
+    
+    try {
+      // Get job details
+      const { data: job, error: jobError } = await this.supabase
+        .from('ai_matching_jobs')
+        .select('project_name, original_filename')
+        .eq('id', jobId)
+        .single()
+
+      if (jobError) {
+        throw new Error(`Failed to get job details: ${jobError.message}`)
+      }
+
+      // Create Excel workbook
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Match Results')
+
+      // Define headers with better layout for direct rate filling
+      const headers = [
+        'Row', 'Sheet', 'Original Description', 'Matched Description', 
+        'Quantity', 'Unit', 'Rate', 'Total Amount', 'Confidence %'
+      ]
+      
+      // Add headers with styling
+      const headerRow = worksheet.addRow(headers)
+      headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: '366092' }
+      }
+
+      // Set column widths
+      worksheet.columns = [
+        { width: 8 },   // Row
+        { width: 12 },  // Sheet
+        { width: 40 },  // Original Description
+        { width: 40 },  // Matched Description
+        { width: 10 },  // Quantity
+        { width: 10 },  // Unit
+        { width: 12 },  // Rate
+        { width: 15 },  // Total Amount
+        { width: 12 }   // Confidence
+      ]
+
+      // Add data rows
+      let grandTotal = 0
+      matchResults.forEach((result, index) => {
+        const total = (result.quantity || 0) * (result.matched_rate || 0)
+        grandTotal += total
+
+        const dataRow = worksheet.addRow([
+          result.row_number || (index + 1),
+          result.sheet_name || 'Sheet1',
+          result.original_description || '',
+          result.matched_description || '',
+          result.quantity || 0,
+          result.unit || '',
+          result.matched_rate || 0,
+          total,
+          Math.round((result.similarity_score || 0) * 100)
+        ])
+
+        // Format numerical columns
+        dataRow.getCell(5).numFmt = '0.00'  // Quantity
+        dataRow.getCell(7).numFmt = '"$"#,##0.00'  // Rate
+        dataRow.getCell(8).numFmt = '"$"#,##0.00'  // Total Amount
+        dataRow.getCell(9).numFmt = '0"%"'  // Confidence
+
+        // Add borders
+        dataRow.eachCell((cell, colNumber) => {
+          cell.border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          }
+        })
+      })
+
+      // Add grand total row
+      const totalRow = worksheet.addRow([
+        '', '', '', 'GRAND TOTAL:', '', '', '', grandTotal, ''
+      ])
+      totalRow.font = { bold: true }
+      totalRow.getCell(8).numFmt = '"$"#,##0.00'
+      totalRow.getCell(4).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFCC' }
+      }
+      totalRow.getCell(8).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFCC' }
+      }
+
+      // Add borders to total row
+      totalRow.eachCell((cell, colNumber) => {
+        cell.border = {
+          top: { style: 'thick' },
+          left: { style: 'thin' },
+          bottom: { style: 'thick' },
+          right: { style: 'thin' }
+        }
+      })
+
+      // Add summary information at the top
+      worksheet.insertRow(1, ['Export Summary'])
+      worksheet.insertRow(2, ['Project:', job.project_name])
+      worksheet.insertRow(3, ['Original File:', job.original_filename])
+      worksheet.insertRow(4, ['Export Date:', new Date().toLocaleString()])
+      worksheet.insertRow(5, ['Total Items:', matchResults.length])
+      worksheet.insertRow(6, []) // Empty row
+
+      // Style summary rows
+      for (let i = 1; i <= 5; i++) {
+        const row = worksheet.getRow(i)
+        row.font = { bold: true }
+        row.getCell(1).fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'E8F4F8' }
+        }
+      }
+
+      // Save the workbook
+      const outputFilePath = path.join(this.outputDir, `filtered-export-${jobId}-${job.project_name}_Results.xlsx`)
+      await workbook.xlsx.writeFile(outputFilePath)
+      
+      console.log(`✅ Export file created: ${outputFilePath}`)
+      return outputFilePath
+
+    } catch (error) {
+      console.error(`❌ Export failed for job ${jobId}:`, error)
+      throw error
     }
   }
 } 

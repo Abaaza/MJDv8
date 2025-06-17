@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import logging
+import time
 from datetime import datetime
 from typing import List, Tuple, Dict, Optional
 import numpy as np
@@ -158,6 +159,12 @@ def embed_texts_with_retry(client: cohere.Client, texts: List[str], input_type: 
         
         logger.info(f"Processing embedding batch {batch_num}/{total_batches} ({len(batch)} items)")
         
+        # Add delay between batches to respect rate limits (especially for trial accounts)
+        if batch_num > 1:
+            rate_limit_delay = 2.0  # 2 second delay between batches
+            logger.debug(f"Waiting {rate_limit_delay}s to respect rate limits...")
+            time.sleep(rate_limit_delay)
+        
         for attempt in range(MAX_RETRIES):
             try:
                 resp = client.embed(
@@ -257,7 +264,6 @@ def embed_texts_with_retry(client: cohere.Client, texts: List[str], input_type: 
                 if attempt == MAX_RETRIES - 1:
                     raise Exception(f"Failed to get embeddings after {MAX_RETRIES} attempts: {str(e)}")
                 
-                import time
                 time.sleep(RETRY_DELAY * (attempt + 1))
     
     # Convert to numpy array and validate final shape
@@ -300,7 +306,7 @@ def embed_texts_with_retry(client: cohere.Client, texts: List[str], input_type: 
                 logger.error(f"First embedding: {embeddings[0]}")
         raise ValueError(f"Failed to create valid embeddings array: {str(e)}")
 
-def load_pricelist_enhanced(path: str) -> Tuple[List[str], List[float], List[str]]:
+def load_pricelist_enhanced(path: str) -> Tuple[List[str], List[float], List[str], List[str]]:
     """Load pricelist with enhanced validation and metadata"""
     logger.info(f"Loading pricelist from: {path}")
     
@@ -315,25 +321,41 @@ def load_pricelist_enhanced(path: str) -> Tuple[List[str], List[float], List[str
         rates = []
         units = []
         
-        # Find header row
+        # Find header row and column positions
         header_row = 1
-        for row in range(1, min(6, ws.max_row + 1)):
-            for cell in ws[row]:
-                if cell.value and 'description' in str(cell.value).lower():
-                    header_row = row
-                    break
+        id_col = 0
+        desc_col = 1
+        rate_col = 2
+        unit_col = 3
         
-        logger.info(f"Found header row at: {header_row}")
+        for row in range(1, min(6, ws.max_row + 1)):
+            for col_idx, cell in enumerate(ws[row]):
+                if cell.value:
+                    cell_val = str(cell.value).lower()
+                    if 'id' in cell_val:
+                        id_col = col_idx
+                        header_row = row
+                    elif 'description' in cell_val:
+                        desc_col = col_idx
+                        header_row = row
+                    elif 'rate' in cell_val:
+                        rate_col = col_idx
+                    elif 'unit' in cell_val:
+                        unit_col = col_idx
+        
+        logger.info(f"Found header row at: {header_row}, columns - ID: {id_col}, Desc: {desc_col}, Rate: {rate_col}, Unit: {unit_col}")
         
         # Process data rows
         valid_items = 0
+        ids = []
         for row_num, row in enumerate(ws.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1):
-            if len(row) < 2:
+            if len(row) < max(desc_col + 1, rate_col + 1):
                 continue
                 
-            desc = row[0]
-            rate = row[1]
-            unit = row[2] if len(row) > 2 else "each"
+            item_id = row[id_col] if len(row) > id_col else None
+            desc = row[desc_col] if len(row) > desc_col else None
+            rate = row[rate_col] if len(row) > rate_col else None
+            unit = row[unit_col] if len(row) > unit_col else "each"
             
             # Validate data
             if desc and rate is not None:
@@ -352,6 +374,7 @@ def load_pricelist_enhanced(path: str) -> Tuple[List[str], List[float], List[str
                         descriptions.append(str(desc).strip())
                         rates.append(rate_float)
                         units.append(str(unit) if unit else "each")
+                        ids.append(str(item_id) if item_id else "")
                         valid_items += 1
                 except (ValueError, TypeError):
                     logger.warning(f"Invalid rate at row {row_num}: {rate}")
@@ -363,7 +386,7 @@ def load_pricelist_enhanced(path: str) -> Tuple[List[str], List[float], List[str
         if valid_items == 0:
             raise ValueError("No valid price items found in pricelist")
         
-        return descriptions, rates, units
+        return descriptions, rates, units, ids
         
     except Exception as e:
         logger.error(f"Error loading pricelist: {str(e)}")
@@ -391,21 +414,49 @@ def find_headers_enhanced(ws) -> Tuple[Optional[int], Optional[int], Optional[in
                 header_row = row_num
                 logger.info(f"Found description column {col_num} at row {row_num}: '{cell.value}'")
             
-            # Quantity column patterns
-            if any(pattern in cell_value for pattern in ['qty', 'quantity', 'amount', 'no']):
-                qty_col = col_num
-                logger.info(f"Found quantity column {col_num} at row {row_num}: '{cell.value}'")
+            # Quantity column patterns - be more specific to avoid false matches
+            if any(pattern in cell_value for pattern in ['qty', 'quantity', 'amount', 'no.', 'number', 'units', 'count']):
+                # Avoid matching 'notes' or other non-quantity columns
+                if 'note' not in cell_value and 'comment' not in cell_value and 'remark' not in cell_value:
+                    qty_col = col_num
+                    logger.info(f"Found quantity column {col_num} at row {row_num}: '{cell.value}'")
         
         # If we found description column, we can proceed
         if desc_col:
             break
+    
+    # If no quantity column found, try to find numeric columns near description
+    if desc_col and not qty_col and header_row:
+        logger.warning("No quantity column found by name, searching for numeric columns...")
+        
+        # Check columns around description column for numeric data
+        for test_col in range(max(1, desc_col - 2), min(ws.max_column + 1, desc_col + 5)):
+            if test_col == desc_col:
+                continue
+                
+            # Check if this column contains mostly numeric data
+            numeric_count = 0
+            total_count = 0
+            
+            for test_row in range(header_row + 1, min(header_row + 21, ws.max_row + 1)):
+                cell = ws.cell(row=test_row, column=test_col)
+                if cell.value is not None:
+                    total_count += 1
+                    if isinstance(cell.value, (int, float)) or (isinstance(cell.value, str) and cell.value.replace('.', '').replace(',', '').isdigit()):
+                        numeric_count += 1
+            
+            if total_count > 0 and (numeric_count / total_count) > 0.5:  # More than 50% numeric
+                qty_col = test_col
+                header_name = ws.cell(row=header_row, column=test_col).value
+                logger.info(f"Auto-detected quantity column {test_col} ('{header_name}') - {numeric_count}/{total_count} numeric values")
+                break
     
     return header_row, desc_col, qty_col
 
 def add_result_columns_with_formatting(ws, header_row: int, max_col: int):
     """Add result columns with proper formatting"""
     # Define new column headers
-    new_headers = ['Matched Description', 'Matched Rate', 'Total Amount', 'Similarity Score', 'Match Quality']
+    new_headers = ['Matched Description', 'Matched Rate', 'Total Amount', 'Similarity Score', 'Match Quality', 'Matched ID', 'Unit']
     
     # Add headers with formatting
     for i, header in enumerate(new_headers, start=1):
@@ -443,6 +494,91 @@ def calculate_match_quality(similarity: float) -> str:
     else:
         return "Very Poor"
 
+def hierarchical_match_scoring(inquiry_item: dict, price_descriptions: List[str], price_rates: List[float], 
+                             price_units: List[str], similarities: np.ndarray) -> Tuple[int, float, dict]:
+    """
+    Implement hierarchical matching logic:
+    1. Category identification
+    2. Item description matching
+    3. Related keywords
+    4. Related phrases
+    5. Unit matching
+    6. Full context matching
+    
+    Returns: (best_index, best_score, match_details)
+    """
+    inquiry_desc = inquiry_item['description'].lower()
+    inquiry_enhanced = inquiry_item['enhanced_description'].lower()
+    
+    # Extract potential unit from inquiry
+    import re
+    unit_patterns = [r'\b(m2|m²|sqm|square\s*meter?s?)\b', r'\b(m3|m³|cubic\s*meter?s?)\b', 
+                    r'\b(kg|kilogram?s?)\b', r'\b(ton?s?|tonne?s?)\b', r'\b(liter?s?|litre?s?|l)\b',
+                    r'\b(piece?s?|pcs?|each|no\.?|number?s?)\b', r'\b(hour?s?|hr?s?)\b',
+                    r'\b(day?s?)\b', r'\b(week?s?)\b', r'\b(month?s?)\b']
+    
+    inquiry_units = []
+    for pattern in unit_patterns:
+        matches = re.findall(pattern, inquiry_enhanced)
+        inquiry_units.extend(matches)
+    
+    # Score each price item using hierarchical criteria
+    enhanced_scores = []
+    
+    for i, base_similarity in enumerate(similarities):
+        score_components = {
+            'base_similarity': base_similarity,
+            'category_boost': 0.0,
+            'keyword_boost': 0.0,
+            'phrase_boost': 0.0,
+            'unit_boost': 0.0,
+            'context_boost': 0.0
+        }
+        
+        price_desc = price_descriptions[i].lower()
+        price_unit = price_units[i].lower() if i < len(price_units) else ''
+        
+        # 1. Category identification boost
+        if inquiry_item.get('head_title'):
+            head_title = inquiry_item['head_title'].lower()
+            if any(word in price_desc for word in head_title.split() if len(word) > 3):
+                score_components['category_boost'] = 0.1
+        
+        # 2. Item description keyword matching
+        inquiry_words = set(word for word in inquiry_desc.split() if len(word) > 2)
+        price_words = set(word for word in price_desc.split() if len(word) > 2)
+        common_words = inquiry_words.intersection(price_words)
+        if common_words:
+            keyword_ratio = len(common_words) / len(inquiry_words) if inquiry_words else 0
+            score_components['keyword_boost'] = keyword_ratio * 0.15
+        
+        # 3. Related phrases boost
+        inquiry_phrases = [inquiry_desc[j:j+10] for j in range(len(inquiry_desc)-9)]
+        for phrase in inquiry_phrases:
+            if len(phrase) > 5 and phrase in price_desc:
+                score_components['phrase_boost'] = min(score_components['phrase_boost'] + 0.05, 0.1)
+        
+        # 4. Unit matching boost
+        if inquiry_units and price_unit:
+            for inq_unit in inquiry_units:
+                if inq_unit in price_unit or price_unit in inq_unit:
+                    score_components['unit_boost'] = 0.1
+                    break
+        
+        # Calculate final enhanced score
+        total_boost = sum(score_components[k] for k in score_components if k != 'base_similarity')
+        enhanced_score = base_similarity + total_boost
+        enhanced_score = min(enhanced_score, 1.0)  # Cap at 1.0
+        
+        enhanced_scores.append((enhanced_score, score_components))
+    
+    # Find best match
+    best_idx = np.argmax([score[0] for score in enhanced_scores])
+    best_score = enhanced_scores[best_idx][0]
+    match_details = enhanced_scores[best_idx][1]
+    
+    return best_idx, best_score, match_details
+
 def main():
     parser = argparse.ArgumentParser(description="Enhanced Cohere Excel Price Matching")
     parser.add_argument('--inquiry', required=True, help='Path to inquiry Excel file')
@@ -478,7 +614,16 @@ def main():
         
         # Load and process pricelist
         progress.update(10, "Loading pricelist")
-        price_descriptions, price_rates, price_units = load_pricelist_enhanced(args.pricelist)
+        price_descriptions, price_rates, price_units, price_ids = load_pricelist_enhanced(args.pricelist)
+        
+        # For display purposes, create clean item descriptions
+        item_descriptions = []
+        for desc in price_descriptions:
+            # Extract clean description (first line, limit length)
+            clean_desc = desc.split('\n')[0].strip()
+            if len(clean_desc) > 100:
+                clean_desc = clean_desc[:100] + "..."
+            item_descriptions.append(clean_desc)
         
         progress.update(15, "Preprocessing pricelist descriptions")
         processed_price_descs = [enhanced_preprocess(desc, SYNONYM_MAP, STOP_WORDS) 
@@ -517,9 +662,12 @@ def main():
             max_col = ws.max_column
             num_new_cols = add_result_columns_with_formatting(ws, header_row, max_col)
             
-            # Collect items for processing
+            # Collect items for processing - ONLY items with quantity > 0
             inquiry_items = []
             item_rows = []
+            
+            # Track head titles for context
+            current_head_title = ""
             
             for row_num in range(header_row + 1, ws.max_row + 1):
                 desc_cell = ws.cell(row=row_num, column=desc_col)
@@ -529,26 +677,52 @@ def main():
                     continue
                 
                 description = str(desc_cell.value).strip()
-                quantity = 1.0
+                quantity = 0.0
                 
+                # Parse quantity - REQUIREMENT: Only process items with quantity
                 if qty_cell and qty_cell.value:
                     try:
                         # Handle different cell value types
                         if isinstance(qty_cell.value, (int, float)):
                             quantity = float(qty_cell.value)
                         elif isinstance(qty_cell.value, str):
-                            quantity = float(qty_cell.value)
+                            # Try to extract number from string
+                            import re
+                            qty_match = re.search(r'[\d,]+\.?\d*', str(qty_cell.value).replace(',', ''))
+                            if qty_match:
+                                quantity = float(qty_match.group())
+                            else:
+                                quantity = 0.0
                         else:
-                            quantity = 1.0
+                            quantity = 0.0
                     except (ValueError, TypeError):
-                        quantity = 1.0
+                        quantity = 0.0
+                
+                # Handle quantity filtering - more flexible approach
+                if qty_col is not None and quantity <= 0:
+                    # Check if this might be a head title/category
+                    if len(description) > 10 and not any(char.isdigit() for char in description):
+                        current_head_title = description
+                        logger.debug(f"Found potential head title: {current_head_title}")
+                    # Set default quantity for items even when qty column exists but no quantity found
+                    quantity = 1.0
+                elif qty_col is None:
+                    # No qty column found, use default quantity
+                    quantity = 1.0
                 
                 # Filter out non-item rows
                 if len(description) < 5 or description.lower() in ['description', 'item', 'work']:
                     continue
                 
+                # Create enhanced description with head title context
+                enhanced_description = description
+                if current_head_title:
+                    enhanced_description = f"{current_head_title} - {description}"
+                
                 inquiry_items.append({
                     'description': description,
+                    'enhanced_description': enhanced_description,
+                    'head_title': current_head_title,
                     'quantity': quantity,
                     'row': row_num
                 })
@@ -561,9 +735,9 @@ def main():
             logger.info(f"Found {len(inquiry_items)} items to process in sheet {ws.title}")
             print(f"PROGRESS_INFO: Found {len(inquiry_items)} items to match in sheet '{ws.title}'")
             
-            # Process inquiry descriptions
+            # Process inquiry descriptions with enhanced context
             progress.update(sheet_progress_start + 5, f"Preprocessing {len(inquiry_items)} inquiry items")
-            processed_inquiry_descs = [enhanced_preprocess(item['description'], SYNONYM_MAP, STOP_WORDS) 
+            processed_inquiry_descs = [enhanced_preprocess(item['enhanced_description'], SYNONYM_MAP, STOP_WORDS) 
                                      for item in inquiry_items]
             
             # Generate inquiry embeddings
@@ -597,21 +771,25 @@ def main():
             similarities = inquiry_embeddings_norm.dot(price_embeddings_norm.T)
             logger.info(f"Similarity matrix calculated with shape: {similarities.shape}")
             
-            # Process matches
+            # Process matches with hierarchical scoring
             progress.update(sheet_progress_start + 20, f"Processing matches for {len(inquiry_items)} items")
             sheet_matched = 0
             for i, item in enumerate(inquiry_items):
                 sim_scores = similarities[i]
-                best_idx = np.argmax(sim_scores)
-                best_score = sim_scores[best_idx]
+                
+                # Use hierarchical matching logic
+                best_idx, best_score, match_details = hierarchical_match_scoring(
+                    item, item_descriptions, price_rates, price_units, sim_scores
+                )
                 
                 row_num = item['row']
                 
                 if best_score >= args.similarity_threshold:
-                    # Good match found
-                    matched_desc = price_descriptions[best_idx]
+                    # Good match found - show item description (not full context)
+                    matched_desc = item_descriptions[best_idx]  # Use clean item description for display
                     matched_rate = price_rates[best_idx]
-                    matched_unit = price_units[best_idx]
+                    matched_unit = price_units[best_idx] if best_idx < len(price_units) else ''
+                    matched_id = price_ids[best_idx] if best_idx < len(price_ids) else ''
                     total_amount = item['quantity'] * matched_rate
                     quality = calculate_match_quality(best_score)
                     
@@ -621,6 +799,9 @@ def main():
                     ws.cell(row=row_num, column=max_col + 3, value=total_amount)
                     ws.cell(row=row_num, column=max_col + 4, value=round(best_score, 3))
                     ws.cell(row=row_num, column=max_col + 5, value=quality)
+                    # Add price item ID and unit in additional columns for database storage
+                    ws.cell(row=row_num, column=max_col + 6, value=matched_id)
+                    ws.cell(row=row_num, column=max_col + 7, value=matched_unit)
                     
                     # Apply conditional formatting based on quality
                     quality_cell = ws.cell(row=row_num, column=max_col + 5)
@@ -632,11 +813,22 @@ def main():
                         quality_cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
                     
                     sheet_matched += 1
+                    
+                    # Log hierarchical match details for debugging
+                    logger.debug(f"Item '{item['description']}' matched with score {best_score:.3f} "
+                               f"(base: {match_details['base_similarity']:.3f}, "
+                               f"category: +{match_details['category_boost']:.3f}, "
+                               f"keywords: +{match_details['keyword_boost']:.3f}, "
+                               f"unit: +{match_details['unit_boost']:.3f})")
                 else:
                     # No good match found
                     ws.cell(row=row_num, column=max_col + 1, value="No suitable match found")
+                    ws.cell(row=row_num, column=max_col + 2, value=0)  # Rate
+                    ws.cell(row=row_num, column=max_col + 3, value=0)  # Total Amount
                     ws.cell(row=row_num, column=max_col + 4, value=round(best_score, 3))
                     ws.cell(row=row_num, column=max_col + 5, value="No Match")
+                    ws.cell(row=row_num, column=max_col + 6, value="")  # No Matched ID
+                    ws.cell(row=row_num, column=max_col + 7, value="")  # No Unit
                     
                     # Mark as no match
                     quality_cell = ws.cell(row=row_num, column=max_col + 5)

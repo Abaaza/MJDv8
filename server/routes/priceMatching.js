@@ -199,4 +199,40 @@ router.get('/status/:jobId', async (req, res) => {
   }
 })
 
+// Export filtered match results
+router.post('/export/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params
+    const { matchResults } = req.body
+    
+    if (!matchResults || !Array.isArray(matchResults)) {
+      return res.status(400).json({ error: 'Match results are required' })
+    }
+
+    console.log(`📊 Export requested for job: ${jobId} with ${matchResults.length} results`)
+    
+    // Create service instance when needed (after dotenv is loaded)
+    const priceMatchingService = getPriceMatchingService()
+    const filePath = await priceMatchingService.exportFilteredResults(jobId, matchResults)
+    
+    if (!filePath || !await fs.pathExists(filePath)) {
+      return res.status(404).json({ error: 'Export file could not be created' })
+    }
+
+    const fileName = path.basename(filePath)
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    
+    const fileStream = fs.createReadStream(filePath)
+    fileStream.pipe(res)
+
+  } catch (error) {
+    console.error('Export endpoint error:', error)
+    res.status(500).json({ 
+      error: 'Export failed',
+      message: error.message 
+    })
+  }
+})
+
 export { router as priceMatchingRouter } 

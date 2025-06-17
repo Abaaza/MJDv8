@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { ExcelUpload } from "./ExcelUpload"
 import { EditableMatchResultsTable } from "./EditableMatchResultsTable"
 import { ClientForm } from "./ClientForm"
-import { Download, Play, Zap, AlertCircle, CheckCircle, Edit, FileSpreadsheet, Save, Plus, Trash2 } from "lucide-react"
+import { Download, Play, Zap, AlertCircle, CheckCircle, Edit, FileSpreadsheet, Plus, Trash2 } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
 import { useClients } from "@/hooks/useClients"
@@ -136,77 +136,7 @@ export function PriceMatching() {
     return null
   }
 
-  const handleSaveForLater = async () => {
-    if (!currentJob) {
-      toast.error('No job to save - please generate results first')
-      return
-    }
 
-    if (matchResults.length === 0) {
-      toast.error('No results to save')
-      return
-    }
-
-    try {
-      // Update the job status to indicate it's been saved
-      const { error: jobError } = await supabase
-        .from('ai_matching_jobs')
-        .update({
-          status: 'completed',
-          matched_items: matchResults.length,
-          total_items: matchResults.length,
-          confidence_score: Math.round(matchResults.reduce((sum, r) => sum + r.similarity_score, 0) / matchResults.length * 100)
-        })
-        .eq('id', currentJob.id)
-
-      if (jobError) {
-        console.error('Error updating job:', jobError)
-        toast.error('Failed to save job status')
-        return
-      }
-
-      // First, delete existing results for this job to avoid conflicts
-      const { error: deleteError } = await supabase
-        .from('match_results')
-        .delete()
-        .eq('job_id', currentJob.id)
-
-      if (deleteError) {
-        console.error('Error deleting existing results:', deleteError)
-      }
-
-      // Save all match results in the database with individual inserts
-      for (const result of matchResults) {
-        const { error: resultError } = await supabase
-          .from('match_results')
-          .insert({
-            job_id: currentJob.id,
-            sheet_name: result.sheet_name,
-            row_number: result.row_number,
-            original_description: result.original_description,
-            preprocessed_description: result.original_description.toLowerCase(),
-            matched_description: result.matched_description,
-            matched_rate: result.matched_rate,
-            similarity_score: result.similarity_score,
-            jaccard_score: 0.5,
-            combined_score: result.similarity_score,
-            quantity: result.quantity,
-            matched_price_item_id: result.matched_price_item_id
-          })
-
-        if (resultError) {
-          console.error('Error saving result:', resultError)
-          toast.error('Failed to save some results')
-          return
-        }
-      }
-
-      toast.success('Results saved successfully!')
-    } catch (error) {
-      console.error('Error saving results:', error)
-      toast.error('Failed to save results')
-    }
-  }
 
   const handleUpdateResult = async (id: string, updates: Partial<MatchResult>) => {
     // Update local state
@@ -311,89 +241,51 @@ export function PriceMatching() {
   }
 
   const exportToExcel = async () => {
-    if (matchResults.length === 0) {
-      toast.error('No results to export')
+    if (!currentJob || currentJob.status !== 'completed') {
+      toast.error('No completed results to export')
       return
     }
 
     try {
-      toast.info('Exporting all results...')
+      toast.info('Exporting Excel results...')
       
-      // Get ALL match results for the current job, not just the displayed ones
-      let allResults = matchResults
+      // Use the same backend API as downloadResults to get the formatted Excel file
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/download/${currentJob.id}`)
       
-      if (currentJob) {
-        const { data: allMatchResults, error } = await supabase
-          .from('match_results')
-          .select(`
-            *,
-            price_items:matched_price_item_id(unit, rate, description)
-          `)
-          .eq('job_id', currentJob.id)
-          .order('row_number')
-
-        if (!error && allMatchResults) {
-          allResults = allMatchResults.map(result => ({
-            id: result.id,
-            original_description: result.original_description,
-            matched_description: result.matched_description || '',
-            matched_rate: result.matched_rate || 0,
-            similarity_score: result.similarity_score || 0,
-            row_number: result.row_number,
-            sheet_name: result.sheet_name,
-            quantity: result.quantity || 0,
-            unit: result.price_items?.unit || '',
-            total_amount: (result.quantity || 0) * (result.matched_rate || 0),
-            matched_price_item_id: result.matched_price_item_id
-          }))
-        }
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Export failed: ${errorData.message || errorData.error}`)
       }
 
-      const headers = [
-        'Row Number',
-        'Sheet Name', 
-        'Original Description',
-        'Matched Description',
-        'Quantity',
-        'Unit',
-        'Rate',
-        'Total Amount',
-        'Confidence Score'
-      ]
-
-      const csvData = [
-        headers.join(','),
-        ...allResults.map(result => [
-          result.row_number,
-          `"${result.sheet_name}"`,
-          `"${result.original_description}"`,
-          `"${result.matched_description}"`,
-          result.quantity || '',
-          result.unit || '',
-          result.matched_rate,
-          result.total_amount || '',
-          `${Math.round(result.similarity_score * 100)}%`
-        ].join(','))
-      ].join('\n')
-
-      const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' })
+      // Get the file blob
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
+      link.href = url
       
-      if (link.download !== undefined) {
-        const url = URL.createObjectURL(blob)
-        link.setAttribute('href', url)
-        link.setAttribute('download', `${projectName || 'matching-results'}_all_${allResults.length}_items.csv`)
-        link.style.visibility = 'hidden'
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-        URL.revokeObjectURL(url)
-        
-        toast.success(`All ${allResults.length} results exported successfully!`)
-      }
+      // Get filename from Content-Disposition header or use default with "Export_" prefix
+      const contentDisposition = response.headers.get('Content-Disposition')
+      const originalFileName = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
+        : `${currentJob.project_name}_Results.xlsx`
+      
+      // Add "Export_" prefix to distinguish from regular download
+      const fileName = originalFileName.replace('.xlsx', '_Export.xlsx')
+      
+      link.download = fileName
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      toast.success('Excel results exported successfully!')
+
     } catch (error) {
       console.error('Export error:', error)
-      toast.error('Failed to export results')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to export results: ${errorMessage}`)
     }
   }
 
@@ -934,14 +826,10 @@ export function PriceMatching() {
               <div>
                 <CardTitle>Match Results</CardTitle>
                 <CardDescription>
-                  Review and edit the AI matches. Use radio buttons to switch between Cohere AI matches and manual search.
+                  Review and edit the AI matches. Results are automatically saved in real-time. Use radio buttons to switch between Cohere AI matches and manual search.
                 </CardDescription>
               </div>
               <div className="flex space-x-2">
-                <Button onClick={handleSaveForLater} size="sm" variant="outline">
-                  <Save className="h-4 w-4 mr-2" />
-                  Save for Later
-                </Button>
                 <Button onClick={exportToExcel} size="sm" variant="outline">
                   <FileSpreadsheet className="h-4 w-4 mr-2" />
                   Export All Results
