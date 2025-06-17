@@ -202,23 +202,29 @@ export default function Projects() {
 
   const downloadJobResults = async (jobId: string, projectName: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke(
-        'download-matching-results',
-        { body: { jobId } }
-      )
-
-      if (error) {
-        throw new Error(`Download failed: ${error.message}`)
+      // Download from Node.js backend
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/download/${jobId}`)
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Download failed: ${errorData.message || errorData.error}`)
       }
 
-      // Create and download the file
-      const blob = new Blob([atob(data.fileData)], { 
-        type: 'text/csv' 
-      })
+      // Get the file blob
+      const blob = await response.blob()
+      
+      // Create download link
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = data.fileName
+      
+      // Get filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition')
+      const fileName = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
+        : `${projectName}_Results.xlsx`
+      
+      link.download = fileName
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -332,24 +338,24 @@ export default function Projects() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Project</TableHead>
-                  <TableHead>File</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Progress</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Confidence</TableHead>
-                  <TableHead>Matches</TableHead>
-                  <TableHead className="w-[120px]">Actions</TableHead>
+                  <TableHead className="text-left">Project</TableHead>
+                  <TableHead className="text-left">File</TableHead>
+                  <TableHead className="text-left">Status</TableHead>
+                  <TableHead className="text-left">Progress</TableHead>
+                  <TableHead className="text-left">Created</TableHead>
+                  <TableHead className="text-left">Confidence</TableHead>
+                  <TableHead className="text-left">Matches</TableHead>
+                  <TableHead className="text-left w-[120px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredJobs.map((job) => (
                   <TableRow key={job.id}>
-                    <TableCell className="font-medium">{job.project_name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="font-medium text-left">{job.project_name}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground text-left">
                       {job.original_filename}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-left">
                       <div className="flex items-center space-x-2">
                         {getStatusIcon(job.status)}
                         <Badge className={getStatusColor(job.status)}>
@@ -357,23 +363,20 @@ export default function Projects() {
                         </Badge>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <Progress value={job.progress || 0} className="w-[80px]" />
-                        <span className="text-xs text-muted-foreground">{job.progress || 0}%</span>
-                      </div>
+                    <TableCell className="text-left">
+                      <span className="text-xs text-muted-foreground">{job.progress || 0}%</span>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="text-sm text-muted-foreground text-left">
                       {formatDate(job.created_at)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-left">
                       {job.confidence_score ? (
                         <Badge variant={job.confidence_score > 90 ? "default" : "secondary"}>
                           {job.confidence_score}%
                         </Badge>
                       ) : "-"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-left">
                       {job.matched_items ? (
                         <div className="text-sm">
                           <div>{job.matched_items} matched</div>
@@ -385,7 +388,7 @@ export default function Projects() {
                         </div>
                       ) : "-"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-left">
                       <div className="flex items-center space-x-1">
                         {job.status === "completed" && (
                           <>

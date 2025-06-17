@@ -96,17 +96,17 @@ export default function Clients() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Client Name</TableHead>
-                  <TableHead>Contact</TableHead>
-                  <TableHead>Matched Jobs</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="w-[100px]">Actions</TableHead>
+                  <TableHead className="text-left">Client Name</TableHead>
+                  <TableHead className="text-left">Contact</TableHead>
+                  <TableHead className="text-left">Matched Jobs</TableHead>
+                  <TableHead className="text-left">Created</TableHead>
+                  <TableHead className="text-left w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredClients.map((client) => (
                   <TableRow key={client.id}>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium text-left">
                       <div>
                         <div className="font-medium">{client.name}</div>
                         {client.company_name && (
@@ -117,7 +117,7 @@ export default function Clients() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-left">
                       <div className="space-y-1">
                         {client.email && (
                           <div className="flex items-center text-sm">
@@ -133,23 +133,16 @@ export default function Clients() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-left">
                       {client.projects_count && client.projects_count > 0 ? (
-                        <Button 
-                          variant="link" 
-                          className="p-0 h-auto text-blue-600 hover:text-blue-800"
-                          onClick={() => window.location.href = '/matching-jobs'}
-                        >
-                          <span className="flex items-center">
-                            {client.projects_count}
-                            <ExternalLink className="ml-1 h-3 w-3" />
-                          </span>
-                        </Button>
+                        <span className="flex items-center">
+                          {client.projects_count}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">0</span>
                       )}
                     </TableCell>
-                    <TableCell>{new Date(client.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-left">{new Date(client.created_at).toLocaleDateString()}</TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-1">
                         <Button 

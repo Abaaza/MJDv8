@@ -498,21 +498,25 @@ export function PriceMatching() {
       const timestamp3 = new Date().toLocaleTimeString()
       setLog(prev => [...prev, `[${timestamp3}] Uploading file and starting processing...`])
 
-      console.log('Calling edge function...')
-      const { data: processData, error: processError } = await supabase.functions.invoke(
-        'process-price-matching',
-        {
-          body: {
-            jobId: jobData.id,
-            fileName: selectedFile.name,
-            fileData: base64File
-          }
-        }
-      )
+      console.log('Calling Node.js backend...')
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/process-base64`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jobId: jobData.id,
+          fileName: selectedFile.name,
+          fileData: base64File
+        })
+      })
 
-      if (processError) {
-        throw new Error(`Processing failed: ${processError.message}`)
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Processing failed: ${errorData.message || errorData.error}`)
       }
+
+      const processData = await response.json()
 
       console.log('Processing started successfully')
       const timestamp4 = new Date().toLocaleTimeString()
@@ -538,50 +542,79 @@ export function PriceMatching() {
     
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const { data, error } = await supabase
-          .from('ai_matching_jobs')
-          .select('*')
-          .eq('id', jobId)
-          .single()
-
-        if (error) {
-          console.error('Error polling job:', error)
-          const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] Polling error: ${error.message}`])
-          return
+        console.log('Polling job status for:', jobId)
+        
+        // Use backend API instead of direct Supabase query
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/status/${jobId}`)
+        
+        if (!response.ok) {
+          throw new Error(`Status check failed: ${response.status}`)
         }
+        
+        const data = await response.json()
+
+        console.log('Job data received:', {
+          id: data.id,
+          status: data.status,
+          progress: data.progress,
+          matched_items: data.matched_items,
+          confidence_score: data.confidence_score
+        })
 
         setCurrentJob(data)
 
         if (data.status === 'processing') {
           const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] Progress: ${data.progress}% - Processing items...`])
+          const progressMessage = data.error_message 
+            ? `${data.progress}% - ${data.error_message}`
+            : `${data.progress}% - Processing items...`
+          setLog(prev => [...prev, `[${timestamp}] Progress: ${progressMessage}`])
         } else if (data.status === 'completed') {
+          console.log('Job completed! Stopping polling and loading results')
           const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] Completed! Matched ${data.matched_items} items with ${data.confidence_score}% average confidence`])
+          setLog(prev => [...prev, `[${timestamp}] ✅ Completed! Matched ${data.matched_items} items with ${data.confidence_score}% average confidence`])
           setIsProcessing(false)
           isProcessingRef.current = false
           clearPollInterval()
-          loadMatchResults(jobId)
+          
+          console.log('Job completed, loading match results for job:', jobId)
+          await loadMatchResults(jobId)
+          toast.success(`Processing completed successfully! Matched ${data.matched_items} items.`)
           
         } else if (data.status === 'failed') {
+          console.log('Job failed!')
           const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] Failed: ${data.error_message || 'Unknown error'}`])
+          const errorDetails = data.error_message || 'Unknown error'
+          setLog(prev => [...prev, `[${timestamp}] ❌ Failed: ${errorDetails}`])
           setIsProcessing(false)
           isProcessingRef.current = false
           clearPollInterval()
+          
+          // Show detailed error to user
+          toast.error(`Processing failed: ${errorDetails.split('\n')[0]}`, {
+            description: errorDetails.length > 100 ? `${errorDetails.substring(0, 100)}...` : errorDetails
+          })
+        } else if (data.status === 'pending') {
+          const timestamp = new Date().toLocaleTimeString()
+          setLog(prev => [...prev, `[${timestamp}] Waiting to start processing...`])
+        } else {
+          console.log('Unknown job status:', data.status)
+          const timestamp = new Date().toLocaleTimeString()
+          setLog(prev => [...prev, `[${timestamp}] Unknown status: ${data.status}`])
         }
       } catch (error) {
         console.error('Polling error:', error)
         const timestamp = new Date().toLocaleTimeString()
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-        setLog(prev => [...prev, `[${timestamp}] Polling error: ${errorMessage}`])
+        setLog(prev => [...prev, `[${timestamp}] ⚠️ Polling error: ${errorMessage}`])
       }
     }, 2000)
   }
 
   const loadMatchResults = async (jobId: string) => {
     try {
+      console.log('Loading match results for job:', jobId)
+      
       const { data, error } = await supabase
         .from('match_results')
         .select(`
@@ -593,6 +626,22 @@ export function PriceMatching() {
 
       if (error) {
         console.error('Error loading match results:', error)
+        const timestamp = new Date().toLocaleTimeString()
+        setLog(prev => [...prev, `[${timestamp}] ⚠️ Could not load results from database: ${error.message}`])
+        
+        // Show a message that results need to be downloaded
+        toast.info('Results processing completed! Use the download button to get your Excel file with matched results.')
+        return
+      }
+
+      console.log('Match results loaded:', data?.length || 0, 'results')
+
+      if (!data || data.length === 0) {
+        const timestamp = new Date().toLocaleTimeString()
+        setLog(prev => [...prev, `[${timestamp}] ℹ️ No results in database - Excel file is ready for download`])
+        
+        // Show a message that results need to be downloaded
+        toast.info('Results processing completed! Use the download button to get your Excel file with matched results.')
         return
       }
 
@@ -611,9 +660,20 @@ export function PriceMatching() {
         matched_price_item_id: result.matched_price_item_id
       })) || []
 
+      console.log('Transformed results:', resultsWithUnits.length)
       setMatchResults(resultsWithUnits)
+      
+      const timestamp = new Date().toLocaleTimeString()
+      setLog(prev => [...prev, `[${timestamp}] ✅ Loaded ${resultsWithUnits.length} results for review`])
+      
     } catch (error) {
       console.error('Error loading match results:', error)
+      const timestamp = new Date().toLocaleTimeString()
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      setLog(prev => [...prev, `[${timestamp}] ⚠️ Error loading results: ${errorMessage}`])
+      
+      // Show a message that results need to be downloaded
+      toast.info('Results processing completed! Use the download button to get your Excel file with matched results.')
     }
   }
 
@@ -627,24 +687,29 @@ export function PriceMatching() {
       const timestamp = new Date().toLocaleTimeString()
       setLog(prev => [...prev, `[${timestamp}] Downloading results...`])
       
-      const { data, error } = await supabase.functions.invoke(
-        'download-matching-results',
-        {
-          body: { jobId: currentJob.id }
-        }
-      )
-
-      if (error) {
-        throw new Error(`Download failed: ${error.message}`)
+      // Download from Node.js backend
+              const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/download/${currentJob.id}`)
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Download failed: ${errorData.message || errorData.error}`)
       }
 
-      const blob = new Blob([atob(data.fileData)], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-      })
+      // Get the file blob
+      const blob = await response.blob()
+      
+      // Create download link
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = data.fileName
+      
+      // Get filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition')
+      const fileName = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
+        : `${currentJob.project_name}_Results.xlsx`
+      
+      link.download = fileName
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -810,6 +875,24 @@ export function PriceMatching() {
                     </p>
                     <p className="text-sm">
                       Average confidence: {currentJob.confidence_score}%
+                    </p>
+                    <Button 
+                      onClick={downloadResults} 
+                      size="sm" 
+                      className="mt-2"
+                      variant="outline"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download Results
+                    </Button>
+                  </div>
+                )}
+
+                {currentJob.status === 'processing' && currentJob.progress && (
+                  <div className="space-y-2">
+                    <Progress value={currentJob.progress} className="w-full" />
+                    <p className="text-sm text-muted-foreground">
+                      {currentJob.progress}% complete
                     </p>
                   </div>
                 )}

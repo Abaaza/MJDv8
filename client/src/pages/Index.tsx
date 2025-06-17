@@ -105,8 +105,10 @@ export default function Index() {
         {/* Recent Activity */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>Latest updates across your system</CardDescription>
+            <div className="text-center">
+              <CardTitle>Recent Activity</CardTitle>
+              <CardDescription>Latest updates across your system</CardDescription>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {activitiesLoading ? (
@@ -114,19 +116,28 @@ export default function Index() {
             ) : activities.length === 0 ? (
               <div className="text-center text-muted-foreground py-4">No recent activity</div>
             ) : (
-              activities.map((activity) => (
-                <div key={activity.id} className="flex items-center space-x-4">
-                  <div className="flex-shrink-0">
-                    {getStatusIcon(activity.type)}
+              <div className="space-y-6 w-full px-4">
+                {activities.map((activity) => (
+                  <div key={activity.id} className="flex items-start">
+                    <div className="w-8 flex-shrink-0 mt-1">
+                      {getStatusIcon(activity.type)}
+                    </div>
+                    <div className="flex-1 min-w-0 pr-4 ml-[6%]">
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-medium leading-tight">
+                          {activity.description.replace(/^[A-Za-z]+\s+[A-Za-z]+\s+/, '')}
+                        </p>
+                        <p className="text-xs text-muted-foreground font-normal">
+                          {activity.description.match(/^[A-Za-z]+\s+[A-Za-z]+/)?.[0]}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="w-24 flex-shrink-0 text-xs text-muted-foreground whitespace-nowrap mt-1 text-right">
+                      {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium">{activity.description}</p>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
-                  </div>
-                </div>
-              ))
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>
