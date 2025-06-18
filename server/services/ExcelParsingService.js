@@ -41,12 +41,6 @@ export class ExcelParsingService {
           const validItems = sheetItems.filter(item => {
             const hasQty = item.quantity && !isNaN(item.quantity) && parseFloat(item.quantity) > 0
             const hasDesc = item.description && item.description.trim().length > 0
-            if (!hasQty && hasDesc) {
-              console.log(`   ⚠️ Skipping item without quantity: "${item.description.substring(0, 50)}..." at row ${item.row_number}`)
-            }
-            if (hasQty && !hasDesc) {
-              console.log(`   ⚠️ Skipping item without description at row ${item.row_number}, qty: ${item.quantity}`)
-            }
             return hasQty && hasDesc
           })
           
@@ -71,7 +65,6 @@ export class ExcelParsingService {
           
         } catch (sheetError) {
           console.warn(`⚠️ Error processing sheet ${sheetName}:`, sheetError.message)
-          console.warn(`   Stack:`, sheetError.stack)
         }
       }
       
@@ -85,7 +78,6 @@ export class ExcelParsingService {
       
     } catch (error) {
       console.error(`❌ Error parsing Excel file:`, error)
-      console.error(`   Stack:`, error.stack)
       throw error
     }
   }
@@ -215,105 +207,69 @@ export class ExcelParsingService {
   }
 
   /**
-   * Detect fallback structure when headers aren't clear - SMART MODE
+   * Detect fallback structure when headers aren't clear - SIMPLIFIED FAST VERSION
    */
   detectFallbackStructure(jsonData, sheetName) {
-    console.log(`   🔍 Attempting SMART fallback structure detection for ${sheetName}`)
+    console.log(`   🔍 Fast fallback structure detection for ${sheetName}`)
     
-    // Strategy 1: Find the best description column by analyzing content quality
-    const candidates = []
-    
-    for (let rowIndex = 0; rowIndex < Math.min(30, jsonData.length); rowIndex++) {
+    // Simple strategy: Look for the first row with text > 8 chars and numbers
+    for (let rowIndex = 0; rowIndex < Math.min(10, jsonData.length); rowIndex++) {
       const row = jsonData[rowIndex]
       if (!row || row.length < 2) continue
       
-      // Analyze each column for description quality
-      for (let colIndex = 0; colIndex < Math.min(15, row.length); colIndex++) {
+      // Look for first text column and first numeric column
+      let descriptionCol = -1
+      let quantityCol = -1
+      
+      for (let colIndex = 0; colIndex < Math.min(8, row.length); colIndex++) {
         const cell = row[colIndex]
         if (!cell) continue
         
-        // Calculate quality score for this column
-        const quality = this.validateDescriptionColumn(jsonData, rowIndex, colIndex)
-        if (quality >= 2) { // Minimum threshold for fallback
-          candidates.push({
-            headerRow: rowIndex,
-            descriptionCol: colIndex,
-            quality: quality,
-            sampleContent: String(cell).substring(0, 30)
-          })
-          console.log(`   💡 Fallback candidate col ${colIndex + 1} at row ${rowIndex + 1}: quality ${quality}, sample: "${String(cell).substring(0, 30)}..."`)
+        const cellStr = String(cell).trim()
+        
+        // Found a potential description column (first one with decent text)
+        if (descriptionCol === -1 && cellStr.length > 8 && /[a-zA-Z]/.test(cellStr)) {
+          const quality = this.validateDescriptionColumn(jsonData, rowIndex, colIndex)
+          if (quality >= 2) {
+            descriptionCol = colIndex
+          }
         }
-      }
-    }
-    
-    // Sort by quality and select the best one
-    if (candidates.length > 0) {
-      const best = candidates.sort((a, b) => b.quality - a.quality)[0]
-      
-      // Now find the best quantity column near the description column
-      let quantityCol = -1
-      let rateCol = -1
-      
-      // Look for quantity column to the right of description column
-      const headerRow = jsonData[best.headerRow]
-      if (headerRow) {
-        for (let colIndex = best.descriptionCol + 1; colIndex < Math.min(headerRow.length, best.descriptionCol + 8); colIndex++) {
-          const quality = this.validateQuantityColumn(jsonData, best.headerRow, colIndex)
+        
+        // Found a potential quantity column (look for it after description)
+        if (descriptionCol >= 0 && quantityCol === -1 && colIndex > descriptionCol) {
+          const quality = this.validateQuantityColumn(jsonData, rowIndex, colIndex)
           if (quality >= 2) {
             quantityCol = colIndex
-            console.log(`   💡 Found quantity column at ${colIndex + 1} (quality: ${quality})`)
-            
-            // Look for rate column after quantity
-            if (colIndex + 1 < headerRow.length) {
-              const rateQuality = this.validateQuantityColumn(jsonData, best.headerRow, colIndex + 1)
-              if (rateQuality >= 1) {
-                rateCol = colIndex + 1
-              }
-            }
-            break
+            break // Found both, stop looking
           }
         }
       }
       
-      if (quantityCol >= 0) {
-        console.log(`   ✅ Smart Fallback: Found description at col ${best.descriptionCol + 1}, quantity at col ${quantityCol + 1}`)
+      if (descriptionCol >= 0 && quantityCol >= 0) {
+        console.log(`   ✅ Fast fallback: Found description at col ${descriptionCol + 1}, quantity at col ${quantityCol + 1}`)
         return {
           found: true,
-          headerRow: best.headerRow,
-          descriptionCol: best.descriptionCol,
+          headerRow: rowIndex,
+          descriptionCol: descriptionCol,
           quantityCol: quantityCol,
-          rateCol: rateCol,
+          rateCol: quantityCol + 1 < row.length ? quantityCol + 1 : -1,
           unitCol: -1
         }
       }
     }
     
-    // Strategy 2: If no good candidates found, try very basic fallback
-    console.log(`   ⚠️ No good candidates found, trying basic fallback...`)
-    
-    // Look for ANY column with text longer than 10 characters on average
-    for (let rowIndex = 0; rowIndex < Math.min(15, jsonData.length); rowIndex++) {
+    // Last resort: Just use first two columns if they have any content
+    for (let rowIndex = 0; rowIndex < Math.min(5, jsonData.length); rowIndex++) {
       const row = jsonData[rowIndex]
-      if (!row || row.length < 2) continue
-      
-      for (let colIndex = 0; colIndex < Math.min(8, row.length); colIndex++) {
-        const quality = this.validateDescriptionColumn(jsonData, rowIndex, colIndex)
-        if (quality >= 1) { // Very low threshold
-          // Find any numeric column to the right
-          for (let qtyCol = colIndex + 1; qtyCol < Math.min(row.length, colIndex + 5); qtyCol++) {
-            const qtyQuality = this.validateQuantityColumn(jsonData, rowIndex, qtyCol)
-            if (qtyQuality >= 1) {
-              console.log(`   ⚠️ Basic fallback: col ${colIndex + 1}=description, col ${qtyCol + 1}=quantity`)
-              return {
-                found: true,
-                headerRow: rowIndex,
-                descriptionCol: colIndex,
-                quantityCol: qtyCol,
-                rateCol: qtyCol + 1 < row.length ? qtyCol + 1 : -1,
-                unitCol: -1
-              }
-            }
-          }
+      if (row && row.length >= 2 && row[0] && row[1]) {
+        console.log(`   ⚠️ Last resort fallback: Using columns 1 and 2`)
+        return {
+          found: true,
+          headerRow: rowIndex,
+          descriptionCol: 0,
+          quantityCol: 1,
+          rateCol: 2,
+          unitCol: -1
         }
       }
     }
@@ -322,7 +278,7 @@ export class ExcelParsingService {
   }
 
   /**
-   * Validate that a column contains numeric quantities
+   * Validate that a column contains numeric quantities - SIMPLIFIED VERSION
    * Returns a quality score (higher is better)
    */
   validateQuantityColumn(jsonData, headerRow, colIndex) {
@@ -330,10 +286,9 @@ export class ExcelParsingService {
     let numericRows = 0
     let totalRows = 0
     let positiveRows = 0
-    let decimalRows = 0
     
-    // Check up to 20 data rows after the header
-    const maxRows = Math.min(headerRow + 21, jsonData.length)
+    // Check only first 5 data rows after the header for speed
+    const maxRows = Math.min(headerRow + 6, jsonData.length)
     for (let rowIndex = headerRow + 1; rowIndex < maxRows; rowIndex++) {
       const row = jsonData[rowIndex]
       if (!row || !row[colIndex]) continue
@@ -343,17 +298,13 @@ export class ExcelParsingService {
       
       totalRows++
       
-      // Check if it's numeric
+      // Check if it's numeric (simplified)
       if (!isNaN(cellValue) && cellValue !== '') {
         const value = parseFloat(cellValue)
         numericRows++
         
         if (value > 0) {
           positiveRows++
-        }
-        
-        if (cellValue.includes('.') || cellValue.includes(',')) {
-          decimalRows++
         }
       }
     }
@@ -363,19 +314,12 @@ export class ExcelParsingService {
     const numericRatio = numericRows / totalRows
     const positiveRatio = positiveRows / totalRows
     
-    // Start with base score if mostly numeric
-    if (numericRatio > 0.7) quality += 3
-    else if (numericRatio > 0.5) quality += 2
-    else if (numericRatio > 0.3) quality += 1
+    // Simplified scoring
+    if (numericRatio > 0.7 && positiveRatio > 0.5) quality = 5
+    else if (numericRatio > 0.5) quality = 3
+    else if (numericRatio > 0.3) quality = 1
     
-    // Bonus for positive values (quantities should be positive)
-    if (positiveRatio > 0.5) quality += 2
-    else if (positiveRatio > 0.3) quality += 1
-    
-    // Bonus for having some decimal values (common in quantities)
-    if (decimalRows > 0) quality += 1
-    
-    return Math.max(0, quality)
+    return quality
   }
 
   /**
@@ -458,18 +402,16 @@ export class ExcelParsingService {
 
   /**
    * Validate that a column actually contains meaningful descriptions
-   * Returns a quality score (higher is better)
+   * Returns a quality score (higher is better) - SIMPLIFIED VERSION
    */
   validateDescriptionColumn(jsonData, headerRow, colIndex) {
     let quality = 0
     let textRows = 0
     let meaningfulRows = 0
     let totalLength = 0
-    let numericRows = 0
-    let shortRows = 0
     
-    // Check up to 20 data rows after the header
-    const maxRows = Math.min(headerRow + 21, jsonData.length)
+    // Check only first 5 data rows after the header for speed
+    const maxRows = Math.min(headerRow + 6, jsonData.length)
     for (let rowIndex = headerRow + 1; rowIndex < maxRows; rowIndex++) {
       const row = jsonData[rowIndex]
       if (!row || !row[colIndex]) continue
@@ -480,57 +422,24 @@ export class ExcelParsingService {
       textRows++
       totalLength += cellValue.length
       
-      // Check if it's mostly numeric (bad for descriptions)
-      if (/^\d+(\.\d+)?$/.test(cellValue)) {
-        numericRows++
-      }
-      
-      // Check if it's too short (bad for descriptions)
-      if (cellValue.length <= 3) {
-        shortRows++
-      }
-      
-      // Check for meaningful descriptive content
-      if (cellValue.length > 10 && 
-          /[a-zA-Z]/.test(cellValue) && 
-          !(/^\d+$/.test(cellValue))) {
+      // Check for meaningful descriptive content (simplified)
+      if (cellValue.length > 8 && /[a-zA-Z]/.test(cellValue)) {
         meaningfulRows++
       }
     }
     
     if (textRows === 0) return 0
     
-    // Calculate quality score
+    // Simplified quality calculation
     const averageLength = totalLength / textRows
     const meaningfulRatio = meaningfulRows / textRows
-    const numericRatio = numericRows / textRows
-    const shortRatio = shortRows / textRows
     
-    // Start with base score
-    quality = 1
+    // Base score
+    if (meaningfulRatio > 0.5 && averageLength > 10) quality = 5
+    else if (meaningfulRatio > 0.3 && averageLength > 6) quality = 3
+    else if (textRows > 0 && averageLength > 4) quality = 1
     
-    // Bonus for meaningful content
-    if (meaningfulRatio > 0.7) quality += 5
-    else if (meaningfulRatio > 0.5) quality += 3
-    else if (meaningfulRatio > 0.3) quality += 1
-    
-    // Bonus for good average length
-    if (averageLength > 30) quality += 3
-    else if (averageLength > 15) quality += 2
-    else if (averageLength > 5) quality += 1
-    
-    // Penalty for too many numeric values
-    if (numericRatio > 0.8) quality -= 5
-    else if (numericRatio > 0.5) quality -= 3
-    else if (numericRatio > 0.3) quality -= 1
-    
-    // Penalty for too many short values
-    if (shortRatio > 0.8) quality -= 3
-    else if (shortRatio > 0.5) quality -= 2
-    
-    console.log(`     Column ${colIndex + 1} validation: ${textRows} rows, avg length: ${averageLength.toFixed(1)}, meaningful: ${meaningfulRatio.toFixed(2)}, numeric: ${numericRatio.toFixed(2)}, quality: ${quality}`)
-    
-    return Math.max(0, quality)
+    return quality
   }
 
   /**

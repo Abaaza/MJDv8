@@ -72,6 +72,8 @@ export class PriceMatchingService {
       
       const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
       console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
+      await this.updateJobStatus(jobId, 'processing', 25, `Parsed Excel file - found ${extractedItems.length} items`)
+      
       await this.updateJobStatus(jobId, 'processing', 30, `Found ${extractedItems.length} items to match`, {
         total_items: extractedItems.length
       })

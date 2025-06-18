@@ -131,6 +131,7 @@ export function usePriceList() {
 
   const fetchTotalCount = async () => {
     try {
+      console.log('📊 Fetching total count...')
       let query = supabase
         .from('price_items')
         .select('*', { count: 'exact', head: true })
@@ -146,24 +147,27 @@ export function usePriceList() {
       const { count, error } = await query
 
       if (error) {
-        console.error('Error fetching total count:', error)
+        console.error('❌ Error fetching total count:', error)
+        console.error('❌ Count error details:', {
+          message: error.message,
+          code: error.code
+        })
+        
+        if (error.message.includes('RLS') || error.code === 'PGRST116') {
+          console.log('📊 Count query affected by RLS policies')
+        }
         return
       }
 
+      console.log('✅ Total count fetched:', count)
       setTotalItems(count || 0)
       setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE))
     } catch (error) {
-      console.error('Error fetching total count:', error)
+      console.error('❌ Error fetching total count:', error)
     }
   }
 
   const fetchPriceItems = async () => {
-    // Prevent multiple simultaneous fetches
-    if (loading) {
-      console.log('🔍 Fetch already in progress, skipping...')
-      return
-    }
-    
     try {
       setLoading(true)
       const offset = (currentPage - 1) * ITEMS_PER_PAGE
@@ -203,9 +207,35 @@ export function usePriceList() {
       const { data, error } = await query
 
       if (error) {
-        console.error('Error fetching price items:', error)
-        toast.error('Failed to load price items')
+        console.error('❌ Error fetching price items:', error)
+        console.error('❌ Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        })
+        
+        // Check for common RLS policy issues
+        if (error.message.includes('RLS') || error.code === 'PGRST116') {
+          toast.error('Permission issue: You can only see price items you created. Try using "Fix Orphaned Items" if you have data.')
+        } else {
+          toast.error('Failed to load price items')
+        }
         return
+      }
+
+      console.log('✅ Price items query successful:', {
+        resultCount: data?.length || 0,
+        userID: user?.id,
+        hasData: !!(data && data.length > 0)
+      })
+
+      if (!data || data.length === 0) {
+        console.log('📋 No price items found - this could be due to:')
+        console.log('   1. No data in database')
+        console.log('   2. RLS policies - items may not have user_id set')
+        console.log('   3. Filters excluding all results')
+        console.log('   Current filters:', { searchTerm, categoryFilter })
       }
 
       console.log('🔍 Query results:', {
@@ -373,10 +403,14 @@ export function usePriceList() {
 
   useEffect(() => {
     if (user) {
+      console.log('👤 User authenticated, loading price list data:', user.id)
       fetchAvailableCategories()
       fetchPriceItems()
       fetchTotalCount()
       fetchCurrency()
+    } else {
+      console.log('❌ No user authenticated, skipping price list load')
+      setLoading(false)
     }
   }, [user, currentPage, searchTerm, categoryFilter, sortField, sortDirection])
 
