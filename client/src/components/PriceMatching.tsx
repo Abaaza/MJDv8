@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -46,9 +46,18 @@ export function PriceMatching() {
   const [currentJob, setCurrentJob] = useState<MatchingJob | null>(null)
   const [log, setLog] = useState<string[]>([])
   const [matchResults, setMatchResults] = useState<MatchResult[]>([])
+  const [matchingMethod, setMatchingMethod] = useState<'cohere' | 'local'>('cohere')
   
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const isProcessingRef = useRef(false)
+  const logContainerRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll log to bottom when new entries are added
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+    }
+  }, [log])
 
   // Filter clients based on input
   const handleClientNameChange = (value: string) => {
@@ -128,11 +137,40 @@ export function PriceMatching() {
           return clientByName.id
         }
       } catch (error) {
-        console.log('Client not found by name either')
+        console.log('Client not found by name, creating new client')
+      }
+
+      // If client doesn't exist, create a new one
+      try {
+        const { data: newClient, error: createError } = await supabase
+          .from('clients')
+          .insert({
+            name: clientNameInput.trim(),
+            user_id: user.id
+          })
+          .select()
+          .single()
+
+        if (createError) {
+          console.error('Error creating client:', createError)
+          throw new Error(`Failed to create client: ${createError.message}`)
+        }
+
+        console.log('Created new client:', newClient.id)
+        setSelectedClientId(newClient.id)
+        
+        // Update filtered clients to include the new client
+        setFilteredClients(prev => [...prev, newClient])
+        
+        toast.success(`New client "${clientNameInput.trim()}" created`)
+        return newClient.id
+      } catch (error) {
+        console.error('Failed to create client:', error)
+        throw error
       }
     }
 
-    console.error('No client found')
+    console.error('No client name provided')
     return null
   }
 
@@ -246,11 +284,24 @@ export function PriceMatching() {
       return
     }
 
+    if (!matchResults || matchResults.length === 0) {
+      toast.error('No match results to export')
+      return
+    }
+
     try {
-      toast.info('Exporting Excel results...')
+      toast.info('Exporting filtered Excel results...')
       
-      // Use the same backend API as downloadResults to get the formatted Excel file
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/download/${currentJob.id}`)
+      // Export the current edited results
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/export/${currentJob.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchResults: matchResults
+        })
+      })
       
       if (!response.ok) {
         const errorData = await response.json()
@@ -265,22 +316,19 @@ export function PriceMatching() {
       const link = document.createElement('a')
       link.href = url
       
-      // Get filename from Content-Disposition header or use default with "Export_" prefix
+      // Get filename from Content-Disposition header or use default with "Filtered_" prefix
       const contentDisposition = response.headers.get('Content-Disposition')
       const originalFileName = contentDisposition 
         ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
-        : `${currentJob.project_name}_Results.xlsx`
+        : `${currentJob.project_name}_Filtered_Results.xlsx`
       
-      // Add "Export_" prefix to distinguish from regular download
-      const fileName = originalFileName.replace('.xlsx', '_Export.xlsx')
-      
-      link.download = fileName
+      link.download = originalFileName
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
 
-      toast.success('Excel results exported successfully!')
+      toast.success(`Excel results exported successfully! (${matchResults.length} items)`)
 
     } catch (error) {
       console.error('Export error:', error)
@@ -341,7 +389,7 @@ export function PriceMatching() {
     try {
       const clientId = await createOrGetClient()
       if (!clientId) {
-        throw new Error('Please select a valid client or create a new one')
+        throw new Error('Please enter a client name')
       }
 
       console.log('Creating job record with client ID:', clientId)
@@ -399,7 +447,8 @@ export function PriceMatching() {
         body: JSON.stringify({
           jobId: jobData.id,
           fileName: selectedFile.name,
-          fileData: base64File
+          fileData: base64File,
+          matchingMethod: matchingMethod
         })
       })
 
@@ -450,28 +499,75 @@ export function PriceMatching() {
           status: data.status,
           progress: data.progress,
           matched_items: data.matched_items,
-          confidence_score: data.confidence_score
+          total_items: data.total_items,
+          confidence_score: data.confidence_score,
+          error_message: data.error_message
         })
 
         setCurrentJob(data)
 
         if (data.status === 'processing') {
           const timestamp = new Date().toLocaleTimeString()
-          const progressMessage = data.error_message 
-            ? `${data.progress}% - ${data.error_message}`
-            : `${data.progress}% - Processing items...`
-          setLog(prev => [...prev, `[${timestamp}] Progress: ${progressMessage}`])
+          
+          // More detailed progress messages based on actual progress
+          let progressMessage = ''
+          
+          if (data.progress < 30) {
+            progressMessage = `${data.progress}% - Parsing Excel file...`
+          } else if (data.progress === 30) {
+            progressMessage = `${data.progress}% - Found ${data.total_items || 0} items to match`
+          } else if (data.progress < 40) {
+            progressMessage = `${data.progress}% - Loading price database...`
+          } else if (data.progress === 40) {
+            progressMessage = `${data.progress}% - Ready to start matching`
+          } else if (data.progress > 40 && data.progress < 80) {
+            // During matching phase - show real progress
+            if (data.error_message && data.error_message.includes('AI Matching:')) {
+              progressMessage = `${data.progress}% - ${data.error_message}`
+            } else {
+              const itemsProcessed = Math.round(((data.progress - 40) / 40) * (data.total_items || 0))
+              progressMessage = `${data.progress}% - Matching ${itemsProcessed}/${data.total_items || 0} items (${data.matched_items || 0} matches found)`
+            }
+          } else if (data.progress >= 80 && data.progress < 90) {
+            progressMessage = `${data.progress}% - Finalizing ${data.matched_items || 0} matches...`
+          } else if (data.progress >= 90) {
+            progressMessage = `${data.progress}% - Saving results...`
+          } else {
+            progressMessage = `${data.progress}% - ${data.error_message || 'Processing...'}`
+          }
+          
+          setLog(prev => {
+            // Only add if different from last message
+            const lastMessage = prev[prev.length - 1]
+            if (!lastMessage || !lastMessage.includes(progressMessage)) {
+              return [...prev, `[${timestamp}] ${progressMessage}`]
+            }
+            return prev
+          })
         } else if (data.status === 'completed') {
           console.log('Job completed! Stopping polling and loading results')
           const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] ✅ Completed! Matched ${data.matched_items} items with ${data.confidence_score}% average confidence`])
+          const successRate = data.total_items > 0 
+            ? Math.round((data.matched_items / data.total_items) * 100)
+            : 0
+          
+          setLog(prev => [...prev, 
+            `[${timestamp}] ✅ Completed!`,
+            `[${timestamp}] 📊 Results: ${data.matched_items}/${data.total_items} items matched (${successRate}% success rate)`,
+            `[${timestamp}] 📈 Average confidence: ${data.confidence_score || 0}%`
+          ])
           setIsProcessing(false)
           isProcessingRef.current = false
           clearPollInterval()
           
           console.log('Job completed, loading match results for job:', jobId)
           await loadMatchResults(jobId)
-          toast.success(`Processing completed successfully! Matched ${data.matched_items} items.`)
+          
+          if (data.matched_items > 0) {
+            toast.success(`Processing completed! Matched ${data.matched_items} items with ${successRate}% success rate.`)
+          } else {
+            toast.info(`Processing completed. Using local matcher might give better results.`)
+          }
           
         } else if (data.status === 'failed') {
           console.log('Job failed!')
@@ -644,10 +740,10 @@ export function PriceMatching() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800'
-      case 'processing': return 'bg-blue-100 text-blue-800'
-      case 'failed': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'completed': return 'default'
+      case 'processing': return 'secondary'
+      case 'failed': return 'destructive'
+      default: return 'outline'
     }
   }
 
@@ -657,15 +753,15 @@ export function PriceMatching() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center space-x-2">
-                <Zap className="h-5 w-5 text-purple-600" />
-                <span>AI Price Matching</span>
-              </CardTitle>
-              <CardDescription>
-                Upload your Excel inquiry file and let AI automatically match items with your price list using Cohere embeddings
-              </CardDescription>
-            </div>
+                      <div>
+            <CardTitle className="flex items-center space-x-2">
+              <Zap className="h-5 w-5 text-purple-600" />
+              <span>Smart Price Matching</span>
+            </CardTitle>
+            <CardDescription>
+              Upload your BoQ Excel file and automatically match items with quantities against your price list using intelligent parsing and matching algorithms
+            </CardDescription>
+          </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -736,6 +832,34 @@ export function PriceMatching() {
               </div>
 
               <div className="space-y-2">
+                <Label className="text-sm font-medium">Matching Method</Label>
+                <div className="flex space-x-4">
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      value="cohere"
+                      checked={matchingMethod === 'cohere'}
+                      onChange={(e) => setMatchingMethod(e.target.value as 'cohere' | 'local')}
+                      disabled={isProcessing}
+                      className="text-purple-600"
+                    />
+                    <span className="text-sm">🤖 AI Match (Cohere) - Most Accurate</span>
+                  </label>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="radio"
+                      value="local"
+                      checked={matchingMethod === 'local'}
+                      onChange={(e) => setMatchingMethod(e.target.value as 'cohere' | 'local')}
+                      disabled={isProcessing}
+                      className="text-purple-600"
+                    />
+                    <span className="text-sm">⚡ Local Match - Fast</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="space-y-2">
                 <Label className="text-sm font-medium">Select Inquiry Excel File</Label>
                 <ExcelUpload 
                   onFileSelect={handleFileSelect}
@@ -763,20 +887,21 @@ export function PriceMatching() {
                 {currentJob.status === 'completed' && (
                   <div className="space-y-2">
                     <p className="text-sm">
-                      Matched {currentJob.matched_items} of {currentJob.total_items} items
+                      Matched {currentJob.matched_items || 0} of {currentJob.total_items || 0} items
                     </p>
                     <p className="text-sm">
-                      Average confidence: {currentJob.confidence_score}%
+                      Average confidence: {currentJob.confidence_score || 0}%
                     </p>
-                    <Button 
-                      onClick={downloadResults} 
-                      size="sm" 
-                      className="mt-2"
-                      variant="outline"
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download Results
-                    </Button>
+                    <div className="flex gap-2 mt-2">
+                      <Button 
+                        onClick={downloadResults} 
+                        size="sm" 
+                        variant="outline"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Excel
+                      </Button>
+                    </div>
                   </div>
                 )}
 
@@ -791,18 +916,7 @@ export function PriceMatching() {
               </div>
             )}
 
-            {log.length > 0 && (
-              <div className="p-4 border rounded-lg bg-muted/50">
-                <h4 className="font-medium mb-2">Processing Log</h4>
-                <div className="max-h-40 overflow-y-auto space-y-1">
-                  {log.map((entry, index) => (
-                    <p key={index} className="text-xs font-mono text-muted-foreground">
-                      {entry}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
+
           </div>
 
           <div className="flex justify-center pt-4">
@@ -826,13 +940,13 @@ export function PriceMatching() {
               <div>
                 <CardTitle>Match Results</CardTitle>
                 <CardDescription>
-                  Review and edit the AI matches. Results are automatically saved in real-time. Use radio buttons to switch between Cohere AI matches and manual search.
+                  Review and edit the matches. Results are automatically saved in real-time. The EditableMatchResultsTable includes: (1) AI Match results, (2) Local Match option, and (3) Manual Search option.
                 </CardDescription>
               </div>
               <div className="flex space-x-2">
-                <Button onClick={exportToExcel} size="sm" variant="outline">
+                <Button onClick={downloadResults} size="sm" variant="outline">
                   <FileSpreadsheet className="h-4 w-4 mr-2" />
-                  Export All Results
+                  Export Results
                 </Button>
               </div>
             </div>
@@ -854,6 +968,92 @@ export function PriceMatching() {
         onClose={() => setShowClientForm(false)}
         onSave={createClient}
       />
+
+      {/* Progress Section - Only show during processing */}
+      {currentJob && currentJob.status === 'processing' && (
+        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 border-blue-200 dark:border-gray-700">
+          <CardContent className="pt-6">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {getStatusIcon(currentJob.status)}
+                  <div>
+                    <p className="font-semibold text-lg">
+                      {currentJob.status === 'processing' ? 'Processing your file...' : 
+                       currentJob.status === 'completed' ? 'Processing complete!' :
+                       currentJob.status === 'failed' ? 'Processing failed' :
+                       'Pending...'}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Job ID: {currentJob.id}
+                    </p>
+                  </div>
+                </div>
+                <Badge variant={getStatusColor(currentJob.status)} className="text-sm">
+                  {currentJob.status}
+                </Badge>
+              </div>
+              
+              {/* Enhanced Progress Bar */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Progress</span>
+                  <span className="font-medium">{currentJob.progress || 0}%</span>
+                </div>
+                <Progress value={currentJob.progress || 0} className="h-3" />
+                
+                {/* Real-time stats during processing */}
+                {currentJob.status === 'processing' && currentJob.total_items > 0 && (
+                  <div className="grid grid-cols-3 gap-4 mt-4 text-center">
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-2xl font-bold text-blue-600">{currentJob.total_items || 0}</p>
+                      <p className="text-xs text-gray-600">Total Items</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-2xl font-bold text-green-600">{currentJob.matched_items || 0}</p>
+                      <p className="text-xs text-gray-600">Matched</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-2xl font-bold text-purple-600">
+                        {currentJob.total_items > 0 
+                          ? Math.round((currentJob.matched_items / currentJob.total_items) * 100)
+                          : 0}%
+                      </p>
+                      <p className="text-xs text-gray-600">Success Rate</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Live Log */}
+              <div 
+                ref={logContainerRef}
+                className="bg-gray-900 dark:bg-gray-950 text-green-400 dark:text-green-500 p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs space-y-1 border border-gray-700 dark:border-gray-800"
+              >
+                {log.length === 0 ? (
+                  <p className="text-gray-500">Waiting for updates...</p>
+                ) : (
+                  log.map((entry, index) => (
+                    <div 
+                      key={index} 
+                      className={
+                        entry.includes('✅') ? 'text-green-400' :
+                        entry.includes('❌') ? 'text-red-400' :
+                        entry.includes('⚠️') ? 'text-yellow-400' :
+                        entry.includes('📊') ? 'text-blue-400' :
+                        entry.includes('📈') ? 'text-purple-400' :
+                        'text-gray-300'
+                      }
+                    >
+                      {entry}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

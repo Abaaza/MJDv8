@@ -5,6 +5,10 @@ import { fileURLToPath } from 'url'
 import ExcelJS from 'exceljs'
 import XLSX from 'xlsx'
 import { createClient } from '@supabase/supabase-js'
+import { ExcelParsingService } from './ExcelParsingService.js'
+import { LocalPriceMatchingService } from './LocalPriceMatchingService.js'
+import { CohereMatchingService } from './CohereMatchingService.js'
+import { ExcelExportService } from './ExcelExportService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -26,18 +30,17 @@ export class PriceMatchingService {
     this.outputDir = path.join(__dirname, '..', 'output')
     this.pythonScriptPath = path.join(__dirname, 'cohereexcelparsing.py')
     this.pricelistPath = path.join(__dirname, '..', 'temp', 'pricelist.xlsx')
+    
+    // Initialize new services
+    this.excelParser = new ExcelParsingService()
+    this.localMatcher = new LocalPriceMatchingService()
+    this.cohereMatcher = new CohereMatchingService()
   }
 
-  async processFile(jobId, inputFilePath, originalFileName) {
+  async processFile(jobId, inputFilePath, originalFileName, matchingMethod = 'cohere') {
     try {
       console.log(`🚀 STARTING PROCESSING: job ${jobId} with file: ${originalFileName}`)
       console.log(`📁 Input file path: ${inputFilePath}`)
-      console.log(`🔧 Environment check:`, {
-        SUPABASE_URL: !!process.env.SUPABASE_URL,
-        SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-        SUPABASE_ANON_KEY: !!process.env.SUPABASE_ANON_KEY,
-        COHERE_API_KEY: !!process.env.COHERE_API_KEY
-      })
       
       // Verify input file exists
       if (!await fs.pathExists(inputFilePath)) {
@@ -50,63 +53,98 @@ export class PriceMatchingService {
       await this.updateJobStatus(jobId, 'processing', 10)
       console.log(`✅ Job status updated to processing`)
 
-      // Step 1: Create pricelist Excel file from database
-      console.log(`📋 Creating pricelist file...`)
-      await this.createPricelistFile()
-      console.log(`✅ Pricelist file created`)
-      await this.updateJobStatus(jobId, 'processing', 20)
-
-      // Step 2: Preserve original Excel formatting
-      let originalWorkbook = null
-      try {
-        console.log(`🎨 Preserving original formatting...`)
-        originalWorkbook = await this.loadAndPreserveFormatting(inputFilePath)
-        console.log(`✅ Original formatting preserved`)
-        await this.updateJobStatus(jobId, 'processing', 30)
-      } catch (formatError) {
-        console.warn('⚠️ Could not preserve original formatting:', formatError.message)
-        await this.updateJobStatus(jobId, 'processing', 30, 'Processing without format preservation...')
+      // Step 1: Parse Excel file to extract items with quantities
+      console.log(`📋 Parsing Excel file...`)
+      const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
+      console.log(`✅ Extracted ${extractedItems.length} items with quantities`)
+      
+      // Log first few items for debugging
+      if (extractedItems.length > 0) {
+        console.log(`📝 Sample items:`)
+        extractedItems.slice(0, 3).forEach((item, idx) => {
+          console.log(`   ${idx + 1}. "${item.description}" - Qty: ${item.quantity} - Row: ${item.row_number}`)
+        })
       }
+      
+      await this.updateJobStatus(jobId, 'processing', 30, `Extracted ${extractedItems.length} items`, { total_items: extractedItems.length })
 
-      // Step 3: Run Python script for price matching
-      console.log(`🐍 Running Python script...`)
-      const outputFilePath = path.join(this.outputDir, `processed-${jobId}-${originalFileName}`)
-      console.log(`📁 Output file path: ${outputFilePath}`)
-      await this.runPythonScript(inputFilePath, outputFilePath, jobId)
-      console.log(`✅ Python script completed`)
-      await this.updateJobStatus(jobId, 'processing', 85)
-
-      // Step 4: Apply preserved formatting to processed file (optional)
-      if (originalWorkbook) {
-        try {
-          console.log('🎨 Applying preserved formatting to processed file...')
-          await this.applyPreservedFormatting(outputFilePath, originalWorkbook)
-          console.log(`✅ Formatting applied successfully`)
-          await this.updateJobStatus(jobId, 'processing', 90, 'Applied formatting successfully')
-        } catch (formatError) {
-          console.warn('⚠️ Could not apply formatting, but processing completed:', formatError.message)
-          await this.updateJobStatus(jobId, 'processing', 90, 'Processing completed (formatting skipped)')
+      if (extractedItems.length === 0) {
+        // Try to understand why no items were found
+        console.log(`⚠️ No items found! Checking file structure...`)
+        const debugWorkbook = XLSX.readFile(inputFilePath)
+        console.log(`   - Sheets found: ${debugWorkbook.SheetNames.join(', ')}`)
+        for (const sheetName of debugWorkbook.SheetNames) {
+          const sheet = debugWorkbook.Sheets[sheetName]
+          const data = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+          console.log(`   - Sheet "${sheetName}" has ${data.length} rows`)
+          if (data.length > 0) {
+            console.log(`   - First row sample:`, data[0])
+          }
         }
-      } else {
-        console.log('📄 Skipping formatting preservation (original format could not be loaded)')
-        await this.updateJobStatus(jobId, 'processing', 90, 'Processing completed (no formatting applied)')
+        throw new Error('No items with quantities found in the Excel file. Please check the file format.')
       }
 
-      // Step 5: Parse results and save to database
-      try {
-        console.log(`💾 Saving results to database...`)
-        await this.saveResultsToDatabase(jobId, outputFilePath)
-        console.log(`✅ Results saved to database`)
-        await this.updateJobStatus(jobId, 'completed', 100)
-        console.log(`🎉 Job ${jobId} COMPLETED successfully`)
-      } catch (dbError) {
-        console.warn('⚠️ Could not save results to database, but processing completed:', dbError.message)
-        
-        // Still mark as completed - the Python script succeeded and Excel file is available
-        // The job summary was already updated during Python execution
-        await this.updateJobStatus(jobId, 'completed', 100, 'Processing completed successfully - results available for download')
-        console.log(`🎉 Job ${jobId} COMPLETED with database warning`)
+      // Step 2: Load price list from database
+      console.log(`💰 Loading price list from database...`)
+      const priceList = await this.loadPriceList()
+      console.log(`✅ Loaded ${priceList.length} price items`)
+      await this.updateJobStatus(jobId, 'processing', 40, `Loaded ${priceList.length} price items`)
+
+      if (priceList.length === 0) {
+        throw new Error('No price items found in database')
       }
+
+      // Step 3: Match items using selected matching method
+      console.log(`🔍 Starting price matching using ${matchingMethod}...`)
+      let matchingResult
+      
+      if (matchingMethod === 'cohere') {
+        matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, originalFileName)
+      } else if (matchingMethod === 'local') {
+        matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, this.updateJobStatus.bind(this))
+      } else {
+        throw new Error(`Unknown matching method: ${matchingMethod}`)
+      }
+      
+      console.log(`✅ ${matchingMethod} matching completed: ${matchingResult.totalMatched} matches found`)
+      await this.updateJobStatus(jobId, 'processing', 80, `Found ${matchingResult.totalMatched} matches`)
+
+      // Step 4: Save results to database
+      console.log(`💾 Saving results to database...`)
+      await this.saveMatchesToDatabase(jobId, matchingResult.matches)
+      console.log(`✅ Results saved to database`)
+      await this.updateJobStatus(jobId, 'processing', 90, 'Saving results...')
+
+      // Step 5: Generate output Excel even if no matches were found
+      console.log(`📄 Generating output Excel file...`)
+      let outputPath = matchingResult.outputPath
+      
+      // If no output path (e.g., no matches), create one with ExcelExportService
+      if (!outputPath || matchingResult.totalMatched === 0) {
+        console.log(`📄 Creating Excel output with original format...`)
+        const exportService = new ExcelExportService()
+        outputPath = await exportService.exportWithOriginalFormat(
+          inputFilePath, 
+          matchingResult.matches || [], 
+          jobId, 
+          originalFileName
+        )
+        console.log(`✅ Created output file: ${outputPath}`)
+      }
+
+      // Step 6: Update job with final statistics
+      await this.supabase
+        .from('ai_matching_jobs')
+        .update({
+          matched_items: matchingResult.totalMatched,
+          total_items: extractedItems.length,
+          confidence_score: matchingResult.averageConfidence,
+          output_file_path: outputPath
+        })
+        .eq('id', jobId)
+
+      await this.updateJobStatus(jobId, 'completed', 100)
+      console.log(`🎉 Job ${jobId} COMPLETED successfully`)
 
       // Cleanup temp files
       console.log(`🧹 Cleaning up temp files...`)
@@ -114,7 +152,7 @@ export class PriceMatchingService {
       console.log(`✅ Cleanup completed`)
 
       console.log(`✅ Job ${jobId} completed successfully`)
-      return outputFilePath
+      return outputPath
 
     } catch (error) {
       console.error(`❌ Job ${jobId} FAILED with error:`, error)
@@ -122,6 +160,63 @@ export class PriceMatchingService {
       await this.updateJobStatus(jobId, 'failed', 0, error.message)
       throw error
     }
+  }
+
+  async loadPriceList() {
+    console.log('Loading price list from database...')
+    
+    // Fetch price items from Supabase - include id for proper mapping
+    const { data: priceItems, error } = await this.supabase
+      .from('price_items')
+      .select('id, description, rate, full_context, unit')
+      .not('rate', 'is', null)
+      .not('description', 'is', null)
+
+    if (error) {
+      throw new Error(`Failed to fetch price items: ${error.message}`)
+    }
+
+    if (!priceItems || priceItems.length === 0) {
+      throw new Error('No price items found in database')
+    }
+
+    console.log(`Loaded ${priceItems.length} price items from database`)
+    return priceItems
+  }
+
+  async saveMatchesToDatabase(jobId, matches) {
+    console.log(`Saving ${matches.length} matches to database...`)
+    
+    if (matches.length === 0) {
+      console.log('No matches to save')
+      return
+    }
+
+    // Transform matches for database
+    const dbMatches = matches.map(match => ({
+      job_id: jobId,
+      sheet_name: match.sheet_name,
+      row_number: match.row_number,
+      original_description: match.original_description,
+      preprocessed_description: match.original_description.toLowerCase().trim(),
+      matched_description: match.matched_description,
+      matched_rate: match.matched_rate,
+      similarity_score: match.similarity_score,
+      quantity: match.quantity,
+      matched_price_item_id: match.matched_price_item_id
+    }))
+
+    // Save to database
+    const { error } = await this.supabase
+      .from('match_results')
+      .insert(dbMatches)
+
+    if (error) {
+      console.error('Error saving match results:', error)
+      throw new Error(`Failed to save results: ${error.message}`)
+    }
+
+    console.log(`Successfully saved ${matches.length} matches to database`)
   }
 
   async createPricelistFile() {
@@ -164,7 +259,7 @@ export class PriceMatchingService {
     console.log(`Created pricelist with ${priceItems.length} items`)
   }
 
-  async loadAndPreserveFormatting(filePath) {
+  async loadAndPreservedFormatting(filePath) {
     console.log('Loading and preserving original Excel formatting...')
     
     try {
@@ -625,22 +720,23 @@ Possible causes:
             if (!row) continue
             
             for (let colIndex = 0; colIndex < row.length; colIndex++) {
-              const cellValue = String(row[colIndex] || '').toLowerCase()
+              const cellValue = String(row[colIndex] || '').toLowerCase().replace(/\s+/g, '')
+              const originalCellValue = String(row[colIndex] || '').toLowerCase()
               
-              if (cellValue.includes('description') && !cellValue.includes('matched')) {
+              if (cellValue === 'original_description' || cellValue === 'description' || (originalCellValue.includes('description') && !originalCellValue.includes('matched'))) {
                 descCol = colIndex
                 headerRowIndex = rowIndex
-              } else if (cellValue.includes('matched description')) {
+              } else if (cellValue === 'matched_description' || cellValue === 'matcheddescription' || originalCellValue === 'matched description') {
                 matchedDescCol = colIndex
-              } else if (cellValue.includes('matched rate')) {
+              } else if (cellValue === 'matched_rate' || cellValue === 'matchedrate' || originalCellValue === 'matched rate') {
                 rateCol = colIndex
-              } else if (cellValue.includes('similarity score')) {
+              } else if (cellValue === 'similarity_score' || cellValue === 'similarityscore' || originalCellValue === 'similarity score') {
                 simCol = colIndex
-              } else if (cellValue.includes('qty') || cellValue.includes('quantity')) {
+              } else if (cellValue === 'quantity' || cellValue.includes('qty')) {
                 qtyCol = colIndex
-              } else if (cellValue.includes('matched id') || cellValue.includes('price item id')) {
+              } else if (cellValue === 'matched_price_item_id' || cellValue === 'matched_id' || cellValue === 'matchedid' || originalCellValue === 'matched id') {
                 matchedIdCol = colIndex
-              } else if (cellValue.includes('unit') || cellValue.includes('measure')) {
+              } else if (cellValue === 'unit') {
                 unitCol = colIndex
               }
             }
@@ -659,7 +755,13 @@ Possible causes:
             continue
           }
           
-          console.log(`Processing sheet ${sheetName} - found columns: desc=${descCol}, matchedDesc=${matchedDescCol}, rate=${rateCol}, sim=${simCol}, qty=${qtyCol}`)
+          console.log(`Processing sheet ${sheetName} - found columns: desc=${descCol}, matchedDesc=${matchedDescCol}, rate=${rateCol}, sim=${simCol}, qty=${qtyCol}, matchedId=${matchedIdCol}, unit=${unitCol}`)
+          
+          // Debug: Print all found headers
+          if (headerRowIndex >= 0 && jsonData[headerRowIndex]) {
+            const headers = jsonData[headerRowIndex].map((h, i) => `${i}: "${h}"`).join(', ')
+            console.log(`All headers in sheet ${sheetName}: ${headers}`)
+          }
           
           // Process data rows
           for (let rowIndex = headerRowIndex + 1; rowIndex < jsonData.length; rowIndex++) {
@@ -686,8 +788,8 @@ Possible causes:
                   matched_rate: matchedRate,
                   similarity_score: similarity,
                   quantity: quantity,
-                  matched_price_item_id: matchedPriceItemId,
-                  unit: unit
+                  matched_price_item_id: matchedPriceItemId
+                  // Removed 'unit' field as it doesn't exist in the database schema
                 })
                 
                 totalMatched++
@@ -739,7 +841,7 @@ Possible causes:
     }
   }
 
-  async updateJobStatus(jobId, status, progress = 0, errorMessage = null) {
+  async updateJobStatus(jobId, status, progress = 0, errorMessage = null, extraData = {}) {
     try {
       console.log(`📊 Updating job ${jobId}: ${status} (${progress}%)${errorMessage ? ` - ${errorMessage.split('\n')[0]}` : ''}`)
       
@@ -769,10 +871,20 @@ Possible causes:
   }
 
   async getProcessedFile(jobId) {
-    // Find the processed file for this job
-    const files = await fs.readdir(this.outputDir)
-    const jobFile = files.find(file => file.includes(`processed-${jobId}-`))
-    
+    // Try to get output path from job record first
+    const { data: job, error } = await this.supabase
+      .from('ai_matching_jobs')
+      .select('output_file_path')
+      .eq('id', jobId)
+      .single()
+
+    if (!error && job?.output_file_path) {
+      return job.output_file_path
+    }
+
+    // Fallback to searching in output directory
+    const outputFiles = await fs.readdir(this.outputDir)
+    const jobFile = outputFiles.find(file => file.includes(jobId))
     return jobFile ? path.join(this.outputDir, jobFile) : null
   }
 

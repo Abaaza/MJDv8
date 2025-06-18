@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import re
 import os
@@ -6,12 +8,17 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any, Union
 import numpy as np
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import cohere
+import uuid
+import traceback
+
+import pandas as pd
+from scipy.spatial.distance import cosine
 
 # Configure logging
 logging.basicConfig(
@@ -235,9 +242,15 @@ def embed_texts_with_retry(client: cohere.Client, texts: List[str], input_type: 
                     if not embeddings_list:
                         logger.error(f"No valid embeddings extracted from batch")
                         logger.error(f"Raw embeddings type: {type(batch_embeddings_raw)}")
-                        logger.error(f"Raw embeddings dir: {dir(batch_embeddings_raw)}")
-                        if hasattr(batch_embeddings_raw, '__len__'):
-                            logger.error(f"Raw embeddings length: {len(batch_embeddings_raw)}")
+                        logger.error(f"Raw embeddings type: {type(batch_embeddings_raw)}")
+                        # Safe length check for type checker
+                        try:
+                            # Type-safe length check
+                            raw_len = getattr(batch_embeddings_raw, '__len__', None)
+                            if raw_len is not None:
+                                logger.error(f"Raw embeddings length: {raw_len()}")
+                        except:
+                            pass
                         raise ValueError(f"No valid embeddings extracted from batch. Raw type: {type(batch_embeddings_raw)}")
                     
                     logger.debug(f"Extracted {len(embeddings_list)} embeddings from batch")
@@ -393,14 +406,30 @@ def load_pricelist_enhanced(path: str) -> Tuple[List[str], List[float], List[str
         raise
 
 def find_headers_enhanced(ws) -> Tuple[Optional[int], Optional[int], Optional[int]]:
-    """Enhanced header detection with fuzzy matching"""
+    """Enhanced header detection with comprehensive format support"""
     header_row = None
     desc_col = None
     qty_col = None
     
-    # Search in first 10 rows for headers
-    for row_num in range(1, min(11, ws.max_row + 1)):
+    logger.info("=== ADAPTIVE HEADER DETECTION ===")
+    
+    # Search in first 15 rows for headers (more comprehensive)
+    for row_num in range(1, min(16, ws.max_row + 1)):
         row = ws[row_num]
+        
+        # Debug: Print all headers in this row
+        row_headers = []
+        for col_num, cell in enumerate(row, start=1):
+            if cell.value:
+                row_headers.append(f"Col {col_num}: '{cell.value}'")
+        
+        if len(row_headers) >= 2:  # Only log rows with multiple headers
+            logger.info(f"Row {row_num} headers: {', '.join(row_headers)}")
+        
+        # Check if this row has header-like characteristics
+        header_indicators = 0
+        potential_desc_col = None
+        potential_qty_col = None
         
         for col_num, cell in enumerate(row, start=1):
             if not cell.value:
@@ -408,48 +437,154 @@ def find_headers_enhanced(ws) -> Tuple[Optional[int], Optional[int], Optional[in
                 
             cell_value = str(cell.value).lower().strip()
             
-            # Description column patterns
-            if any(pattern in cell_value for pattern in ['description', 'desc', 'item', 'work']):
-                desc_col = col_num
-                header_row = row_num
-                logger.info(f"Found description column {col_num} at row {row_num}: '{cell.value}'")
+            # DESCRIPTION COLUMN - Very comprehensive patterns
+            desc_patterns = [
+                'description', 'desc', 'item', 'work', 'activity', 'task', 'operation',
+                'specification', 'spec', 'details', 'particulars', 'trade', 'element',
+                'component', 'material', 'labor', 'labour', 'service', 'works',
+                'ref', 'reference', 'code', 'product', 'title', 'name', 'category'
+            ]
             
-            # Quantity column patterns - be more specific to avoid false matches
-            if any(pattern in cell_value for pattern in ['qty', 'quantity', 'amount', 'no.', 'number', 'units', 'count']):
-                # Avoid matching 'notes' or other non-quantity columns
-                if 'note' not in cell_value and 'comment' not in cell_value and 'remark' not in cell_value:
-                    qty_col = col_num
-                    logger.info(f"Found quantity column {col_num} at row {row_num}: '{cell.value}'")
+            if any(pattern in cell_value for pattern in desc_patterns):
+                # Avoid false positives
+                if not any(exclude in cell_value for exclude in ['note', 'remark', 'comment', 'total', 'sum', 'page']):
+                    potential_desc_col = col_num
+                    header_indicators += 2
+                    logger.info(f"Found DESCRIPTION pattern in col {col_num}: '{cell.value}'")
+            
+            # QUANTITY COLUMN - Ultra comprehensive patterns
+            qty_patterns = [
+                # Standard patterns
+                'qty', 'quantity', 'quan', 'qnty', 'qtty', 'quantities',
+                'amount', 'amt', 'number', 'no.', 'no', 'nr', 'num', '#',
+                'units', 'unit', 'count', 'cnt', 'total', 'sum',
+                # Measurement patterns
+                'volume', 'area', 'length', 'width', 'height', 'depth',
+                'm2', 'm²', 'm3', 'm³', 'sqm', 'cbm', 'linear', 'lm',
+                'sq.m', 'cu.m', 'square', 'cubic', 'metres', 'meters',
+                # Unit patterns
+                'each', 'ea', 'pcs', 'pieces', 'items', 'nos', 'numbers',
+                'kg', 'tonnes', 'tons', 'litres', 'liters', 'hours', 'hrs',
+                # Other patterns
+                'extent', 'measure', 'size', 'dimension', 'scope'
+            ]
+            
+            if any(pattern in cell_value for pattern in qty_patterns):
+                # Avoid false positives
+                if not any(exclude in cell_value for exclude in ['description', 'note', 'remark', 'comment', 'page']):
+                    potential_qty_col = col_num
+                    header_indicators += 1
+                    logger.info(f"Found QUANTITY pattern in col {col_num}: '{cell.value}'")
+            
+            # Other header indicators
+            other_patterns = ['rate', 'price', 'cost', 'value', 'total', 'unit', 'measure']
+            if any(pattern in cell_value for pattern in other_patterns):
+                header_indicators += 0.5
         
-        # If we found description column, we can proceed
-        if desc_col:
+        # If this row has strong header indicators, consider it
+        # STRICTER REQUIREMENT: Need both description AND quantity columns for a valid header row
+        if header_indicators >= 2 and potential_desc_col and potential_qty_col:
+            header_row = row_num
+            desc_col = potential_desc_col
+            qty_col = potential_qty_col
+            logger.info(f"SELECTED HEADER ROW {row_num}: desc_col={desc_col}, qty_col={qty_col} (score: {header_indicators})")
             break
+        elif header_indicators >= 1.5 and potential_desc_col:
+            # Lower threshold but keep searching for better match
+            if not header_row:  # Only if we haven't found anything better
+                header_row = row_num
+                desc_col = potential_desc_col
+                qty_col = potential_qty_col
+                logger.info(f"TENTATIVE HEADER ROW {row_num}: desc_col={desc_col}, qty_col={qty_col} (score: {header_indicators}) - continuing search...")
+            # Don't break - keep looking for better match
     
-    # If no quantity column found, try to find numeric columns near description
+    # If no quantity column found by name, search more aggressively
     if desc_col and not qty_col and header_row:
-        logger.warning("No quantity column found by name, searching for numeric columns...")
+        logger.warning("No quantity column found by pattern matching, performing ADAPTIVE SEARCH...")
         
-        # Check columns around description column for numeric data
-        for test_col in range(max(1, desc_col - 2), min(ws.max_column + 1, desc_col + 5)):
+        # Expanded search range - check more columns
+        search_range = list(range(1, min(ws.max_column + 1, 20)))  # Search first 20 columns
+        logger.info(f"Searching for numeric columns in range: {search_range}")
+        
+        best_qty_col = None
+        best_score = 0
+        
+        for test_col in search_range:
             if test_col == desc_col:
                 continue
                 
-            # Check if this column contains mostly numeric data
+            # Analyze this column for numeric content
             numeric_count = 0
             total_count = 0
+            has_decimals = 0
+            sample_values = []
             
-            for test_row in range(header_row + 1, min(header_row + 21, ws.max_row + 1)):
+            for test_row in range(header_row + 1, min(header_row + 31, ws.max_row + 1)):  # Check more rows
                 cell = ws.cell(row=test_row, column=test_col)
-                if cell.value is not None:
+                if cell.value is not None and str(cell.value).strip():
                     total_count += 1
-                    if isinstance(cell.value, (int, float)) or (isinstance(cell.value, str) and cell.value.replace('.', '').replace(',', '').isdigit()):
+                    val_str = str(cell.value).strip()
+                    sample_values.append(val_str[:15])
+                    
+                    # Check if numeric
+                    try:
+                        val = float(val_str.replace(',', ''))
                         numeric_count += 1
+                        if '.' in val_str or ',' in val_str:
+                            has_decimals += 1
+                    except:
+                        # Check for partial numeric (like "5.00 m2")
+                        import re
+                        if re.search(r'\d', val_str):
+                            numeric_count += 0.5
             
-            if total_count > 0 and (numeric_count / total_count) > 0.5:  # More than 50% numeric
-                qty_col = test_col
-                header_name = ws.cell(row=header_row, column=test_col).value
-                logger.info(f"Auto-detected quantity column {test_col} ('{header_name}') - {numeric_count}/{total_count} numeric values")
+            if total_count > 0:
+                numeric_ratio = numeric_count / total_count
+                # Score this column
+                score = numeric_ratio
+                if has_decimals > 0:
+                    score += 0.1  # Bonus for having decimals
+                if total_count >= 5:
+                    score += 0.1  # Bonus for having enough data
+                
+                header_name = ws.cell(row=header_row, column=test_col).value or f"Column_{test_col}"
+                
+                if score > best_score and score > 0.2:  # Minimum 20% numeric
+                    best_score = score
+                    best_qty_col = test_col
+                    logger.info(f"Candidate quantity column {test_col} ('{header_name}'): score={score:.2f} ({numeric_count}/{total_count} numeric)")
+                    logger.info(f"Sample values: {sample_values[:5]}")
+        
+        if best_qty_col:
+            qty_col = best_qty_col
+            header_name = ws.cell(row=header_row, column=qty_col).value
+            logger.info(f"AUTO-DETECTED quantity column {qty_col} ('{header_name}') with score {best_score:.2f}")
+    
+    # Final validation and fallback
+    if not desc_col:
+        logger.warning("No description column found! Trying fallback detection...")
+        # Try to find the first text-heavy column
+        for col_num in range(1, min(10, ws.max_column + 1)):
+            text_count = 0
+            total_count = 0
+            for row_num in range(1, min(20, ws.max_row + 1)):
+                cell = ws.cell(row=row_num, column=col_num)
+                if cell.value:
+                    total_count += 1
+                    if isinstance(cell.value, str) and len(str(cell.value)) > 10:
+                        text_count += 1
+            
+            if total_count > 0 and (text_count / total_count) > 0.7:
+                desc_col = col_num
+                header_row = 1
+                logger.info(f"FALLBACK: Using column {col_num} as description column")
                 break
+    
+    logger.info(f"=== FINAL DETECTION RESULT ===")
+    logger.info(f"Header Row: {header_row}")
+    logger.info(f"Description Column: {desc_col}")
+    logger.info(f"Quantity Column: {qty_col}")
+    logger.info(f"=======================")
     
     return header_row, desc_col, qty_col
 
@@ -573,11 +708,366 @@ def hierarchical_match_scoring(inquiry_item: dict, price_descriptions: List[str]
         enhanced_scores.append((enhanced_score, score_components))
     
     # Find best match
-    best_idx = np.argmax([score[0] for score in enhanced_scores])
+    best_idx = int(np.argmax([score[0] for score in enhanced_scores]))  # Convert numpy int to Python int
     best_score = enhanced_scores[best_idx][0]
     match_details = enhanced_scores[best_idx][1]
     
     return best_idx, best_score, match_details
+
+def process_all_sheets(workbook_path: str, pricelist_df: pd.DataFrame, job_id: str, client: cohere.Client) -> Optional[str]:
+    """Process all sheets in the workbook with adaptive detection"""
+    try:
+        workbook = load_workbook(workbook_path, data_only=True)
+        all_items = []
+        total_processed = 0
+        
+        logger.info(f"=== PROCESSING WORKBOOK WITH {len(workbook.sheetnames)} SHEETS ===")
+        
+        for sheet_name in workbook.sheetnames:
+            logger.info(f"\n=== PROCESSING SHEET: {sheet_name} ===")
+            try:
+                ws = workbook[sheet_name]
+                
+                # Skip empty or very small sheets
+                if ws.max_row < 3 or ws.max_column < 2:
+                    logger.info(f"Skipping sheet '{sheet_name}' - too small ({ws.max_row} rows, {ws.max_column} cols)")
+                    continue
+                
+                # Use enhanced header detection
+                header_row, desc_col, qty_col = find_headers_enhanced(ws)
+                
+                if not desc_col:
+                    logger.warning(f"No description column found in sheet '{sheet_name}', trying basic fallback...")
+                    # Last resort: use first column as description
+                    header_row = 1
+                    desc_col = 1
+                    logger.info(f"Using fallback: column 1 as description in sheet '{sheet_name}'")
+                
+                # Process items from this sheet
+                if header_row is not None and desc_col is not None:
+                    sheet_items = extract_items_from_sheet(ws, header_row, desc_col, qty_col, sheet_name)
+                else:
+                    logger.warning(f"Invalid header detection in sheet '{sheet_name}' - skipping")
+                    continue
+                
+                if sheet_items:
+                    all_items.extend(sheet_items)
+                    total_processed += len(sheet_items)
+                    logger.info(f"Sheet '{sheet_name}' contributed {len(sheet_items)} items")
+                else:
+                    logger.warning(f"No items extracted from sheet '{sheet_name}'")
+                
+            except Exception as e:
+                logger.error(f"Error processing sheet '{sheet_name}': {e}")
+                continue
+        
+        logger.info(f"\n=== WORKBOOK PROCESSING COMPLETE ===")
+        logger.info(f"Total items extracted from all sheets: {total_processed}")
+        
+        if not all_items:
+            logger.error("No items found in any sheet of the workbook!")
+            return None
+        
+        # Create DataFrame from all items
+        items_df = pd.DataFrame(all_items)
+        logger.info(f"Created DataFrame with {len(items_df)} total items")
+        
+        # Process matches
+        return process_item_matching(items_df, pricelist_df, job_id, client)
+        
+    except Exception as e:
+        logger.error(f"Error processing workbook: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
+def extract_items_from_sheet(ws, header_row: int, desc_col: int, qty_col: Optional[int], sheet_name: str) -> List[Dict]:
+    """Extract items from a single sheet with robust BOQ format handling and deduplication"""
+    import re
+    items = []
+    section_stack = []  # Track hierarchy of sections
+    seen_descriptions = set()  # Track unique descriptions to avoid duplicates
+    
+    logger.info(f"Extracting items from sheet '{sheet_name}' starting at row {header_row + 1}")
+    logger.info(f"Description column: {desc_col}, Quantity column: {qty_col}")
+    
+    # Check if there are any data rows
+    data_rows_found = 0
+    total_rows_scanned = 0
+    unique_items_added = 0
+    
+    for row_num in range(header_row + 1, ws.max_row + 1):
+        total_rows_scanned += 1
+        desc_cell = ws.cell(row=row_num, column=desc_col)
+        
+        if not desc_cell.value or str(desc_cell.value).strip() == "":
+            continue
+            
+        description = str(desc_cell.value).strip()
+        
+        # Skip completely empty rows
+        if len(description) < 1:
+            continue
+        
+        # Get quantity - more flexible handling with scanning
+        quantity = None
+        if qty_col:
+            qty_cell = ws.cell(row=row_num, column=qty_col)
+            if qty_cell.value is not None:
+                qty_str = str(qty_cell.value).strip()
+                try:
+                    # Handle various formats: "5.00", "5,000.00", "5.00 m2", etc.
+                    number_match = re.search(r'[\d,]+\.?\d*', qty_str.replace(',', ''))
+                    if number_match:
+                        quantity = float(number_match.group().replace(',', ''))
+                        if quantity > 0:
+                            data_rows_found += 1
+                except:
+                    pass
+        
+        # If no quantity column detected, scan nearby columns for numeric values
+        if quantity is None and qty_col is None:
+            for scan_col in range(max(1, desc_col - 2), min(ws.max_column + 1, desc_col + 5)):
+                if scan_col == desc_col:
+                    continue
+                try:
+                    scan_cell = ws.cell(row=row_num, column=scan_col)
+                    if scan_cell.value is not None:
+                        test_qty = float(scan_cell.value)
+                        if test_qty > 0:
+                            quantity = test_qty
+                            data_rows_found += 1
+                            break
+                except (ValueError, TypeError):
+                    continue
+        
+        # Enhanced section detection for BOQ formats
+        is_section = detect_boq_section_header(description, quantity, row_num, ws)
+        
+        if is_section:
+            update_section_stack(section_stack, description)
+            logger.debug(f"BOQ Section detected: {description} -> Stack: {section_stack}")
+            continue
+        
+        # Minimal filtering - only skip obviously problematic items
+        # Accept all items that have any description to maximize extraction
+        if len(description.strip()) < 1:
+            continue
+        
+        # Only skip items that are clearly not items at all
+        if description.lower().strip() in ['', 'total', 'subtotal', 'grand total', 'page']:
+            logger.debug(f"Skipping row {row_num}: obvious non-item: '{description}'")
+            continue
+        
+        # Default quantity for rate-based items
+        if quantity is None or quantity <= 0:
+            quantity = 1.0
+            logger.debug(f"Row {row_num}: Defaulted quantity to 1.0 for: '{description[:30]}...'")
+        
+        # Build enhanced description with BOQ section context
+        enhanced_description = build_enhanced_description(description, section_stack)
+        
+        # Create normalized key for deduplication
+        normalized_desc = normalize_description_for_dedup(description)
+        
+        # Skip if we've seen this description before (deduplication)
+        if normalized_desc in seen_descriptions:
+            logger.debug(f"Skipping duplicate row {row_num}: '{description[:30]}...'")
+            continue
+        
+        seen_descriptions.add(normalized_desc)
+        
+        item = {
+            'description': description,
+            'original_description': description,  # Add for compatibility with matching function
+            'enhanced_description': enhanced_description,
+            'quantity': quantity,
+            'row_number': row_num,
+            'sheet_name': sheet_name,
+            'head_title': section_stack[-1] if section_stack else None,
+            'section_context': ' > '.join(section_stack) if section_stack else 'General'
+        }
+        
+        items.append(item)
+        unique_items_added += 1
+        logger.debug(f"Row {row_num}: Added unique item '{description[:30]}...' (qty: {quantity})")
+    
+    logger.info(f"Sheet '{sheet_name}' extraction summary:")
+    logger.info(f"  Total rows scanned: {total_rows_scanned}")
+    logger.info(f"  Data rows with quantities found: {data_rows_found}")
+    logger.info(f"  Unique items extracted: {unique_items_added}")
+    logger.info(f"  BOQ sections detected: {len(section_stack)}")
+    logger.info(f"  Deduplication saved: {total_rows_scanned - unique_items_added} duplicates avoided")
+    
+    return items
+
+def detect_section_header(description: str, quantity: Optional[float]) -> bool:
+    """Detect if a row is a section header rather than an item - be more conservative"""
+    desc_upper = description.upper().strip()
+    
+    # Only detect as section if very clear indicators
+    if quantity is None or quantity <= 0:
+        # Strong section indicators only
+        strong_section_keywords = [
+            'BILL NR', 'SUB-BILL', 'PART A', 'PART B', 'SECTION', 'CHAPTER', 'DIVISION'
+        ]
+        
+        # Must be ALL CAPS and contain strong section keywords
+        if desc_upper == description and len(description) > 10:
+            if any(keyword in desc_upper for keyword in strong_section_keywords):
+                return True
+            
+        # Very short headers that are clearly sections
+        if len(description) <= 20 and any(word in desc_upper for word in ['SECTION', 'PART', 'CHAPTER', 'DIVISION']):
+            return True
+    
+    return False
+
+def update_section_stack(section_stack: List[str], section_title: str):
+    """Update the hierarchical section stack"""
+    # Clean the title
+    clean_title = section_title.strip()
+    
+    # Determine hierarchy level based on formatting
+    if clean_title.isupper() and len(clean_title) > 10:
+        # Major section - clear stack and start fresh
+        section_stack.clear()
+        section_stack.append(clean_title)
+    elif clean_title.isupper():
+        # Subsection - keep one level
+        if section_stack:
+            section_stack = section_stack[:1]
+        section_stack.append(clean_title)
+    else:
+        # Minor section or detail
+        section_stack.append(clean_title)
+        # Keep maximum 3 levels
+        if len(section_stack) > 3:
+            section_stack = section_stack[-3:]
+
+def build_enhanced_description(description: str, section_stack: List[str]) -> str:
+    """Build enhanced description with contextual information"""
+    if not section_stack:
+        return description
+    
+    # Create context string
+    context = ' > '.join(section_stack)
+    
+    # Combine context with description
+    enhanced = f"{context} > {description}"
+    
+    return enhanced
+
+def should_skip_item(description: str, quantity: Optional[float] = None) -> bool:
+    """Determine if an item should be skipped based on description patterns"""
+    desc_lower = description.lower()
+    
+    # Skip obvious non-items
+    skip_patterns = [
+        'total', 'subtotal', 'grand total', 'sum', 'page', 'continued',
+        'note:', 'remark:', 'see', 'refer to', 'as per', 'including',
+        'excluding', 'carried forward', 'brought forward', 'page total'
+    ]
+    
+    for pattern in skip_patterns:
+        if pattern in desc_lower:
+            return True
+    
+    # Skip if description is too short or generic - BUT be more lenient if there's a valid quantity
+    min_length = 1 if (quantity is not None and quantity > 0) else 5
+    if len(description.strip()) < min_length:
+        return True
+    
+    return False
+
+def detect_boq_section_header(description: str, quantity: Optional[float], row_num: int, ws) -> bool:
+    """Enhanced BOQ section detection for different formats"""
+    desc_upper = description.upper().strip()
+    
+    # Only consider as section if no quantity
+    if quantity is not None and quantity > 0:
+        return False
+    
+    # BOQ section patterns
+    boq_section_patterns = [
+        r'^BILL\s+N[RO]?\.?\s*\d+', # BILL NR 2005, BILL NO. 1, etc.
+        r'^SUB[\-\s]?BILL', # SUB-BILL, SUB BILL
+        r'^PART\s+[A-Z0-9]', # PART A, PART 1
+        r'^SECTION\s+[A-Z0-9]', # SECTION A, SECTION 1
+        r'^CHAPTER\s+[A-Z0-9]', # CHAPTER 1
+        r'^[A-Z]\d{2,}', # A393, D20, etc.
+        r'^\d+\.\d+', # 2005.02, 1.1, etc.
+    ]
+    
+    # Check for BOQ patterns
+    import re
+    for pattern in boq_section_patterns:
+        if re.match(pattern, desc_upper):
+            return True
+    
+    # Common BOQ section headers
+    boq_sections = [
+        'GROUNDWORK', 'SUBSTRUCTURES', 'SUPERSTRUCTURE', 'ROOFING', 'EXTERNAL WALLS',
+        'INTERNAL WALLS', 'FLOORS', 'STAIRS', 'ROOF', 'EXTERNAL DOORS', 'WINDOWS',
+        'INTERNAL DOORS', 'WALL FINISHES', 'FLOOR FINISHES', 'CEILING FINISHES',
+        'FITTINGS', 'DISPOSAL SYSTEMS', 'WATER INSTALLATIONS', 'HEAT SOURCE',
+        'SPACE HEATING', 'VENTILATION', 'ELECTRICAL INSTALLATIONS', 'LIFT INSTALLATIONS',
+        'PROTECTIVE INSTALLATIONS', 'COMMUNICATION INSTALLATIONS', 'SPECIAL INSTALLATIONS',
+        'BUILDERS WORK', 'DRAINAGE', 'EXTERNAL WORKS', 'DEMOLITION', 'ALTERATIONS'
+    ]
+    
+    # Check if it's a known BOQ section
+    if any(section in desc_upper for section in boq_sections):
+        return True
+    
+    # Check if it's all caps and looks like a header (but not just a short item description)
+    if desc_upper == description and len(description) > 15:
+        return True
+    
+    return False
+
+def should_skip_boq_item(description: str, quantity: Optional[float], seen_descriptions: set) -> bool:
+    """Enhanced filtering for BOQ items"""
+    desc_lower = description.lower().strip()
+    
+    # Skip obvious non-items
+    skip_patterns = [
+        'total', 'subtotal', 'grand total', 'sum', 'page', 'continued',
+        'note:', 'remark:', 'see', 'refer to', 'as per', 'including',
+        'excluding', 'carried forward', 'brought forward', 'page total',
+        'description', 'item', 'rate', 'amount', 'unit', 'qty', 'quantity'
+    ]
+    
+    for pattern in skip_patterns:
+        if pattern in desc_lower:
+            return True
+    
+    # Skip very short or generic descriptions
+    if len(description.strip()) < 2:
+        return True
+    
+    # Skip single words that are likely column headers or non-descriptive
+    words = description.strip().split()
+    if len(words) == 1 and len(words[0]) < 10:
+        generic_words = ['disposal', 'excavation', 'concrete', 'steel', 'timber', 'walls', 'doors', 'windows']
+        if words[0].lower() in generic_words:
+            return True
+    
+    return False
+
+def normalize_description_for_dedup(description: str) -> str:
+    """Normalize description for deduplication"""
+    # Convert to lowercase and remove extra whitespace
+    normalized = re.sub(r'\s+', ' ', description.lower().strip())
+    
+    # Remove common BOQ formatting characters
+    normalized = re.sub(r'[^\w\s]', '', normalized)
+    
+    # Remove very common words that don't affect meaning
+    stop_words = {'the', 'and', 'or', 'of', 'in', 'to', 'for', 'with', 'by', 'at', 'on', 'as', 'per'}
+    words = [word for word in normalized.split() if word not in stop_words]
+    
+    return ' '.join(words)
 
 def main():
     parser = argparse.ArgumentParser(description="Enhanced Cohere Excel Price Matching")
@@ -594,9 +1084,6 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    # Initialize progress tracker
-    progress = ProgressTracker(100)
-    
     try:
         logger.info("=== Enhanced Cohere Excel Price Matching Started ===")
         logger.info(f"Inquiry file: {args.inquiry}")
@@ -605,279 +1092,184 @@ def main():
         logger.info(f"Similarity threshold: {args.similarity_threshold}")
         
         # Initialize Cohere client
-        progress.update(5, "Initializing Cohere client")
         try:
             client = cohere.Client(args.api_key)
             logger.info("Cohere client initialized successfully")
         except Exception as e:
             raise Exception(f"Failed to initialize Cohere client: {str(e)}")
         
-        # Load and process pricelist
-        progress.update(10, "Loading pricelist")
+        # Load pricelist into DataFrame format for new processing
         price_descriptions, price_rates, price_units, price_ids = load_pricelist_enhanced(args.pricelist)
         
-        # For display purposes, create clean item descriptions
-        item_descriptions = []
-        for desc in price_descriptions:
-            # Extract clean description (first line, limit length)
-            clean_desc = desc.split('\n')[0].strip()
-            if len(clean_desc) > 100:
-                clean_desc = clean_desc[:100] + "..."
-            item_descriptions.append(clean_desc)
+        # Create pricelist DataFrame
+        pricelist_df = pd.DataFrame({
+            'id': price_ids,
+            'description': price_descriptions,
+            'rate': price_rates,
+            'unit': price_units
+        })
         
-        progress.update(15, "Preprocessing pricelist descriptions")
+        logger.info(f"Loaded pricelist with {len(pricelist_df)} items")
+        
+        # Use new multi-sheet processing
+        job_id = str(uuid.uuid4())
+        output_path = process_all_sheets(args.inquiry, pricelist_df, job_id, client)
+        
+        if output_path:
+            # Copy output to specified path
+            import shutil
+            shutil.copy2(output_path, args.output)
+            logger.info(f"Processing completed successfully! Output saved to: {args.output}")
+        else:
+            logger.error("Processing failed - no output generated")
+            return 1
+        
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return 1
+    
+    return 0
+
+def process_item_matching(items_df: pd.DataFrame, pricelist_df: pd.DataFrame, job_id: str, client: cohere.Client) -> Optional[str]:
+    """Process item matching and generate output Excel file"""
+    try:
+        logger.info("Cohere client ready for matching")
+        
+        # Prepare data for matching
+        price_descriptions = pricelist_df['description'].tolist()
+        price_rates = pricelist_df['rate'].tolist()
+        price_units = pricelist_df['unit'].tolist()
+        price_ids = pricelist_df['id'].tolist()
+        
+        # Preprocess descriptions
         processed_price_descs = [enhanced_preprocess(desc, SYNONYM_MAP, STOP_WORDS) 
                                for desc in price_descriptions]
         
-        # Generate price embeddings
-        progress.update(20, "Generating price embeddings")
+        # Generate embeddings
+        logger.info("Generating price embeddings...")
         price_embeddings = embed_texts_with_retry(client, processed_price_descs, "search_document")
         price_embeddings_norm = price_embeddings / np.linalg.norm(price_embeddings, axis=1, keepdims=True)
         
-        # Load inquiry workbook
-        progress.update(40, "Loading inquiry workbook")
-        try:
-            wb = load_workbook(args.inquiry)
-            logger.info(f"Loaded workbook with {len(wb.worksheets)} worksheets")
-        except Exception as e:
-            raise Exception(f"Failed to load inquiry file: {str(e)}")
+        # Process inquiry items
+        logger.info(f"Processing {len(items_df)} inquiry items...")
         
-        total_processed = 0
-        total_matched = 0
-        
-        # Process each worksheet
-        for sheet_idx, ws in enumerate(wb.worksheets):
-            sheet_progress_start = 45 + (sheet_idx * 45 // len(wb.worksheets))
-            progress.update(sheet_progress_start, f"Processing sheet: {ws.title}")
+        matches = []
+        for idx, row in items_df.iterrows():
+            # Use enhanced description for better matching
+            inquiry_desc = row.get('enhanced_description', row.get('original_description', row.get('description', '')))
+            # Ensure we have a valid string for preprocessing
+            if inquiry_desc is None:
+                inquiry_desc = str(row.get('original_description', row.get('description', '')))
+            processed_inquiry = enhanced_preprocess(str(inquiry_desc), SYNONYM_MAP, STOP_WORDS)
             
-            logger.info(f"Processing worksheet: {ws.title}")
-            
-            # Find headers
-            header_row, desc_col, qty_col = find_headers_enhanced(ws)
-            if not header_row or not desc_col:
-                logger.warning(f"Could not find required columns in sheet {ws.title}")
-                continue
-            
-            # Add result columns
-            max_col = ws.max_column
-            num_new_cols = add_result_columns_with_formatting(ws, header_row, max_col)
-            
-            # Collect items for processing - ONLY items with quantity > 0
-            inquiry_items = []
-            item_rows = []
-            
-            # Track head titles for context
-            current_head_title = ""
-            
-            for row_num in range(header_row + 1, ws.max_row + 1):
-                desc_cell = ws.cell(row=row_num, column=desc_col)
-                qty_cell = ws.cell(row=row_num, column=qty_col) if qty_col else None
-                
-                if not desc_cell.value:
-                    continue
-                
-                description = str(desc_cell.value).strip()
-                quantity = 0.0
-                
-                # Parse quantity - REQUIREMENT: Only process items with quantity
-                if qty_cell and qty_cell.value:
-                    try:
-                        # Handle different cell value types
-                        if isinstance(qty_cell.value, (int, float)):
-                            quantity = float(qty_cell.value)
-                        elif isinstance(qty_cell.value, str):
-                            # Try to extract number from string
-                            import re
-                            qty_match = re.search(r'[\d,]+\.?\d*', str(qty_cell.value).replace(',', ''))
-                            if qty_match:
-                                quantity = float(qty_match.group())
-                            else:
-                                quantity = 0.0
-                        else:
-                            quantity = 0.0
-                    except (ValueError, TypeError):
-                        quantity = 0.0
-                
-                # Handle quantity filtering - more flexible approach
-                if qty_col is not None and quantity <= 0:
-                    # Check if this might be a head title/category
-                    if len(description) > 10 and not any(char.isdigit() for char in description):
-                        current_head_title = description
-                        logger.debug(f"Found potential head title: {current_head_title}")
-                    # Set default quantity for items even when qty column exists but no quantity found
-                    quantity = 1.0
-                elif qty_col is None:
-                    # No qty column found, use default quantity
-                    quantity = 1.0
-                
-                # Filter out non-item rows
-                if len(description) < 5 or description.lower() in ['description', 'item', 'work']:
-                    continue
-                
-                # Create enhanced description with head title context
-                enhanced_description = description
-                if current_head_title:
-                    enhanced_description = f"{current_head_title} - {description}"
-                
-                inquiry_items.append({
-                    'description': description,
-                    'enhanced_description': enhanced_description,
-                    'head_title': current_head_title,
-                    'quantity': quantity,
-                    'row': row_num
-                })
-                item_rows.append(row_num)
-            
-            if not inquiry_items:
-                logger.warning(f"No valid items found in sheet {ws.title}")
-                continue
-            
-            logger.info(f"Found {len(inquiry_items)} items to process in sheet {ws.title}")
-            print(f"PROGRESS_INFO: Found {len(inquiry_items)} items to match in sheet '{ws.title}'")
-            
-            # Process inquiry descriptions with enhanced context
-            progress.update(sheet_progress_start + 5, f"Preprocessing {len(inquiry_items)} inquiry items")
-            processed_inquiry_descs = [enhanced_preprocess(item['enhanced_description'], SYNONYM_MAP, STOP_WORDS) 
-                                     for item in inquiry_items]
-            
-            # Generate inquiry embeddings
-            progress.update(sheet_progress_start + 10, f"Generating embeddings for {len(inquiry_items)} inquiry items")
-            inquiry_embeddings = embed_texts_with_retry(client, processed_inquiry_descs, "search_query")
-            
-            # Validate embedding shapes
-            logger.info(f"Inquiry embeddings shape: {inquiry_embeddings.shape}")
-            logger.info(f"Price embeddings shape: {price_embeddings.shape}")
-            
-            # Ensure embeddings are 2D arrays
-            if len(inquiry_embeddings.shape) != 2:
-                logger.error(f"Inquiry embeddings have wrong shape: {inquiry_embeddings.shape}")
-                raise ValueError(f"Expected 2D array for inquiry embeddings, got shape {inquiry_embeddings.shape}")
-            
-            if len(price_embeddings.shape) != 2:
-                logger.error(f"Price embeddings have wrong shape: {price_embeddings.shape}")
-                raise ValueError(f"Expected 2D array for price embeddings, got shape {price_embeddings.shape}")
-            
-            # Check if embedding dimensions match
-            if inquiry_embeddings.shape[1] != price_embeddings.shape[1]:
-                logger.error(f"Embedding dimension mismatch: inquiry={inquiry_embeddings.shape[1]}, price={price_embeddings.shape[1]}")
-                raise ValueError(f"Embedding dimensions don't match: {inquiry_embeddings.shape[1]} vs {price_embeddings.shape[1]}")
-            
-            # Normalize embeddings
-            progress.update(sheet_progress_start + 15, "Normalizing embeddings and calculating similarities")
-            inquiry_embeddings_norm = inquiry_embeddings / np.linalg.norm(inquiry_embeddings, axis=1, keepdims=True)
+            # Generate inquiry embedding
+            inquiry_embedding = embed_texts_with_retry(client, [processed_inquiry], "search_query")
+            inquiry_embedding_norm = inquiry_embedding / np.linalg.norm(inquiry_embedding)
             
             # Calculate similarities
-            logger.info(f"Calculating similarity matrix: {inquiry_embeddings_norm.shape} x {price_embeddings_norm.shape}")
-            similarities = inquiry_embeddings_norm.dot(price_embeddings_norm.T)
-            logger.info(f"Similarity matrix calculated with shape: {similarities.shape}")
+            similarities = np.dot(price_embeddings_norm, inquiry_embedding_norm.T).flatten()
             
-            # Process matches with hierarchical scoring
-            progress.update(sheet_progress_start + 20, f"Processing matches for {len(inquiry_items)} items")
-            sheet_matched = 0
-            for i, item in enumerate(inquiry_items):
-                sim_scores = similarities[i]
-                
-                # Use hierarchical matching logic
-                best_idx, best_score, match_details = hierarchical_match_scoring(
-                    item, item_descriptions, price_rates, price_units, sim_scores
-                )
-                
-                row_num = item['row']
-                
-                if best_score >= args.similarity_threshold:
-                    # Good match found - show item description (not full context)
-                    matched_desc = item_descriptions[best_idx]  # Use clean item description for display
-                    matched_rate = price_rates[best_idx]
-                    matched_unit = price_units[best_idx] if best_idx < len(price_units) else ''
-                    matched_id = price_ids[best_idx] if best_idx < len(price_ids) else ''
-                    total_amount = item['quantity'] * matched_rate
-                    quality = calculate_match_quality(best_score)
-                    
-                    # Fill result columns
-                    ws.cell(row=row_num, column=max_col + 1, value=matched_desc)
-                    ws.cell(row=row_num, column=max_col + 2, value=matched_rate)
-                    ws.cell(row=row_num, column=max_col + 3, value=total_amount)
-                    ws.cell(row=row_num, column=max_col + 4, value=round(best_score, 3))
-                    ws.cell(row=row_num, column=max_col + 5, value=quality)
-                    # Add price item ID and unit in additional columns for database storage
-                    ws.cell(row=row_num, column=max_col + 6, value=matched_id)
-                    ws.cell(row=row_num, column=max_col + 7, value=matched_unit)
-                    
-                    # Apply conditional formatting based on quality
-                    quality_cell = ws.cell(row=row_num, column=max_col + 5)
-                    if best_score >= 0.8:
-                        quality_cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                    elif best_score >= 0.6:
-                        quality_cell.fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-                    else:
-                        quality_cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-                    
-                    sheet_matched += 1
-                    
-                    # Log hierarchical match details for debugging
-                    logger.debug(f"Item '{item['description']}' matched with score {best_score:.3f} "
-                               f"(base: {match_details['base_similarity']:.3f}, "
-                               f"category: +{match_details['category_boost']:.3f}, "
-                               f"keywords: +{match_details['keyword_boost']:.3f}, "
-                               f"unit: +{match_details['unit_boost']:.3f})")
-                else:
-                    # No good match found
-                    ws.cell(row=row_num, column=max_col + 1, value="No suitable match found")
-                    ws.cell(row=row_num, column=max_col + 2, value=0)  # Rate
-                    ws.cell(row=row_num, column=max_col + 3, value=0)  # Total Amount
-                    ws.cell(row=row_num, column=max_col + 4, value=round(best_score, 3))
-                    ws.cell(row=row_num, column=max_col + 5, value="No Match")
-                    ws.cell(row=row_num, column=max_col + 6, value="")  # No Matched ID
-                    ws.cell(row=row_num, column=max_col + 7, value="")  # No Unit
-                    
-                    # Mark as no match
-                    quality_cell = ws.cell(row=row_num, column=max_col + 5)
-                    quality_cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+            # Find best match
+            best_idx = np.argmax(similarities)
+            best_similarity = similarities[best_idx]
             
-            total_processed += len(inquiry_items)
-            total_matched += sheet_matched
+            if best_similarity >= SIMILARITY_THRESHOLD:
+                match = {
+                    'id': str(uuid.uuid4()),
+                    'original_description': row.get('original_description', row.get('description', '')),
+                    'matched_description': price_descriptions[best_idx],
+                    'matched_rate': price_rates[best_idx],
+                    'similarity_score': float(best_similarity),
+                    'row_number': int(row['row_number']),
+                    'sheet_name': row['sheet_name'],
+                    'quantity': float(row['quantity']),
+                    'unit': price_units[best_idx],
+                    'total_amount': float(row['quantity']) * price_rates[best_idx],
+                    'matched_price_item_id': price_ids[best_idx],
+                    'section_context': row.get('section_context', 'General')
+                }
+                matches.append(match)
+                original_desc = row.get('original_description', row.get('description', ''))
+                logger.debug(f"Matched: {str(original_desc)[:50]}... -> {price_descriptions[best_idx][:50]}... (sim: {best_similarity:.3f})")
+            else:
+                original_desc = row.get('original_description', row.get('description', ''))
+                logger.debug(f"No match found for: {str(original_desc)[:50]}... (best sim: {best_similarity:.3f})")
+        
+        # Generate output Excel file compatible with existing JavaScript parser
+        output_path = os.path.join('output', f'processed-{job_id}-{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx')
+        os.makedirs('output', exist_ok=True)
+        
+        if matches:
+            # Create Excel workbook with openpyxl directly for better control
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill
             
-            logger.info(f"Sheet {ws.title}: {sheet_matched}/{len(inquiry_items)} items matched")
-            print(f"PROGRESS_INFO: Sheet '{ws.title}' completed: {sheet_matched}/{len(inquiry_items)} items matched")
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Results"
             
-            # Update progress for this sheet completion
-            sheet_progress_end = 45 + ((sheet_idx + 1) * 45 // len(wb.worksheets))
-            progress.update(sheet_progress_end, f"Completed sheet {ws.title}: {sheet_matched}/{len(inquiry_items)} matched")
-        
-        # Save results
-        progress.update(95, "Saving results")
-        try:
-            wb.save(args.output)
-            logger.info(f"Results saved to: {args.output}")
-        except Exception as e:
-            raise Exception(f"Failed to save output file: {str(e)}")
-        
-        # Final summary
-        progress.update(100, "Processing completed")
-        match_rate = (total_matched / total_processed * 100) if total_processed > 0 else 0
-        
-        summary = {
-            "total_processed": total_processed,
-            "total_matched": total_matched,
-            "match_rate": round(match_rate, 2),
-            "output_file": args.output
-        }
-        
-        logger.info("=== Processing Summary ===")
-        logger.info(f"Total items processed: {total_processed}")
-        logger.info(f"Total items matched: {total_matched}")
-        logger.info(f"Match rate: {match_rate:.2f}%")
-        logger.info(f"Output saved to: {args.output}")
-        
-        # Output JSON summary for Node.js backend
-        print(f"SUMMARY: {json.dumps(summary)}")
-        
-        progress.complete("Enhanced price matching completed successfully")
-        
+            # Define headers to match what JavaScript expects
+            headers = [
+                'original_description',
+                'matched_description', 
+                'matched_rate',
+                'similarity_score',
+                'quantity',
+                'unit',
+                'total_amount',
+                'matched_price_item_id',
+                'row_number',
+                'sheet_name'
+            ]
+            
+            # Add headers with formatting
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(start_color="CCE5FF", end_color="CCE5FF", fill_type="solid")
+            
+            # Add data rows
+            for row_idx, match in enumerate(matches, 2):
+                ws.cell(row=row_idx, column=1, value=match['original_description'])
+                ws.cell(row=row_idx, column=2, value=match['matched_description'])
+                ws.cell(row=row_idx, column=3, value=match['matched_rate'])
+                ws.cell(row=row_idx, column=4, value=match['similarity_score'])
+                ws.cell(row=row_idx, column=5, value=match['quantity'])
+                ws.cell(row=row_idx, column=6, value=match['unit'])
+                ws.cell(row=row_idx, column=7, value=match['total_amount'])
+                ws.cell(row=row_idx, column=8, value=match['matched_price_item_id'])
+                ws.cell(row=row_idx, column=9, value=match['row_number'])
+                ws.cell(row=row_idx, column=10, value=match['sheet_name'])
+            
+            # Auto-size columns
+            for column in ws.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column_letter].width = adjusted_width
+            
+            # Save workbook
+            wb.save(output_path)
+            
+            logger.info(f"Generated output file with {len(matches)} matches: {output_path}")
+            return output_path
+        else:
+            logger.warning("No matches found!")
+            return None
+            
     except Exception as e:
-        logger.error(f"Processing failed: {str(e)}")
-        print(f"ERROR: {str(e)}", file=sys.stderr)
-        sys.exit(1)
+        logger.error(f"Error in process_item_matching: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
 
 if __name__ == '__main__':
     main()
