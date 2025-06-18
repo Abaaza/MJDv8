@@ -1,8 +1,7 @@
-
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Edit, Trash2 } from "lucide-react"
+import { Edit, Trash2, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react"
 
 interface PriceItem {
   id: string
@@ -53,6 +52,9 @@ interface PriceItem {
   updated_at: string
 }
 
+export type SortField = 'code' | 'description' | 'category' | 'unit' | 'rate' | 'created_at'
+export type SortDirection = 'asc' | 'desc'
+
 interface PriceListTableProps {
   priceItems: PriceItem[]
   onEditItem: (item: PriceItem) => void
@@ -61,6 +63,9 @@ interface PriceListTableProps {
   categoryFilter: string
   totalItems: number
   currency: string
+  sortField: SortField
+  sortDirection: SortDirection
+  onSort: (field: SortField) => void
 }
 
 export function PriceListTable({ 
@@ -70,7 +75,10 @@ export function PriceListTable({
   searchTerm, 
   categoryFilter, 
   totalItems,
-  currency 
+  currency,
+  sortField,
+  sortDirection,
+  onSort
 }: PriceListTableProps) {
   const getKeywords = (item: PriceItem) => {
     const keywords = []
@@ -92,15 +100,51 @@ export function PriceListTable({
     }
   }
 
+  const SortableHeader = ({ field, children, className }: { 
+    field: SortField, 
+    children: React.ReactNode,
+    className?: string 
+  }) => {
+    const isActive = sortField === field
+    const isAsc = isActive && sortDirection === 'asc'
+    const isDesc = isActive && sortDirection === 'desc'
+
+    return (
+      <TableHead 
+        className={`cursor-pointer select-none hover:bg-muted/50 transition-colors ${className}`}
+        onClick={() => onSort(field)}
+      >
+        <div className="flex items-center justify-center gap-1">
+          {children}
+          <div className="flex flex-col">
+            {!isActive && <ChevronsUpDown className="h-3 w-3 text-muted-foreground" />}
+            {isAsc && <ChevronUp className="h-3 w-3 text-primary" />}
+            {isDesc && <ChevronDown className="h-3 w-3 text-primary" />}
+          </div>
+        </div>
+      </TableHead>
+    )
+  }
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[80px] text-center">Code</TableHead>
-          <TableHead className="text-center">Description</TableHead>
-          <TableHead className="text-center">Category</TableHead>
-          <TableHead className="text-center">Unit</TableHead>
-          <TableHead className="text-center">Rate ({currency})</TableHead>
+          <SortableHeader field="code" className="w-[80px] text-center">
+            Code
+          </SortableHeader>
+          <SortableHeader field="description" className="text-center">
+            Description
+          </SortableHeader>
+          <SortableHeader field="category" className="text-center">
+            Category
+          </SortableHeader>
+          <SortableHeader field="unit" className="text-center">
+            Unit
+          </SortableHeader>
+          <SortableHeader field="rate" className="text-center">
+            Rate ({currency})
+          </SortableHeader>
           <TableHead className="text-center">Keywords</TableHead>
           <TableHead className="w-[100px] text-center">Actions</TableHead>
         </TableRow>

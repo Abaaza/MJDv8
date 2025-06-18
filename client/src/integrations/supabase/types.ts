@@ -18,6 +18,7 @@ export type Database = {
           id: string
           matched_items: number | null
           original_filename: string
+          output_file_path: string | null
           progress: number | null
           project_name: string
           results: Json | null
@@ -34,6 +35,7 @@ export type Database = {
           id?: string
           matched_items?: number | null
           original_filename: string
+          output_file_path?: string | null
           progress?: number | null
           project_name: string
           results?: Json | null
@@ -50,6 +52,7 @@ export type Database = {
           id?: string
           matched_items?: number | null
           original_filename?: string
+          output_file_path?: string | null
           progress?: number | null
           project_name?: string
           results?: Json | null

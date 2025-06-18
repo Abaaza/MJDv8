@@ -107,8 +107,8 @@ router.post('/process-base64', async (req, res) => {
 
     // Convert base64 to file
     const tempDir = path.join(__dirname, '..', 'temp')
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
-    const tempFilePath = path.join(tempDir, `upload-${uniqueSuffix}-${fileName}`)
+    // Include jobId in the filename to make it easier to find later
+    const tempFilePath = path.join(tempDir, `job-${jobId}-${fileName}`)
     
     const buffer = Buffer.from(fileData, 'base64')
     await fs.writeFile(tempFilePath, buffer)
@@ -149,22 +149,67 @@ router.get('/download/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params
     
+    console.log(`[DOWNLOAD DEBUG] Request for job: ${jobId}`)
+    
     // Create service instance when needed (after dotenv is loaded)
     const priceMatchingService = getPriceMatchingService()
     
     // Get job details to find the output file
     const jobStatus = await priceMatchingService.getJobStatus(jobId)
     
-    if (!jobStatus || !jobStatus.output_file_path) {
-      return res.status(404).json({ error: 'Processed file not found' })
+    console.log(`[DOWNLOAD DEBUG] Job status:`, {
+      exists: !!jobStatus,
+      status: jobStatus?.status,
+      output_file_path: jobStatus?.output_file_path
+    })
+    
+    if (!jobStatus) {
+      console.log(`[DOWNLOAD DEBUG] Job not found`)
+      return res.status(404).json({ error: 'Job not found' })
     }
     
-    const filePath = jobStatus.output_file_path
+    let filePath = null
+    
+    // First try to use output_file_path if available
+    if (jobStatus.output_file_path) {
+      console.log(`[DOWNLOAD DEBUG] Using output_file_path from database`)
+      filePath = jobStatus.output_file_path
+      
+      // If it's not an absolute path, assume it's in the output directory
+      if (!path.isAbsolute(filePath)) {
+        filePath = path.join(__dirname, '..', filePath)
+      }
+    } else {
+      console.log(`[DOWNLOAD DEBUG] No output_file_path in database, searching output directory`)
+      
+      // Fallback: Search for file in output directory
+      const outputDir = path.join(__dirname, '..', 'output')
+      const files = await fs.readdir(outputDir)
+      
+      // Look for files matching the job ID
+      const matchingFiles = files.filter(f => f.includes(jobId))
+      console.log(`[DOWNLOAD DEBUG] Found ${matchingFiles.length} files matching job ID:`, matchingFiles)
+      
+      if (matchingFiles.length > 0) {
+        // Use the most recent one (in case there are multiple)
+        filePath = path.join(outputDir, matchingFiles[matchingFiles.length - 1])
+        console.log(`[DOWNLOAD DEBUG] Selected file: ${filePath}`)
+      }
+    }
+    
+    if (!filePath) {
+      console.log(`[DOWNLOAD DEBUG] No file found for job`)
+      return res.status(404).json({ error: 'No output file found for this job' })
+    }
+    
+    console.log(`[DOWNLOAD DEBUG] Checking file at: ${filePath}`)
     
     if (!await fs.pathExists(filePath)) {
+      console.log(`[DOWNLOAD DEBUG] File not found at: ${filePath}`)
       return res.status(404).json({ error: 'Output file not found on disk' })
     }
 
+    console.log(`[DOWNLOAD DEBUG] File found, sending: ${filePath}`)
     const fileName = path.basename(filePath)
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -173,7 +218,7 @@ router.get('/download/:jobId', async (req, res) => {
     fileStream.pipe(res)
 
   } catch (error) {
-    console.error('Download endpoint error:', error)
+    console.error('[DOWNLOAD DEBUG] Download endpoint error:', error)
     res.status(500).json({ 
       error: 'Download failed',
       message: error.message 
@@ -188,14 +233,33 @@ router.get('/status/:jobId', async (req, res) => {
     
     console.log(`📊 Status check requested for job: ${jobId}`)
     
+    // Add cache-busting headers to prevent stale data
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    })
+    
     // Create service instance when needed (after dotenv is loaded)
     const priceMatchingService = getPriceMatchingService()
     const status = await priceMatchingService.getJobStatus(jobId)
     
-    console.log(`📊 Status found for job ${jobId}:`, {
+    if (!status) {
+      console.log(`❌ No status found for job: ${jobId}`)
+      return res.status(404).json({ 
+        error: 'Job not found',
+        jobId 
+      })
+    }
+    
+    console.log(`📊 Status response for job ${jobId}:`, {
       status: status.status,
       progress: status.progress,
-      matched_items: status.matched_items
+      matched_items: status.matched_items,
+      total_items: status.total_items,
+      confidence_score: status.confidence_score,
+      message: status.message,
+      updated_at: status.updated_at
     })
     
     res.json(status)
@@ -224,6 +288,7 @@ router.post('/export/:jobId', async (req, res) => {
     
     // Create service instance when needed (after dotenv is loaded)
     const priceMatchingService = getPriceMatchingService()
+    const exportService = new ExcelExportService()
     
     // Get job details to find original file
     const jobStatus = await priceMatchingService.getJobStatus(jobId)
@@ -232,43 +297,83 @@ router.post('/export/:jobId', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' })
     }
     
-    // Get original file path from temp directory
-    const tempDir = path.join(__dirname, '..', 'temp')
-    const tempFiles = await fs.readdir(tempDir)
-    const originalFile = tempFiles.find(f => f.includes(jobStatus.original_filename))
+    let outputPath = null
+    let originalFilePath = null
     
-    if (!originalFile) {
-      // Fallback to simple export if original not found
-      const filePath = await priceMatchingService.exportFilteredResults(jobId, matchResults)
+    // First, check if we have the original file path stored in the job record
+    if (jobStatus.original_file_path) {
+      originalFilePath = jobStatus.original_file_path
+      console.log(`Found original file path in job record: ${originalFilePath}`)
       
-      if (!filePath || !await fs.pathExists(filePath)) {
-        return res.status(404).json({ error: 'Export file could not be created' })
+      // Verify the file still exists
+      if (!await fs.pathExists(originalFilePath)) {
+        console.log(`⚠️ Original file no longer exists at: ${originalFilePath}`)
+        originalFilePath = null
       }
-
-      const fileName = path.basename(filePath)
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    }
+    
+    // If not found in job record, look for the original input file in temp directory
+    if (!originalFilePath) {
+      const tempDir = path.join(__dirname, '..', 'temp')
+      const tempFiles = await fs.readdir(tempDir).catch(() => [])
       
-      const fileStream = fs.createReadStream(filePath)
-      fileStream.pipe(res)
-    } else {
-      // Use format-preserving export
-      const originalFilePath = path.join(tempDir, originalFile)
-      const exportService = new ExcelExportService()
-      const outputPath = await exportService.exportWithOriginalFormat(
+      // First, try to find file with job ID in the name
+      let originalFile = tempFiles.find(f => f.includes(`job-${jobId}-`))
+      
+      if (!originalFile) {
+        // Fallback: try to find by original filename
+        originalFile = tempFiles.find(f => f.includes(jobStatus.original_filename))
+      }
+      
+      if (originalFile) {
+        originalFilePath = path.join(tempDir, originalFile)
+        console.log(`Found original input file in temp directory: ${originalFilePath}`)
+      } else {
+        console.log(`⚠️ Original file not found for job ${jobId}`)
+        console.log(`Available temp files: ${tempFiles.join(', ')}`)
+      }
+    }
+    
+    if (originalFilePath && await fs.pathExists(originalFilePath)) {
+      // Always use format-preserving export
+      console.log(`✅ Using format-preserving export with original file: ${originalFilePath}`)
+      outputPath = await exportService.exportWithOriginalFormat(
         originalFilePath,
         matchResults,
         jobId,
         jobStatus.original_filename
       )
-      
-      const fileName = path.basename(outputPath)
-      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      
-      const fileStream = fs.createReadStream(outputPath)
-      fileStream.pipe(res)
+    } else {
+      // Last resort: create a simple formatted export
+      console.log('⚠️ Original file not found, using filtered export format')
+      console.log('This will not preserve the original Excel formatting!')
+      console.log('To preserve formatting, ensure the original input file is available')
+      outputPath = await exportService.exportFilteredResults(jobId, matchResults, jobStatus.original_filename)
     }
+    
+    if (!outputPath || !await fs.pathExists(outputPath)) {
+      console.error(`Export file not found at: ${outputPath}`)
+      return res.status(404).json({ error: 'Export file could not be created' })
+    }
+
+    const fileName = path.basename(outputPath)
+    console.log(`📤 Sending export file: ${fileName}`)
+    
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    
+    const fileStream = fs.createReadStream(outputPath)
+    fileStream.pipe(res)
+    
+    // Clean up the export file after sending (but not the original)
+    fileStream.on('end', async () => {
+      try {
+        await fs.remove(outputPath)
+        console.log(`🧹 Cleaned up export file: ${outputPath}`)
+      } catch (err) {
+        console.error('Error cleaning up export file:', err)
+      }
+    })
 
   } catch (error) {
     console.error('Export endpoint error:', error)
@@ -310,7 +415,7 @@ router.post('/match-item-local', async (req, res) => {
       localMatcher.extractKeywords(itemDescription)
     )
     
-    if (match && match.confidence >= 0.25) {
+    if (match && match.confidence >= 0.01) {
       res.json({
         success: true,
         match: {
@@ -324,6 +429,7 @@ router.post('/match-item-local', async (req, res) => {
         }
       })
     } else {
+      // This should rarely happen now, but keep as fallback
       res.json({
         success: false,
         message: 'No suitable match found'

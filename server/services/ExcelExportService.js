@@ -61,38 +61,128 @@ export class ExcelExportService {
           matchLookup.set(match.row_number, match)
         })
         
-        // Find where to add new columns (after last used column)
+        // Find rate column index and last used column
+        let rateColumnIndex = -1
         let maxColumn = 1
-        originalWorksheet.eachRow((row, rowNumber) => {
-          const lastCell = row.actualCellCount
-          if (lastCell > maxColumn) maxColumn = lastCell
-        })
+        let headerRowNum = 1
         
-        console.log(`   📍 Adding match columns starting at column ${maxColumn + 2}`)
+        // First, find the header row and locate rate column
+        for (let rowNum = 1; rowNum <= Math.min(10, originalWorksheet.rowCount); rowNum++) {
+          const row = originalWorksheet.getRow(rowNum)
+          let maxCellsInRow = 0
+          
+          row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+            maxCellsInRow++
+            const cellValue = String(cell.value || '').toLowerCase().trim()
+            
+            // Look for rate-related headers
+            if (cellValue === 'rate' || cellValue === 'price' || cellValue === 'unit rate' || 
+                cellValue === 'unit price' || cellValue.includes('rate') || cellValue.includes('price')) {
+              rateColumnIndex = colNumber
+              headerRowNum = rowNum
+              console.log(`   📍 Found rate column at index ${colNumber} in row ${rowNum}`)
+            }
+            
+            if (colNumber > maxColumn) maxColumn = colNumber
+          })
+          
+          // If we found the rate column, stop looking
+          if (rateColumnIndex > 0) break
+        }
+        
+        console.log(`   📍 Rate column: ${rateColumnIndex > 0 ? rateColumnIndex : 'not found'}, Max column: ${maxColumn}`)
+        console.log(`   📍 Adding matched description at column ${maxColumn + 2}`)
         
         // Copy all rows with original formatting
         originalWorksheet.eachRow({ includeEmpty: true }, (originalRow, rowNumber) => {
           const newRow = newWorksheet.getRow(rowNumber)
           
+          // Get the match for this row if it exists
+          const match = matchLookup.get(rowNumber)
+          
           // Copy each cell with its value and style
           originalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
             const newCell = newRow.getCell(colNumber)
             
-            // Copy value
-            newCell.value = cell.value
-            
-            // Deep copy all cell properties for perfect format preservation
-            if (cell.style) {
-              newCell.style = JSON.parse(JSON.stringify(cell.style))
+            // If this is the rate column and we have a match, use the matched rate
+            if (match && rateColumnIndex > 0 && colNumber === rateColumnIndex && rowNumber !== headerRowNum) {
+              newCell.value = match.matched_rate || 0
+              // Preserve the original cell formatting but highlight it's been updated
+              try {
+                if (cell.style) {
+                  newCell.style = JSON.parse(JSON.stringify(cell.style))
+                }
+                // Add a light green background to indicate it's been updated
+                newCell.style = {
+                  ...newCell.style,
+                  fill: {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'E8F5E9' }
+                  }
+                }
+                if (cell.numFmt || !newCell.numFmt) {
+                  newCell.numFmt = cell.numFmt || '#,##0.00'
+                }
+              } catch (styleError) {
+                console.warn(`⚠️ Could not apply style to rate cell: ${styleError.message}`)
+              }
+            } else {
+              // Copy value as-is
+              newCell.value = cell.value
+              
+              // Deep copy all cell properties for perfect format preservation
+              try {
+                if (cell.style) {
+                  newCell.style = JSON.parse(JSON.stringify(cell.style))
+                }
+              } catch (styleError) {
+                console.warn(`⚠️ Could not copy cell style: ${styleError.message}`)
+              }
             }
             
-            // Copy all possible cell properties
-            if (cell.formula) newCell.formula = cell.formula
-            if (cell.sharedFormula) newCell.sharedFormula = cell.sharedFormula
-            if (cell.hyperlink) newCell.hyperlink = cell.hyperlink
-            if (cell.dataValidation) newCell.dataValidation = JSON.parse(JSON.stringify(cell.dataValidation))
-            if (cell.comment) newCell.comment = cell.comment
-            if (cell.name) newCell.name = cell.name
+            // Copy other cell properties with error handling for read-only properties
+            try {
+              // Only copy formula if it exists and the cell allows it
+              if (cell.formula && typeof cell.formula === 'string') {
+                newCell.formula = cell.formula
+              }
+            } catch (formulaError) {
+              // Formula property might be read-only, skip it
+              console.debug(`Skipping formula for cell ${colNumber}: ${formulaError.message}`)
+            }
+            
+            try {
+              if (cell.hyperlink) {
+                newCell.hyperlink = cell.hyperlink
+              }
+            } catch (hyperlinkError) {
+              console.debug(`Skipping hyperlink for cell ${colNumber}: ${hyperlinkError.message}`)
+            }
+            
+            try {
+              if (cell.dataValidation) {
+                newCell.dataValidation = JSON.parse(JSON.stringify(cell.dataValidation))
+              }
+            } catch (validationError) {
+              console.debug(`Skipping data validation for cell ${colNumber}: ${validationError.message}`)
+            }
+            
+            try {
+              if (cell.comment) {
+                newCell.comment = cell.comment
+              }
+            } catch (commentError) {
+              console.debug(`Skipping comment for cell ${colNumber}: ${commentError.message}`)
+            }
+            
+            try {
+              if (cell.name) {
+                newCell.name = cell.name
+              }
+            } catch (nameError) {
+              console.debug(`Skipping name for cell ${colNumber}: ${nameError.message}`)
+            }
           })
           
           // Copy row properties
@@ -100,70 +190,19 @@ export class ExcelExportService {
           newRow.hidden = originalRow.hidden
           newRow.outlineLevel = originalRow.outlineLevel
           
-          // Add match data if this row has a match
-          const match = matchLookup.get(rowNumber)
+          // Add matched description if this row has a match
           if (match) {
             // Leave a gap column
             const gapCol = maxColumn + 1
             
-            // Add matched data
+            // Add matched description
             const matchedDescCell = newRow.getCell(maxColumn + 2)
             matchedDescCell.value = match.matched_description || ''
             matchedDescCell.style = {
               fill: {
                 type: 'pattern',
                 pattern: 'solid',
-                fgColor: { argb: 'E8F4FD' }
-              },
-              border: {
-                top: { style: 'thin' },
-                left: { style: 'thin' },
-                bottom: { style: 'thin' },
-                right: { style: 'thin' }
-              }
-            }
-            
-            const matchedRateCell = newRow.getCell(maxColumn + 3)
-            matchedRateCell.value = match.matched_rate || 0
-            matchedRateCell.numFmt = '#,##0.00'
-            matchedRateCell.style = {
-              fill: {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'E8F4FD' }
-              },
-              border: {
-                top: { style: 'thin' },
-                left: { style: 'thin' },
-                bottom: { style: 'thin' },
-                right: { style: 'thin' }
-              }
-            }
-            
-            const unitCell = newRow.getCell(maxColumn + 4)
-            unitCell.value = match.unit || ''
-            unitCell.style = {
-              fill: {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'E8F4FD' }
-              },
-              border: {
-                top: { style: 'thin' },
-                left: { style: 'thin' },
-                bottom: { style: 'thin' },
-                right: { style: 'thin' }
-              }
-            }
-            
-            const totalCell = newRow.getCell(maxColumn + 5)
-            totalCell.value = match.total_amount || 0
-            totalCell.numFmt = '#,##0.00'
-            totalCell.style = {
-              fill: {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'E8F4FD' }
+                fgColor: { argb: 'E3F2FD' }
               },
               border: {
                 top: { style: 'thin' },
@@ -171,11 +210,12 @@ export class ExcelExportService {
                 bottom: { style: 'thin' },
                 right: { style: 'thin' }
               },
-              font: { bold: true }
+              alignment: { wrapText: true }
             }
             
-            const confidenceCell = newRow.getCell(maxColumn + 6)
-            confidenceCell.value = Math.round(match.similarity_score || 0) // Already a percentage
+            // Add confidence score
+            const confidenceCell = newRow.getCell(maxColumn + 3)
+            confidenceCell.value = Math.round(match.similarity_score || 0)
             confidenceCell.numFmt = '0"%"'
             confidenceCell.style = {
               fill: {
@@ -188,64 +228,66 @@ export class ExcelExportService {
                 left: { style: 'thin' },
                 bottom: { style: 'thin' },
                 right: { style: 'thin' }
-              }
-            }
-            
-            const methodCell = newRow.getCell(maxColumn + 7)
-            methodCell.value = match.match_method || 'AI'
-            methodCell.style = {
-              fill: {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'F3E5F5' }
               },
-              border: {
-                top: { style: 'thin' },
-                left: { style: 'thin' },
-                bottom: { style: 'thin' },
-                right: { style: 'thin' }
-              }
+              alignment: { horizontal: 'center' }
             }
             
             totalItemsProcessed++
           }
         })
         
-        // Add headers for new columns if sheet has data
+        // Add headers for new columns at the header row
         if (originalWorksheet.rowCount > 0) {
-          // Find header row (usually row with most filled cells in first 10 rows)
-          let headerRowNum = 1
-          let maxCells = 0
-          for (let i = 1; i <= Math.min(10, originalWorksheet.rowCount); i++) {
-            const row = originalWorksheet.getRow(i)
-            const cellCount = row.actualCellCount
-            if (cellCount > maxCells) {
-              maxCells = cellCount
-              headerRowNum = i
+          const headerRow = newWorksheet.getRow(headerRowNum)
+          
+          // Add header for matched description
+          const matchedDescHeader = headerRow.getCell(maxColumn + 2)
+          matchedDescHeader.value = 'Matched Description'
+          matchedDescHeader.style = {
+            font: { bold: true, color: { argb: 'FFFFFF' } },
+            fill: {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: '1565C0' }
+            },
+            alignment: { horizontal: 'center', vertical: 'middle' },
+            border: {
+              top: { style: 'medium' },
+              left: { style: 'medium' },
+              bottom: { style: 'medium' },
+              right: { style: 'medium' }
             }
           }
           
-          const headerRow = newWorksheet.getRow(headerRowNum)
+          // Add header for confidence
+          const confidenceHeader = headerRow.getCell(maxColumn + 3)
+          confidenceHeader.value = 'Confidence'
+          confidenceHeader.style = {
+            font: { bold: true, color: { argb: 'FFFFFF' } },
+            fill: {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: '388E3C' }
+            },
+            alignment: { horizontal: 'center', vertical: 'middle' },
+            border: {
+              top: { style: 'medium' },
+              left: { style: 'medium' },
+              bottom: { style: 'medium' },
+              right: { style: 'medium' }
+            }
+          }
           
-          // Add header cells with styling
-          const headers = [
-            { col: maxColumn + 2, text: 'Matched Item', color: '1976D2' },
-            { col: maxColumn + 3, text: 'Matched Rate', color: '1976D2' },
-            { col: maxColumn + 4, text: 'Unit', color: '1976D2' },
-            { col: maxColumn + 5, text: 'Total Amount', color: '1976D2' },
-            { col: maxColumn + 6, text: 'Confidence', color: '388E3C' },
-            { col: maxColumn + 7, text: 'Match Method', color: '7B1FA2' }
-          ]
-          
-          headers.forEach(({ col, text, color }) => {
-            const cell = headerRow.getCell(col)
-            cell.value = text
-            cell.style = {
+          // If no rate column was found, add headers for rate info
+          if (rateColumnIndex === -1) {
+            const rateHeader = headerRow.getCell(maxColumn + 4)
+            rateHeader.value = 'Matched Rate'
+            rateHeader.style = {
               font: { bold: true, color: { argb: 'FFFFFF' } },
               fill: {
                 type: 'pattern',
                 pattern: 'solid',
-                fgColor: { argb: color }
+                fgColor: { argb: 'D32F2F' }
               },
               alignment: { horizontal: 'center', vertical: 'middle' },
               border: {
@@ -255,42 +297,125 @@ export class ExcelExportService {
                 right: { style: 'medium' }
               }
             }
+            
+            const unitHeader = headerRow.getCell(maxColumn + 5)
+            unitHeader.value = 'Unit'
+            unitHeader.style = {
+              font: { bold: true, color: { argb: 'FFFFFF' } },
+              fill: {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: '7B1FA2' }
+              },
+              alignment: { horizontal: 'center', vertical: 'middle' },
+              border: {
+                top: { style: 'medium' },
+                left: { style: 'medium' },
+                bottom: { style: 'medium' },
+                right: { style: 'medium' }
+              }
+            }
+          }
+        }
+        
+        // Copy column properties - check if columns exist first
+        if (originalWorksheet.columns && Array.isArray(originalWorksheet.columns)) {
+          originalWorksheet.columns.forEach((column, index) => {
+            if (column && column.width) {
+              newWorksheet.getColumn(index + 1).width = column.width
+            }
+            if (column && column.hidden) {
+              newWorksheet.getColumn(index + 1).hidden = column.hidden
+            }
+          })
+        } else {
+          console.log(`   ⚠️ No columns property found for sheet: ${sheetName}`)
+        }
+        
+        // Set width for new columns
+        newWorksheet.getColumn(maxColumn + 2).width = 45 // Matched Description
+        newWorksheet.getColumn(maxColumn + 3).width = 12 // Confidence
+        
+        // If no rate column was found, add columns for rate info
+        if (rateColumnIndex === -1) {
+          newWorksheet.getColumn(maxColumn + 4).width = 12 // Rate
+          newWorksheet.getColumn(maxColumn + 5).width = 10 // Unit
+          
+          // Add rate and unit data for matches
+          originalWorksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+            const match = matchLookup.get(rowNumber)
+            if (match && rowNumber !== headerRowNum) {
+              const newRow = newWorksheet.getRow(rowNumber)
+              
+              const rateCell = newRow.getCell(maxColumn + 4)
+              rateCell.value = match.matched_rate || 0
+              rateCell.numFmt = '#,##0.00'
+              rateCell.style = {
+                fill: {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'FFEBEE' }
+                },
+                border: {
+                  top: { style: 'thin' },
+                  left: { style: 'thin' },
+                  bottom: { style: 'thin' },
+                  right: { style: 'thin' }
+                }
+              }
+              
+              const unitCell = newRow.getCell(maxColumn + 5)
+              unitCell.value = match.unit || ''
+              unitCell.style = {
+                fill: {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'F3E5F5' }
+                },
+                border: {
+                  top: { style: 'thin' },
+                  left: { style: 'thin' },
+                  bottom: { style: 'thin' },
+                  right: { style: 'thin' }
+                }
+              }
+            }
           })
         }
         
-        // Copy column properties
-        originalWorksheet.columns.forEach((column, index) => {
-          if (column.width) {
-            newWorksheet.getColumn(index + 1).width = column.width
+        // Copy merged cells - check if merges exist and are valid
+        try {
+          if (originalWorksheet.model && originalWorksheet.model.merges && Array.isArray(originalWorksheet.model.merges)) {
+            for (const mergeRange of originalWorksheet.model.merges) {
+              if (mergeRange) {
+                newWorksheet.mergeCells(mergeRange)
+              }
+            }
           }
-          if (column.hidden) {
-            newWorksheet.getColumn(index + 1).hidden = column.hidden
-          }
-        })
-        
-        // Set width for new columns
-        newWorksheet.getColumn(maxColumn + 2).width = 40 // Matched Item
-        newWorksheet.getColumn(maxColumn + 3).width = 12 // Rate
-        newWorksheet.getColumn(maxColumn + 4).width = 10 // Unit
-        newWorksheet.getColumn(maxColumn + 5).width = 15 // Total
-        newWorksheet.getColumn(maxColumn + 6).width = 12 // Confidence
-        newWorksheet.getColumn(maxColumn + 7).width = 15 // Method
-        
-        // Copy merged cells
-        for (const mergeRange of originalWorksheet.model.merges) {
-          newWorksheet.mergeCells(mergeRange)
+        } catch (mergeError) {
+          console.warn(`⚠️ Could not copy merged cells for sheet ${sheetName}:`, mergeError.message)
         }
         
-        // Copy images if any
-        if (originalWorksheet.getImages) {
-          const images = originalWorksheet.getImages()
-          for (const image of images) {
-            const imageId = newWorkbook.addImage({
-              buffer: image.buffer,
-              extension: image.extension
-            })
-            newWorksheet.addImage(imageId, image.range)
+        // Copy images if any - check if getImages method exists
+        try {
+          if (originalWorksheet.getImages && typeof originalWorksheet.getImages === 'function') {
+            const images = originalWorksheet.getImages()
+            if (images && Array.isArray(images)) {
+              for (const image of images) {
+                if (image && image.buffer && image.extension) {
+                  const imageId = newWorkbook.addImage({
+                    buffer: image.buffer,
+                    extension: image.extension
+                  })
+                  if (image.range) {
+                    newWorksheet.addImage(imageId, image.range)
+                  }
+                }
+              }
+            }
           }
+        } catch (imageError) {
+          console.warn(`⚠️ Could not copy images for sheet ${sheetName}:`, imageError.message)
         }
       }
       
@@ -412,4 +537,4 @@ export class ExcelExportService {
       throw error
     }
   }
-} 
+}

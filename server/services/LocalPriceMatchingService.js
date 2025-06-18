@@ -20,66 +20,27 @@ export class LocalPriceMatchingService {
     this.stemmer = natural.PorterStemmer
     this.tokenizer = new natural.WordTokenizer()
     
-    // Enhanced construction terms and their normalized forms
+    // Synonym map for better matching
     this.synonymMap = new Map([
-      // Building materials
-      ['bricks', 'brick'], ['brickwork', 'brick'], ['blocks', 'brick'], ['blockwork', 'brick'],
-      ['masonry', 'brick'], ['stonework', 'stone'], ['tiles', 'tile'], ['tiling', 'tile'],
-      ['pavers', 'paver'], ['paving', 'paver'], ['slabs', 'slab'], ['flagstone', 'stone'],
-      
-      // Concrete and cement
-      ['cement', 'concrete'], ['mortar', 'concrete'], ['grout', 'concrete'],
-      ['screed', 'concrete'], ['render', 'concrete'], ['plaster', 'plaster'],
-      ['stucco', 'plaster'], ['skim', 'plaster'], ['float', 'plaster'],
-      
-      // Foundation work
-      ['footing', 'foundation'], ['footings', 'foundation'], ['foundations', 'foundation'],
-      ['basement', 'foundation'], ['substructure', 'foundation'], ['base', 'foundation'],
-      ['slab', 'foundation'], ['raft', 'foundation'], ['pile', 'foundation'],
-      
-      // Excavation and earthwork
-      ['excavation', 'excavate'], ['excavations', 'excavate'], ['dig', 'excavate'], 
-      ['digging', 'excavate'], ['earthwork', 'excavate'], ['trenching', 'excavate'],
-      ['backfill', 'fill'], ['backfilling', 'fill'], ['filling', 'fill'],
-      
-      // Installation and construction
-      ['installation', 'install'], ['installing', 'install'], ['installed', 'install'],
-      ['construction', 'build'], ['building', 'build'], ['erection', 'install'],
-      ['assembly', 'install'], ['fitting', 'install'], ['fix', 'install'],
-      ['fixing', 'install'], ['mount', 'install'], ['mounting', 'install'],
-      
-      // Demolition and removal
-      ['demolition', 'demolish'], ['demolishing', 'demolish'], ['remove', 'demolish'],
-      ['removal', 'demolish'], ['strip', 'demolish'], ['break', 'demolish'],
-      ['dismantle', 'demolish'], ['dismantling', 'demolish'],
-      
-      // Supply and provision
-      ['supply', 'provide'], ['supplies', 'provide'], ['providing', 'provide'],
-      ['furnish', 'provide'], ['deliver', 'provide'], ['procurement', 'provide'],
-      ['supplier', 'provide'], ['provision', 'provide'],
-      
-      // Finishes
-      ['painting', 'paint'], ['plastering', 'plaster'], ['flooring', 'floor'],
-      ['roofing', 'roof'], ['cladding', 'clad'], ['insulation', 'insulate'],
-      ['waterproofing', 'waterproof'], ['damp', 'waterproof'], ['dampproof', 'waterproof'],
-      
-      // MEP (Mechanical, Electrical, Plumbing)
-      ['electrical', 'electric'], ['plumbing', 'plumb'], ['hvac', 'ventilation'],
-      ['heating', 'heat'], ['cooling', 'cool'], ['ventilation', 'ventilate'],
-      ['mechanical', 'mechanic'], ['sanitary', 'plumb'], ['drainage', 'drain'],
-      
-      // Structural
-      ['reinforcement', 'reinforce'], ['steelwork', 'steel'], ['formwork', 'form'],
-      ['shuttering', 'shutter'], ['framework', 'frame'], ['structural', 'structure'],
-      ['beam', 'beam'], ['column', 'column'], ['girder', 'beam'],
-      
-      // Doors and windows
+      ['rebar', 'reinforcement'], ['reinforcement', 'rebar'],
+      ['concrete', 'concrete'], ['cement', 'concrete'],
+      ['steel', 'steel'], ['ms', 'steel'], ['mild', 'steel'],
+      ['excavation', 'excavation'], ['dig', 'excavation'], ['digging', 'excavation'],
+      ['brick', 'brick'], ['block', 'block'], ['masonry', 'masonry'],
+      ['paint', 'paint'], ['painting', 'paint'], ['coated', 'paint'],
+      ['plaster', 'plaster'], ['plastering', 'plaster'], ['render', 'plaster'],
+      ['tile', 'tile'], ['tiles', 'tile'], ['tiling', 'tile'],
       ['door', 'door'], ['doors', 'door'], ['window', 'window'], ['windows', 'window'],
-      ['glazing', 'glass'], ['glazed', 'glass'], ['frame', 'frame'], ['frames', 'frame'],
-      
-      // Common materials
-      ['timber', 'wood'], ['lumber', 'wood'], ['steel', 'metal'], ['iron', 'metal'],
-      ['aluminum', 'metal'], ['aluminium', 'metal'], ['copper', 'metal']
+      ['pipe', 'pipe'], ['pipes', 'pipe'], ['piping', 'pipe'],
+      ['wire', 'wire'], ['cable', 'cable'], ['wiring', 'wire'],
+      ['waterproof', 'waterproof'], ['waterproofing', 'waterproof'], ['water', 'water'],
+      ['ground', 'ground'], ['foundation', 'foundation'], ['footing', 'foundation'],
+      ['toxic', 'hazardous'], ['hazardous', 'hazardous'], ['hazard', 'hazardous'],
+      ['material', 'material'], ['materials', 'material'],
+      ['below', 'below'], ['under', 'below'], ['beneath', 'below'],
+      ['level', 'level'], ['depth', 'depth'],
+      // Metal terms
+      ['iron', 'metal'], ['aluminum', 'metal'], ['aluminium', 'metal'], ['copper', 'metal']
     ])
     
     // Stop words to remove from descriptions
@@ -87,7 +48,7 @@ export class LocalPriceMatchingService {
       'the', 'and', 'of', 'to', 'in', 'for', 'on', 'at', 'by', 'from', 'with',
       'a', 'an', 'be', 'is', 'are', 'as', 'it', 'its', 'into', 'or', 'this',
       'that', 'will', 'shall', 'would', 'could', 'should', 'may', 'might',
-      'per', 'each', 'all', 'any', 'some', 'no', 'not', 'only', 'such',
+      'per', 'each', 'all', 'any', 'some', 'no', 'only', 'such',
       'than', 'too', 'very', 'can', 'had', 'her', 'was', 'one', 'our', 'out',
       'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old',
       'see', 'two', 'way', 'who', 'boy', 'did', 'use', 'she', 'they', 'we'
@@ -124,23 +85,23 @@ export class LocalPriceMatchingService {
         
         if (i % 50 === 0) {
           console.log(`📊 Processing item ${i + 1}/${items.length}`)
-  
-      // Update progress
-      if (i % 10 === 0 || i === items.length - 1) {
-        const progress = 40 + Math.round((i / items.length) * 40)
-        await this.updateJobStatus(jobId, 'processing', progress, `Local Matching: ${i + 1}/${items.length} items (${matchedCount} matches)`, {
-          total_items: items.length,
-          matched_items: matchedCount
-        })
-      }
-      }
+        }
+        
+        // Update progress
+        if (i % 10 === 0 || i === items.length - 1) {
+          const progress = 40 + Math.round((i / items.length) * 40)
+          await updateJobStatus(jobId, 'processing', progress, `Local Matching: ${i + 1}/${items.length} items (${matchedCount} matches)`, {
+            total_items: items.length,
+            matched_items: matchedCount
+          })
+        }
         
         // Find best match with enhanced algorithm
         const match = this.findBestMatch(processedItem, processedPriceList, itemTokens, itemKeywords)
         
-        if (match && match.confidence >= 0.25) { // Lower threshold to 25%
+        if (match && match.confidence >= 0.01) { // Lower threshold to 1%
           const matchResult = {
-            id: `match_${Date.now()}_${i}`,
+            id: `match_${jobId}_${i}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             original_description: item.description,
             matched_description: match.item.description || match.item.full_context,
             matched_rate: match.item.rate,
@@ -196,17 +157,22 @@ export class LocalPriceMatchingService {
     
     let processed = description.toLowerCase()
     
+    console.log(`[LOCAL MATCH] Original description: "${description}"`)
+    
     // Remove special characters but keep spaces
     processed = processed.replace(/[^\w\s]/g, ' ')
+    console.log(`[LOCAL MATCH] After removing special chars: "${processed}"`)
     
     // Normalize units and measurements (replace with generic tokens)
     processed = processed.replace(/\b\d+(?:\.\d+)?\s*(mm|cm|m|inch|in|ft|feet|yard|yd|m2|m3|sqm|cum)\b/g, ' UNIT ')
     
     // Normalize numbers
     processed = processed.replace(/\b\d+(?:\.\d+)?\b/g, ' NUM ')
+    console.log(`[LOCAL MATCH] After normalizing units/numbers: "${processed}"`)
     
     // Tokenize
     const tokens = this.tokenizer.tokenize(processed) || []
+    console.log(`[LOCAL MATCH] Tokens: [${tokens.join(', ')}]`)
     
     // Process tokens
     const processedTokens = tokens
@@ -222,7 +188,11 @@ export class LocalPriceMatchingService {
       })
       .filter(token => token.length > 1) // Remove tokens that became too short after stemming
     
-    return processedTokens.join(' ')
+    console.log(`[LOCAL MATCH] Processed tokens: [${processedTokens.join(', ')}]`)
+    const result = processedTokens.join(' ')
+    console.log(`[LOCAL MATCH] Final preprocessed: "${result}"`)
+    
+    return result
   }
 
   /**
@@ -288,8 +258,14 @@ export class LocalPriceMatchingService {
    */
   findBestMatch(processedItem, processedPriceList, itemTokens, itemKeywords) {
     if (!processedItem || processedItem.trim().length === 0) {
+      console.log('[LOCAL MATCH] Processed item is empty or null, returning null')
       return null
     }
+    
+    console.log(`[LOCAL MATCH] Finding best match for: "${processedItem}"`)
+    console.log(`[LOCAL MATCH] Item tokens: [${itemTokens.join(', ')}]`)
+    console.log(`[LOCAL MATCH] Item keywords: [${itemKeywords.join(', ')}]`)
+    console.log(`[LOCAL MATCH] Searching through ${processedPriceList.length} price items`)
     
     const candidates = []
     
@@ -362,14 +338,45 @@ export class LocalPriceMatchingService {
     // Take top 5 candidates for analysis
     const topCandidates = candidates.slice(0, 5)
     
+    console.log(`[LOCAL MATCH] Top ${topCandidates.length} candidates:`)
+    topCandidates.forEach((candidate, index) => {
+      console.log(`  ${index + 1}. "${candidate.item.description?.substring(0, 50)}..." - Score: ${(candidate.confidence * 100).toFixed(2)}% (${candidate.method})`)
+    })
+    
     if (topCandidates.length === 0) {
+      console.log('[LOCAL MATCH] No candidates found - creating a default match')
+      // If absolutely no candidates, return the first item from price list with 1% confidence
+      if (processedPriceList.length > 0) {
+        return {
+          item: processedPriceList[0],
+          confidence: 0.01,
+          method: 'fallback',
+          details: {
+            levenshtein: 0,
+            jaccard: 0,
+            containment: 0,
+            keyTerms: 0,
+            exactPhrase: 0,
+            fuzzyMatch: 0
+          }
+        }
+      }
       return null
     }
     
     // Apply additional selection criteria to choose the best among top candidates
     const bestCandidate = this.selectBestCandidate(topCandidates, processedItem)
     
-    return bestCandidate.confidence >= 0.2 ? bestCandidate : null
+    // If the best candidate has 0 confidence, give it at least 1%
+    if (bestCandidate.confidence === 0) {
+      bestCandidate.confidence = 0.01
+    }
+    
+    console.log(`[LOCAL MATCH] Best candidate score: ${(bestCandidate.confidence * 100).toFixed(2)}%`)
+    console.log(`[LOCAL MATCH] Always returning a match (minimum 1% confidence)`)
+    
+    // Always return the best match, even with very low confidence
+    return bestCandidate
   }
 
   /**

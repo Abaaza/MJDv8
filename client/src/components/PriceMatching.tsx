@@ -483,10 +483,16 @@ export function PriceMatching() {
     
     pollIntervalRef.current = setInterval(async () => {
       try {
-        console.log('Polling job status for:', jobId)
+        const timestamp = new Date().toISOString()
+        console.log(`🔄 [POLLING] ${timestamp} - Polling job status for:`, jobId)
         
-        // Use backend API instead of direct Supabase query
-        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/status/${jobId}`)
+        // Use backend API instead of direct Supabase query with cache-busting
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/status/${jobId}?t=${Date.now()}`, {
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        })
         
         if (!response.ok) {
           throw new Error(`Status check failed: ${response.status}`)
@@ -494,14 +500,15 @@ export function PriceMatching() {
         
         const data = await response.json()
 
-        console.log('Job data received:', {
+        console.log(`📊 [POLLING] ${timestamp} - Job status received for ${jobId}:`, {
           id: data.id,
           status: data.status,
           progress: data.progress,
           matched_items: data.matched_items,
           total_items: data.total_items,
           confidence_score: data.confidence_score,
-          error_message: data.error_message
+          updated_at: data.updated_at,
+          message: data.message ? data.message.substring(0, 50) + '...' : null
         })
 
         setCurrentJob(data)
@@ -892,16 +899,7 @@ export function PriceMatching() {
                     <p className="text-sm">
                       Average confidence: {currentJob.confidence_score || 0}%
                     </p>
-                    <div className="flex gap-2 mt-2">
-                      <Button 
-                        onClick={downloadResults} 
-                        size="sm" 
-                        variant="outline"
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Download Excel
-                      </Button>
-                    </div>
+            
                   </div>
                 )}
 
@@ -944,7 +942,7 @@ export function PriceMatching() {
                 </CardDescription>
               </div>
               <div className="flex space-x-2">
-                <Button onClick={downloadResults} size="sm" variant="outline">
+                <Button onClick={exportToExcel} size="sm" variant="outline">
                   <FileSpreadsheet className="h-4 w-4 mr-2" />
                   Export Results
                 </Button>

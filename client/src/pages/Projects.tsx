@@ -202,12 +202,50 @@ export default function Projects() {
 
   const downloadJobResults = async (jobId: string, projectName: string) => {
     try {
-      // Download from Node.js backend
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/download/${jobId}`)
+      // First, get all match results for this job to send to export endpoint
+      const { data: matchResultsData, error: matchError } = await supabase
+        .from('match_results')
+        .select(`
+          *,
+          price_items:matched_price_item_id(unit)
+        `)
+        .eq('job_id', jobId)
+        .order('row_number')
+
+      if (matchError) {
+        console.error('Error loading match results:', matchError)
+        toast.error('Failed to load match results')
+        return
+      }
+
+      // Transform the results to match the expected format
+      const matchResults = matchResultsData?.map(result => ({
+        id: result.id,
+        job_id: result.job_id,
+        sheet_name: result.sheet_name,
+        row_number: result.row_number,
+        original_description: result.original_description,
+        matched_description: result.matched_description,
+        matched_rate: result.matched_rate,
+        similarity_score: result.similarity_score,
+        quantity: result.quantity,
+        unit: result.price_items?.unit || '',
+        total_amount: (result.quantity || 0) * (result.matched_rate || 0),
+        matched_price_item_id: result.matched_price_item_id
+      })) || []
+
+      // Use the export endpoint which creates a properly formatted Excel file
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/export/${jobId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ matchResults })
+      })
       
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(`Download failed: ${errorData.message || errorData.error}`)
+        throw new Error(`Export failed: ${errorData.message || errorData.error}`)
       }
 
       // Get the file blob
@@ -230,11 +268,11 @@ export default function Projects() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
 
-      toast.success('Results downloaded successfully!')
+      toast.success('Results exported successfully!')
 
     } catch (error) {
-      console.error('Download error:', error)
-      toast.error('Failed to download results')
+      console.error('Export error:', error)
+      toast.error('Failed to export results')
     }
   }
 

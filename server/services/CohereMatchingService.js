@@ -91,6 +91,11 @@ export class CohereMatchingService {
    */
   async precomputePriceListEmbeddings(priceItems) {
     console.log(`⚡ Pre-computing embeddings for ${priceItems.length} price items...`);
+    console.log(`[COHERE DEBUG] First 3 price items:`, priceItems.slice(0, 3).map(item => ({
+      id: item.id,
+      description: item.description?.substring(0, 50) + '...',
+      rate: item.rate
+    })));
     
     this.embeddings.clear();
     const startTime = Date.now();
@@ -100,6 +105,8 @@ export class CohereMatchingService {
       const batch = priceItems.slice(i, i + this.EMBEDDING_BATCH_SIZE);
       const texts = batch.map(item => this.createSearchText(item));
       
+      console.log(`[COHERE DEBUG] Processing batch ${i / this.EMBEDDING_BATCH_SIZE + 1}, texts sample:`, texts.slice(0, 2));
+      
       try {
         const response = await this.cohere.embed({
           texts: texts,
@@ -108,6 +115,8 @@ export class CohereMatchingService {
           truncate: 'END',
           embeddingTypes: ['float'],
         });
+        
+        console.log(`[COHERE DEBUG] Got embeddings response, float length:`, response.embeddings?.float?.length);
         
         // Store embeddings
         batch.forEach((item, index) => {
@@ -120,12 +129,13 @@ export class CohereMatchingService {
         const progress = Math.min(100, Math.round((i + batch.length) / priceItems.length * 100));
         console.log(`   ⚡ Progress: ${progress}% (${i + batch.length}/${priceItems.length})`);
       } catch (error) {
-        console.error('Error computing embeddings batch:', error);
+        console.error('[COHERE DEBUG] Error computing embeddings batch:', error);
       }
     }
     
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     console.log(`✅ Pre-computed ${this.embeddings.size} embeddings in ${duration}s`);
+    console.log(`[COHERE DEBUG] Final embeddings map size: ${this.embeddings.size}`);
   }
 
   /**
@@ -162,15 +172,6 @@ export class CohereMatchingService {
         
         console.log(`   🚀 Processing batch ${currentBatch}/${totalBatches} (${batch.length} items)`)
         
-        // Update progress (45-80% range for matching phase)
-        const matchingProgress = 45 + Math.round((currentBatch / totalBatches) * 35)
-        await pmService.updateJobStatus(
-          jobId, 
-          'processing', 
-          matchingProgress, 
-          `Ultra-fast matching: ${i + batch.length}/${items.length} items`
-        )
-        
         // Create query texts
         const queries = batch.map(item => this.createQueryText(item));
         
@@ -188,6 +189,8 @@ export class CohereMatchingService {
           batch.forEach((boqItem, index) => {
             const queryEmbedding = response.embeddings.float[index];
             const bestMatch = this.findBestEmbeddingMatch(queryEmbedding, boqItem);
+            
+            console.log(`[COHERE DEBUG] Item ${i + index + 1}: bestMatch =`, bestMatch ? { confidence: bestMatch.confidence, hasItem: !!bestMatch.item } : 'null');
             
             if (bestMatch && bestMatch.item) {
               const matchResult = {
@@ -213,12 +216,15 @@ export class CohereMatchingService {
               matchedCount++;
               totalConfidence += bestMatch.confidence;
               
+              console.log(`[COHERE DEBUG] MATCHED! Count now: ${matchedCount}, Total confidence: ${totalConfidence}`);
+              
               if (bestMatch.confidence >= 50) {
                 console.log(`✅ Match (${bestMatch.confidence}%): "${boqItem.description.substring(0, 30)}..."`)
               } else {
                 console.log(`⚠️  Low confidence (${bestMatch.confidence}%): "${boqItem.description.substring(0, 30)}..."`)
               }
             } else {
+              console.log(`[COHERE DEBUG] NO MATCH for item ${i + index + 1} - adding empty result`);
               // Still add a result with no match
               matches.push({
                 id: boqItem.id,
@@ -240,6 +246,19 @@ export class CohereMatchingService {
               });
             }
           });
+          
+          // Update progress AFTER processing the batch
+          const matchingProgress = 45 + Math.round((currentBatch / totalBatches) * 35)
+          await pmService.updateJobStatus(
+            jobId, 
+            'processing', 
+            matchingProgress, 
+            `Matching ${Math.min(i + batch.length, items.length)}/${items.length} items (${matchedCount} matches found)`,
+            {
+              total_items: items.length,
+              matched_items: matchedCount
+            }
+          )
           
         } catch (error) {
           console.error('Error in embedding batch:', error);
@@ -270,6 +289,13 @@ export class CohereMatchingService {
       const duration = ((Date.now() - startTime) / 1000).toFixed(1);
       const avgConfidence = matchedCount > 0 ? Math.round(totalConfidence / matchedCount) : 0
       
+      console.log(`[COHERE DEBUG] FINAL SUMMARY:`);
+      console.log(`[COHERE DEBUG] - Total items: ${items.length}`);
+      console.log(`[COHERE DEBUG] - Matched count: ${matchedCount}`);
+      console.log(`[COHERE DEBUG] - Total confidence sum: ${totalConfidence}`);
+      console.log(`[COHERE DEBUG] - Average confidence: ${avgConfidence}%`);
+      console.log(`[COHERE DEBUG] - Matches array length: ${matches.length}`);
+      
       console.log(`🚀 Ultra-Fast Cohere Embedding Summary:`)
       console.log(`   - Items processed: ${items.length}`)
       console.log(`   - Matches found: ${matchedCount}`)
@@ -280,12 +306,21 @@ export class CohereMatchingService {
       // Generate output Excel file
       const outputPath = await this.generateOutputExcel(matches, jobId, originalFileName)
       
-      return {
+      const result = {
         outputPath,
         totalMatched: matchedCount,
         averageConfidence: avgConfidence,
         matches
       }
+      
+      console.log(`[COHERE DEBUG] Returning result:`, { 
+        outputPath: result.outputPath,
+        totalMatched: result.totalMatched,
+        averageConfidence: result.averageConfidence,
+        matchesLength: result.matches.length 
+      });
+      
+      return result
       
     } catch (error) {
       console.error(`❌ Error in Cohere embedding matching:`, error)
@@ -324,7 +359,22 @@ export class CohereMatchingService {
       }
     }
     
+    console.log(`[COHERE DEBUG findBestEmbeddingMatch] Best score: ${bestScore}, Has best item: ${!!bestItem}`);
+    
     if (!bestItem) {
+      // If no embeddings exist or something went wrong, return first price item with 1% confidence
+      if (this.embeddings.size > 0) {
+        const firstEntry = this.embeddings.entries().next().value;
+        if (firstEntry) {
+          console.log(`[COHERE DEBUG] Using fallback match`);
+          return {
+            item: firstEntry[1].item,
+            confidence: 1,
+            reason: 'Fallback match - no suitable embedding found'
+          };
+        }
+      }
+      console.log(`[COHERE DEBUG] No embeddings available, returning null`);
       return null;
     }
     
@@ -346,16 +396,20 @@ export class CohereMatchingService {
     
     confidence = Math.min(confidence + unitBonus, 100);
     
-    // Always return a match if confidence > 5%
-    if (confidence > 5) {
-      return {
-        item: bestItem,
-        confidence: confidence,
-        reason: `Semantic similarity: ${Math.round(bestScore * 100)}%${unitBonus > 0 ? `, Unit match: +${unitBonus}%` : ''}`
-      };
+    // Always return the best match, even with very low confidence
+    // If confidence is 0, boost it to at least 1%
+    if (confidence === 0) {
+      console.log(`[COHERE DEBUG] Boosting 0% confidence to 1%`);
+      confidence = 1;
     }
     
-    return null;
+    console.log(`[COHERE DEBUG] Returning match with confidence: ${confidence}%`);
+    
+    return {
+      item: bestItem,
+      confidence: confidence,
+      reason: `Semantic similarity: ${Math.round(bestScore * 100)}%${unitBonus > 0 ? `, Unit match: +${unitBonus}%` : ''}`
+    };
   }
 
   /**
@@ -444,6 +498,9 @@ export class CohereMatchingService {
     XLSX.utils.book_append_sheet(wb, ws, 'AI Matched Results')
     
     XLSX.writeFile(wb, outputPath)
+    
+    console.log(`[COHERE DEBUG] Excel file written to: ${outputPath}`)
+    console.log(`[COHERE DEBUG] File exists: ${fs.existsSync(outputPath)}`)
     
     return outputPath
   }

@@ -53,10 +53,28 @@ export class PriceMatchingService {
       await this.updateJobStatus(jobId, 'processing', 10)
       console.log(`✅ Job status updated to processing`)
 
-      // Step 1: Parse Excel file to extract items with quantities
-      console.log(`📋 Parsing Excel file...`)
+      // Step 1: Extract items from Excel
+      console.log(`📊 Extracting items from Excel file...`)
+      await this.updateJobStatus(jobId, 'processing', 10, 'Extracting items from Excel file...')
+      
+      // Store the original input file path in the job record
+      console.log(`[PRICE MATCHING DEBUG] Storing original input file path: ${inputFilePath}`)
+      const { error: pathUpdateError } = await this.supabase
+        .from('ai_matching_jobs')
+        .update({
+          original_file_path: inputFilePath
+        })
+        .eq('id', jobId)
+      
+      if (pathUpdateError) {
+        console.error('[PRICE MATCHING DEBUG] Error storing original file path:', pathUpdateError)
+      }
+      
       const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
-      console.log(`✅ Extracted ${extractedItems.length} items with quantities`)
+      console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
+      await this.updateJobStatus(jobId, 'processing', 30, `Found ${extractedItems.length} items to match`, {
+        total_items: extractedItems.length
+      })
       
       // Log first few items for debugging
       if (extractedItems.length > 0) {
@@ -66,7 +84,7 @@ export class PriceMatchingService {
         })
       }
       
-      await this.updateJobStatus(jobId, 'processing', 30, `Extracted ${extractedItems.length} items`, { total_items: extractedItems.length })
+      await this.updateJobStatus(jobId, 'processing', 40, `Extracted ${extractedItems.length} items`, { total_items: extractedItems.length })
 
       if (extractedItems.length === 0) {
         // Try to understand why no items were found
@@ -106,14 +124,29 @@ export class PriceMatchingService {
         throw new Error(`Unknown matching method: ${matchingMethod}`)
       }
       
+      console.log(`[PRICE MATCHING DEBUG] Received matching result:`, {
+        method: matchingMethod,
+        totalMatched: matchingResult.totalMatched,
+        averageConfidence: matchingResult.averageConfidence,
+        matchesLength: matchingResult.matches?.length,
+        outputPath: matchingResult.outputPath
+      })
+      
       console.log(`✅ ${matchingMethod} matching completed: ${matchingResult.totalMatched} matches found`)
-      await this.updateJobStatus(jobId, 'processing', 80, `Found ${matchingResult.totalMatched} matches`)
+      console.log(`[PRICE MATCHING DEBUG] Output path: ${matchingResult.outputPath}`)
+      await this.updateJobStatus(jobId, 'processing', 80, `Found ${matchingResult.totalMatched} matches`, {
+        matched_items: matchingResult.totalMatched,
+        total_items: extractedItems.length
+      })
 
       // Step 4: Save results to database
       console.log(`💾 Saving results to database...`)
       await this.saveMatchesToDatabase(jobId, matchingResult.matches)
       console.log(`✅ Results saved to database`)
-      await this.updateJobStatus(jobId, 'processing', 90, 'Saving results...')
+      await this.updateJobStatus(jobId, 'processing', 90, 'Saving results...', {
+        matched_items: matchingResult.totalMatched,
+        total_items: extractedItems.length
+      })
 
       // Step 5: Generate output Excel even if no matches were found
       console.log(`📄 Generating output Excel file...`)
@@ -133,7 +166,15 @@ export class PriceMatchingService {
       }
 
       // Step 6: Update job with final statistics
-      await this.supabase
+      console.log(`[PRICE MATCHING DEBUG] Updating job with final stats:`, {
+        matched_items: matchingResult.totalMatched,
+        total_items: extractedItems.length,
+        confidence_score: matchingResult.averageConfidence,
+        output_file_path: outputPath
+      })
+      
+      // First try to update with output_file_path
+      const { error: updateError } = await this.supabase
         .from('ai_matching_jobs')
         .update({
           matched_items: matchingResult.totalMatched,
@@ -142,6 +183,45 @@ export class PriceMatchingService {
           output_file_path: outputPath
         })
         .eq('id', jobId)
+      
+      if (updateError) {
+        console.error('[PRICE MATCHING DEBUG] Error updating job with output_file_path:', updateError)
+        
+        // If it fails (likely due to missing column), update without output_file_path
+        console.log('[PRICE MATCHING DEBUG] Retrying update without output_file_path...')
+        const { error: fallbackError } = await this.supabase
+          .from('ai_matching_jobs')
+          .update({
+            matched_items: matchingResult.totalMatched,
+            total_items: extractedItems.length,
+            confidence_score: matchingResult.averageConfidence
+          })
+          .eq('id', jobId)
+        
+        if (fallbackError) {
+          console.error('[PRICE MATCHING DEBUG] Fallback update also failed:', fallbackError)
+        } else {
+          console.log('[PRICE MATCHING DEBUG] Successfully updated job stats (without output_file_path)')
+        }
+      }
+      
+      // Verify the update worked
+      const { data: updatedJob, error: verifyError } = await this.supabase
+        .from('ai_matching_jobs')
+        .select('matched_items, total_items, confidence_score, output_file_path')
+        .eq('id', jobId)
+        .single()
+      
+      if (verifyError) {
+        console.error('[PRICE MATCHING DEBUG] Error verifying job update:', verifyError)
+      } else {
+        console.log('[PRICE MATCHING DEBUG] Job after update:', {
+          matched_items: updatedJob.matched_items,
+          total_items: updatedJob.total_items,
+          confidence_score: updatedJob.confidence_score,
+          output_file_path: updatedJob.output_file_path
+        })
+      }
 
       await this.updateJobStatus(jobId, 'completed', 100)
       console.log(`🎉 Job ${jobId} COMPLETED successfully`)
@@ -165,23 +245,45 @@ export class PriceMatchingService {
   async loadPriceList() {
     console.log('Loading price list from database...')
     
-    // Fetch price items from Supabase - include id for proper mapping
-    const { data: priceItems, error } = await this.supabase
-      .from('price_items')
-      .select('id, description, rate, full_context, unit')
-      .not('rate', 'is', null)
-      .not('description', 'is', null)
-
-    if (error) {
-      throw new Error(`Failed to fetch price items: ${error.message}`)
+    let allPriceItems = []
+    let from = 0
+    const batchSize = 1000
+    let hasMore = true
+    
+    // Load price items in batches to overcome Supabase limit
+    while (hasMore) {
+      const { data: batch, error } = await this.supabase
+        .from('price_items')
+        .select('id, description, rate, full_context, unit')
+        .not('rate', 'is', null)
+        .not('description', 'is', null)
+        .range(from, from + batchSize - 1)
+      
+      if (error) {
+        console.error(`Error loading batch at offset ${from}:`, error)
+        throw new Error(`Failed to fetch price items: ${error.message}`)
+      }
+      
+      if (batch && batch.length > 0) {
+        allPriceItems = [...allPriceItems, ...batch]
+        from += batchSize
+        console.log(`Loaded batch: ${allPriceItems.length} items so far...`)
+        
+        // If we got less than batchSize, we've reached the end
+        if (batch.length < batchSize) {
+          hasMore = false
+        }
+      } else {
+        hasMore = false
+      }
     }
 
-    if (!priceItems || priceItems.length === 0) {
+    if (!allPriceItems || allPriceItems.length === 0) {
       throw new Error('No price items found in database')
     }
 
-    console.log(`Loaded ${priceItems.length} price items from database`)
-    return priceItems
+    console.log(`✅ Loaded total of ${allPriceItems.length} price items from database`)
+    return allPriceItems
   }
 
   async saveMatchesToDatabase(jobId, matches) {
@@ -698,196 +800,99 @@ Possible causes:
           const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
           
           if (!jsonData || jsonData.length === 0) {
-            console.warn(`⚠️ Sheet ${sheetName} is empty, skipping`)
+            console.warn(`⚠️ Empty sheet: ${sheetName}`)
             continue
           }
           
-          console.log(`📋 Sheet has ${jsonData.length} rows`)
-          
-          // Find header row and column indices
-          let headerRowIndex = -1
-          let descCol = -1
-          let matchedDescCol = -1
-          let rateCol = -1
-          let simCol = -1
-          let qtyCol = -1
-          let matchedIdCol = -1
-          let unitCol = -1
-          
-          // Look for headers in first 10 rows
-          for (let rowIndex = 0; rowIndex < Math.min(10, jsonData.length); rowIndex++) {
-            const row = jsonData[rowIndex]
-            if (!row) continue
-            
-            for (let colIndex = 0; colIndex < row.length; colIndex++) {
-              const cellValue = String(row[colIndex] || '').toLowerCase().replace(/\s+/g, '')
-              const originalCellValue = String(row[colIndex] || '').toLowerCase()
-              
-              if (cellValue === 'original_description' || cellValue === 'description' || (originalCellValue.includes('description') && !originalCellValue.includes('matched'))) {
-                descCol = colIndex
-                headerRowIndex = rowIndex
-              } else if (cellValue === 'matched_description' || cellValue === 'matcheddescription' || originalCellValue === 'matched description') {
-                matchedDescCol = colIndex
-              } else if (cellValue === 'matched_rate' || cellValue === 'matchedrate' || originalCellValue === 'matched rate') {
-                rateCol = colIndex
-              } else if (cellValue === 'similarity_score' || cellValue === 'similarityscore' || originalCellValue === 'similarity score') {
-                simCol = colIndex
-              } else if (cellValue === 'quantity' || cellValue.includes('qty')) {
-                qtyCol = colIndex
-              } else if (cellValue === 'matched_price_item_id' || cellValue === 'matched_id' || cellValue === 'matchedid' || originalCellValue === 'matched id') {
-                matchedIdCol = colIndex
-              } else if (cellValue === 'unit') {
-                unitCol = colIndex
+          // Find header row
+          let headerRow = -1
+          for (let i = 0; i < Math.min(10, jsonData.length); i++) {
+            const row = jsonData[i]
+            if (row && Array.isArray(row)) {
+              const rowStr = row.join(',').toLowerCase()
+              if (rowStr.includes('description') || rowStr.includes('best match')) {
+                headerRow = i
+                break
               }
             }
-            
-            if (descCol >= 0 && rateCol >= 0 && simCol >= 0) break
           }
           
-          if (headerRowIndex === -1 || descCol === -1 || rateCol === -1 || simCol === -1) {
-            console.warn(`Could not find required columns in sheet ${sheetName}. Found: desc=${descCol >= 0}, rate=${rateCol >= 0}, sim=${simCol >= 0}`)
-            
-            // Debug: Print headers
-            if (headerRowIndex >= 0 && jsonData[headerRowIndex]) {
-              const headers = jsonData[headerRowIndex].map((h, i) => `${i}: "${h}"`).join(', ')
-              console.log(`Available headers in sheet ${sheetName}: ${headers}`)
-            }
+          if (headerRow === -1) {
+            console.warn(`⚠️ Could not find headers in sheet ${sheetName}`)
             continue
-          }
-          
-          console.log(`Processing sheet ${sheetName} - found columns: desc=${descCol}, matchedDesc=${matchedDescCol}, rate=${rateCol}, sim=${simCol}, qty=${qtyCol}, matchedId=${matchedIdCol}, unit=${unitCol}`)
-          
-          // Debug: Print all found headers
-          if (headerRowIndex >= 0 && jsonData[headerRowIndex]) {
-            const headers = jsonData[headerRowIndex].map((h, i) => `${i}: "${h}"`).join(', ')
-            console.log(`All headers in sheet ${sheetName}: ${headers}`)
           }
           
           // Process data rows
-          for (let rowIndex = headerRowIndex + 1; rowIndex < jsonData.length; rowIndex++) {
-            try {
-              const row = jsonData[rowIndex]
-              if (!row) continue
+          for (let i = headerRow + 1; i < jsonData.length; i++) {
+            const row = jsonData[i]
+            if (!row || !Array.isArray(row)) continue
+            
+            // Extract data from row
+            const description = row[0]
+            const matchedDescription = row[1]
+            const confidence = row[2]
+            const quantity = row[3]
+            const unit = row[4]
+            const rate = row[5]
+            
+            if (description && matchedDescription && confidence) {
+              const confidenceScore = parseFloat(String(confidence).replace('%', ''))
               
-              const originalDescription = String(row[descCol] || '').trim()
-              const matchedDescription = matchedDescCol >= 0 ? String(row[matchedDescCol] || '').trim() : ''
-              const matchedRate = parseFloat(row[rateCol]) || 0
-              const similarity = parseFloat(row[simCol]) || 0
-              const quantity = qtyCol >= 0 ? parseFloat(row[qtyCol]) || 1 : 1
-              const matchedPriceItemId = matchedIdCol >= 0 ? String(row[matchedIdCol] || '') : null
-              const unit = unitCol >= 0 ? String(row[unitCol] || '') : ''
+              matchResults.push({
+                job_id: jobId,
+                original_description: description,
+                matched_description: matchedDescription,
+                confidence_score: confidenceScore,
+                quantity: quantity || 0,
+                unit: unit || '',
+                matched_rate: rate || 0,
+                row_number: i
+              })
               
-              if (originalDescription && matchedRate > 0) {
-                matchResults.push({
-                  job_id: jobId,
-                  sheet_name: sheetName,
-                  row_number: rowIndex + 1, // Excel row numbers start from 1
-                  original_description: originalDescription,
-                  preprocessed_description: originalDescription.toLowerCase().trim(),
-                  matched_description: matchedDescription,
-                  matched_rate: matchedRate,
-                  similarity_score: similarity,
-                  quantity: quantity,
-                  matched_price_item_id: matchedPriceItemId
-                  // Removed 'unit' field as it doesn't exist in the database schema
-                })
-                
+              if (confidenceScore > 0) {
                 totalMatched++
-                totalConfidence += similarity
+                totalConfidence += confidenceScore
               }
-            } catch (rowError) {
-              console.warn(`⚠️ Could not process row ${rowIndex + 1} in sheet ${sheetName}: ${rowError.message}`)
             }
           }
+          
         } catch (sheetError) {
-          console.warn(`⚠️ Could not process sheet ${sheetName}: ${sheetError.message}`)
+          console.error(`❌ Error processing sheet ${sheetName}:`, sheetError)
         }
       }
       
+      console.log(`📊 Parsed ${matchResults.length} results, ${totalMatched} matched`)
+      
+      // Calculate average confidence
+      const averageConfidence = totalMatched > 0 ? totalConfidence / totalMatched : 0
+      
+      // Save results to database
       if (matchResults.length > 0) {
-        console.log(`💾 Saving ${matchResults.length} actual results to database...`)
-        
-        // Save to database
         const { error } = await this.supabase
           .from('match_results')
           .insert(matchResults)
-
+        
         if (error) {
-          console.error('Error saving match results:', error)
-          throw new Error(`Failed to save results: ${error.message}`)
+          console.error('❌ Error saving match results:', error)
+          throw error
         }
-
-        const avgConfidence = Math.round((totalConfidence / totalMatched) * 100)
-
-        // Update job with final statistics
-        await this.supabase
-          .from('ai_matching_jobs')
-          .update({
-            matched_items: totalMatched,
-            total_items: matchResults.length,
-            confidence_score: avgConfidence
-          })
-          .eq('id', jobId)
-
-        console.log(`✅ Saved ${matchResults.length} actual match results to database`)
-      } else {
-        console.warn('⚠️ No results found to save to database')
-        throw new Error('No valid results found in processed file')
+      }
+      
+      return {
+        totalItems: matchResults.length,
+        totalMatched,
+        averageConfidence: Math.round(averageConfidence)
       }
       
     } catch (error) {
-      console.error(`❌ Error in saveResultsToDatabase: ${error.message}`)
-      throw new Error(`Failed to parse and save results: ${error.message}`)
+      console.error('❌ Error parsing results:', error)
+      throw error
     }
   }
 
-  async updateJobStatus(jobId, status, progress = 0, errorMessage = null, extraData = {}) {
-    try {
-      console.log(`📊 Updating job ${jobId}: ${status} (${progress}%)${errorMessage ? ` - ${errorMessage.split('\n')[0]}` : ''}`)
-      
-      const updateData = {
-        status,
-        progress,
-        updated_at: new Date().toISOString()
-      }
-      
-      if (errorMessage) {
-        updateData.error_message = errorMessage
-      }
-      
-      const { error } = await this.supabase
-        .from('ai_matching_jobs')
-        .update(updateData)
-        .eq('id', jobId)
-
-      if (error) {
-        console.error(`❌ Failed to update job status for ${jobId}:`, error)
-      } else {
-        console.log(`✅ Job ${jobId} status updated successfully`)
-      }
-    } catch (error) {
-      console.error(`❌ Error updating job status for ${jobId}:`, error)
-    }
-  }
-
-  async getProcessedFile(jobId) {
-    // Try to get output path from job record first
-    const { data: job, error } = await this.supabase
-      .from('ai_matching_jobs')
-      .select('output_file_path')
-      .eq('id', jobId)
-      .single()
-
-    if (!error && job?.output_file_path) {
-      return job.output_file_path
-    }
-
-    // Fallback to searching in output directory
-    const outputFiles = await fs.readdir(this.outputDir)
-    const jobFile = outputFiles.find(file => file.includes(jobId))
-    return jobFile ? path.join(this.outputDir, jobFile) : null
-  }
-
+  /**
+   * Get job status from database
+   */
   async getJobStatus(jobId) {
     try {
       const { data, error } = await this.supabase
@@ -897,182 +902,113 @@ Possible causes:
         .single()
 
       if (error) {
-        console.error(`Error fetching job status for ${jobId}:`, error)
-        
-        // If job not found, return a default pending status
-        if (error.code === 'PGRST116' || error.message.includes('No rows returned')) {
-          console.log(`Job ${jobId} not found, returning default pending status`)
-          return {
-            id: jobId,
-            status: 'pending',
-            progress: 0,
-            matched_items: 0,
-            confidence_score: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            error_message: null
-          }
-        }
-        
-        throw new Error(`Failed to get job status: ${error.message}`)
+        console.error('Error fetching job status:', error)
+        return null
       }
 
       return data
     } catch (error) {
-      console.error(`Exception in getJobStatus for ${jobId}:`, error)
-      throw error
+      console.error('Error in getJobStatus:', error)
+      return null
     }
   }
 
-  async cleanup(filePath) {
+  /**
+   * Update job status in database
+   */
+  async updateJobStatus(jobId, status, progress = null, message = null, extraData = {}) {
     try {
-      if (await fs.pathExists(filePath)) {
-        await fs.remove(filePath)
-        console.log(`Cleaned up temp file: ${filePath}`)
+      console.log(`🔄 [UPDATE JOB STATUS] Starting update for job ${jobId}:`, {
+        status,
+        progress,
+        message: message ? message.substring(0, 100) + '...' : null,
+        extraData
+      })
+      
+      const updateData = {
+        status,
+        updated_at: new Date().toISOString(),
+        ...extraData
       }
-    } catch (error) {
-      console.warn(`Could not clean up temp file ${filePath}:`, error.message)
-    }
-  }
 
-  async exportFilteredResults(jobId, matchResults) {
-    console.log(`🚀 STARTING EXPORT: job ${jobId} with ${matchResults.length} filtered results`)
-    
-    try {
-      // Get job details
-      const { data: job, error: jobError } = await this.supabase
+      if (progress !== null) {
+        updateData.progress = progress
+      }
+
+      if (message !== null) {
+        // Ensure message fits within database constraints (e.g., 500 chars)
+        updateData.message = message ? message.substring(0, 500) : null
+      }
+
+      console.log(`🔄 [UPDATE JOB STATUS] Updating database with:`, updateData)
+
+      const { error } = await this.supabase
         .from('ai_matching_jobs')
-        .select('project_name, original_filename')
+        .update(updateData)
+        .eq('id', jobId)
+
+      if (error) {
+        console.error(`❌ [UPDATE JOB STATUS] Failed to update job ${jobId}:`, error)
+        return false
+      }
+
+      console.log(`✅ [UPDATE JOB STATUS] Successfully updated job ${jobId}: status=${status}, progress=${progress}`)
+      
+      // Verify the update worked by reading it back
+      const { data: verifyData, error: verifyError } = await this.supabase
+        .from('ai_matching_jobs')
+        .select('status, progress, message, updated_at')
         .eq('id', jobId)
         .single()
-
-      if (jobError) {
-        throw new Error(`Failed to get job details: ${jobError.message}`)
-      }
-
-      // Create Excel workbook
-      const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Match Results')
-
-      // Define headers with better layout for direct rate filling
-      const headers = [
-        'Row', 'Sheet', 'Original Description', 'Matched Description', 
-        'Quantity', 'Unit', 'Rate', 'Total Amount', 'Confidence %'
-      ]
       
-      // Add headers with styling
-      const headerRow = worksheet.addRow(headers)
-      headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
-      headerRow.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: '366092' }
-      }
-
-      // Set column widths
-      worksheet.columns = [
-        { width: 8 },   // Row
-        { width: 12 },  // Sheet
-        { width: 40 },  // Original Description
-        { width: 40 },  // Matched Description
-        { width: 10 },  // Quantity
-        { width: 10 },  // Unit
-        { width: 12 },  // Rate
-        { width: 15 },  // Total Amount
-        { width: 12 }   // Confidence
-      ]
-
-      // Add data rows
-      let grandTotal = 0
-      matchResults.forEach((result, index) => {
-        const total = (result.quantity || 0) * (result.matched_rate || 0)
-        grandTotal += total
-
-        const dataRow = worksheet.addRow([
-          result.row_number || (index + 1),
-          result.sheet_name || 'Sheet1',
-          result.original_description || '',
-          result.matched_description || '',
-          result.quantity || 0,
-          result.unit || '',
-          result.matched_rate || 0,
-          total,
-          Math.round((result.similarity_score || 0) * 100)
-        ])
-
-        // Format numerical columns
-        dataRow.getCell(5).numFmt = '0.00'  // Quantity
-        dataRow.getCell(7).numFmt = '"$"#,##0.00'  // Rate
-        dataRow.getCell(8).numFmt = '"$"#,##0.00'  // Total Amount
-        dataRow.getCell(9).numFmt = '0"%"'  // Confidence
-
-        // Add borders
-        dataRow.eachCell((cell, colNumber) => {
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' }
-          }
+      if (verifyError) {
+        console.error(`❌ [UPDATE JOB STATUS] Could not verify update for job ${jobId}:`, verifyError)
+      } else {
+        console.log(`🔍 [UPDATE JOB STATUS] Verified database state for job ${jobId}:`, {
+          status: verifyData.status,
+          progress: verifyData.progress,
+          message: verifyData.message?.substring(0, 50) + '...',
+          updated_at: verifyData.updated_at
         })
-      })
-
-      // Add grand total row
-      const totalRow = worksheet.addRow([
-        '', '', '', 'GRAND TOTAL:', '', '', '', grandTotal, ''
-      ])
-      totalRow.font = { bold: true }
-      totalRow.getCell(8).numFmt = '"$"#,##0.00'
-      totalRow.getCell(4).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFFFCC' }
-      }
-      totalRow.getCell(8).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFFFCC' }
       }
 
-      // Add borders to total row
-      totalRow.eachCell((cell, colNumber) => {
-        cell.border = {
-          top: { style: 'thick' },
-          left: { style: 'thin' },
-          bottom: { style: 'thick' },
-          right: { style: 'thin' }
-        }
-      })
-
-      // Add summary information at the top
-      worksheet.insertRow(1, ['Export Summary'])
-      worksheet.insertRow(2, ['Project:', job.project_name])
-      worksheet.insertRow(3, ['Original File:', job.original_filename])
-      worksheet.insertRow(4, ['Export Date:', new Date().toLocaleString()])
-      worksheet.insertRow(5, ['Total Items:', matchResults.length])
-      worksheet.insertRow(6, []) // Empty row
-
-      // Style summary rows
-      for (let i = 1; i <= 5; i++) {
-        const row = worksheet.getRow(i)
-        row.font = { bold: true }
-        row.getCell(1).fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'E8F4F8' }
-        }
-      }
-
-      // Save the workbook
-      const outputFilePath = path.join(this.outputDir, `filtered-export-${jobId}-${job.project_name}_Results.xlsx`)
-      await workbook.xlsx.writeFile(outputFilePath)
-      
-      console.log(`✅ Export file created: ${outputFilePath}`)
-      return outputFilePath
+      return true
 
     } catch (error) {
-      console.error(`❌ Export failed for job ${jobId}:`, error)
-      throw error
+      console.error(`❌ [UPDATE JOB STATUS] Error updating job status for ${jobId}:`, error)
+      return false
     }
   }
-} 
+
+  /**
+   * Clean up temporary files after processing
+   */
+  async cleanup(filePath) {
+    try {
+      console.log(`🧹 Cleaning up temporary file: ${filePath}`)
+      
+      if (!filePath) {
+        console.log('No file path provided for cleanup')
+        return
+      }
+
+      // Check if file exists before trying to delete
+      const fs = await import('fs/promises')
+      
+      try {
+        await fs.access(filePath)
+        await fs.unlink(filePath)
+        console.log(`✅ Successfully deleted temporary file: ${filePath}`)
+      } catch (accessError) {
+        if (accessError.code === 'ENOENT') {
+          console.log(`📁 File already removed or doesn't exist: ${filePath}`)
+        } else {
+          console.warn(`⚠️ Could not access file for cleanup: ${accessError.message}`)
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Error during cleanup: ${error.message}`)
+      // Don't throw error - cleanup failure shouldn't break the entire job
+    }
+  }
+}

@@ -406,27 +406,25 @@ def load_pricelist_enhanced(path: str) -> Tuple[List[str], List[float], List[str
         raise
 
 def find_headers_enhanced(ws) -> Tuple[Optional[int], Optional[int], Optional[int]]:
-    """Enhanced header detection with comprehensive format support"""
+    """
+    Find headers in worksheet with enhanced detection and validation.
+    Now includes content validation to ensure selected columns contain meaningful data.
+    
+    Returns: (header_row, description_column, quantity_column)
+    """
     header_row = None
     desc_col = None
     qty_col = None
     
-    logger.info("=== ADAPTIVE HEADER DETECTION ===")
+    logger.info(f"Enhanced header detection starting (max rows: {ws.max_row}, max cols: {ws.max_column})")
     
-    # Search in first 15 rows for headers (more comprehensive)
+    # Track potential description columns with quality scores
+    description_candidates = []
+    
+    # Look for header patterns in the first 15 rows
     for row_num in range(1, min(16, ws.max_row + 1)):
         row = ws[row_num]
         
-        # Debug: Print all headers in this row
-        row_headers = []
-        for col_num, cell in enumerate(row, start=1):
-            if cell.value:
-                row_headers.append(f"Col {col_num}: '{cell.value}'")
-        
-        if len(row_headers) >= 2:  # Only log rows with multiple headers
-            logger.info(f"Row {row_num} headers: {', '.join(row_headers)}")
-        
-        # Check if this row has header-like characteristics
         header_indicators = 0
         potential_desc_col = None
         potential_qty_col = None
@@ -448,9 +446,15 @@ def find_headers_enhanced(ws) -> Tuple[Optional[int], Optional[int], Optional[in
             if any(pattern in cell_value for pattern in desc_patterns):
                 # Avoid false positives
                 if not any(exclude in cell_value for exclude in ['note', 'remark', 'comment', 'total', 'sum', 'page']):
-                    potential_desc_col = col_num
-                    header_indicators += 2
-                    logger.info(f"Found DESCRIPTION pattern in col {col_num}: '{cell.value}'")
+                    # Validate this column actually contains meaningful descriptions
+                    quality = validate_description_column(ws, row_num, col_num)
+                    description_candidates.append({
+                        'row_num': row_num,
+                        'col_num': col_num,
+                        'quality': quality,
+                        'header_name': str(cell.value).strip()
+                    })
+                    logger.info(f"Found potential description column at row {row_num}, col {col_num}: '{cell.value}' (quality: {quality})")
             
             # QUANTITY COLUMN - Ultra comprehensive patterns
             qty_patterns = [
@@ -481,22 +485,22 @@ def find_headers_enhanced(ws) -> Tuple[Optional[int], Optional[int], Optional[in
             if any(pattern in cell_value for pattern in other_patterns):
                 header_indicators += 0.5
         
-        # If this row has strong header indicators, consider it
-        # STRICTER REQUIREMENT: Need both description AND quantity columns for a valid header row
-        if header_indicators >= 2 and potential_desc_col and potential_qty_col:
-            header_row = row_num
-            desc_col = potential_desc_col
+        # Check if we found a good quantity column for this row
+        if potential_qty_col and header_indicators >= 1:
             qty_col = potential_qty_col
-            logger.info(f"SELECTED HEADER ROW {row_num}: desc_col={desc_col}, qty_col={qty_col} (score: {header_indicators})")
-            break
-        elif header_indicators >= 1.5 and potential_desc_col:
-            # Lower threshold but keep searching for better match
-            if not header_row:  # Only if we haven't found anything better
+            # Keep the row number for potential use
+            if not header_row:
                 header_row = row_num
-                desc_col = potential_desc_col
-                qty_col = potential_qty_col
-                logger.info(f"TENTATIVE HEADER ROW {row_num}: desc_col={desc_col}, qty_col={qty_col} (score: {header_indicators}) - continuing search...")
-            # Don't break - keep looking for better match
+    
+    # Select the best description column based on quality
+    if description_candidates:
+        best_candidate = max(description_candidates, key=lambda x: x['quality'])
+        if best_candidate['quality'] >= 3:  # Minimum quality threshold
+            desc_col = best_candidate['col_num']
+            header_row = best_candidate['row_num']
+            logger.info(f"✅ Selected description column {desc_col}: '{best_candidate['header_name']}' (quality: {best_candidate['quality']})")
+        else:
+            logger.warning(f"Best description candidate has low quality ({best_candidate['quality']}), trying fallback...")
     
     # If no quantity column found by name, search more aggressively
     if desc_col and not qty_col and header_row:
@@ -513,71 +517,29 @@ def find_headers_enhanced(ws) -> Tuple[Optional[int], Optional[int], Optional[in
             if test_col == desc_col:
                 continue
                 
-            # Analyze this column for numeric content
-            numeric_count = 0
-            total_count = 0
-            has_decimals = 0
-            sample_values = []
-            
-            for test_row in range(header_row + 1, min(header_row + 31, ws.max_row + 1)):  # Check more rows
-                cell = ws.cell(row=test_row, column=test_col)
-                if cell.value is not None and str(cell.value).strip():
-                    total_count += 1
-                    val_str = str(cell.value).strip()
-                    sample_values.append(val_str[:15])
-                    
-                    # Check if numeric
-                    try:
-                        val = float(val_str.replace(',', ''))
-                        numeric_count += 1
-                        if '.' in val_str or ',' in val_str:
-                            has_decimals += 1
-                    except:
-                        # Check for partial numeric (like "5.00 m2")
-                        import re
-                        if re.search(r'\d', val_str):
-                            numeric_count += 0.5
-            
-            if total_count > 0:
-                numeric_ratio = numeric_count / total_count
-                # Score this column
-                score = numeric_ratio
-                if has_decimals > 0:
-                    score += 0.1  # Bonus for having decimals
-                if total_count >= 5:
-                    score += 0.1  # Bonus for having enough data
-                
+            # Use the new validation function
+            quality = validate_quantity_column(ws, header_row, test_col)
+            if quality > best_score and quality >= 2:  # Minimum quality threshold
+                best_score = quality
+                best_qty_col = test_col
                 header_name = ws.cell(row=header_row, column=test_col).value or f"Column_{test_col}"
-                
-                if score > best_score and score > 0.2:  # Minimum 20% numeric
-                    best_score = score
-                    best_qty_col = test_col
-                    logger.info(f"Candidate quantity column {test_col} ('{header_name}'): score={score:.2f} ({numeric_count}/{total_count} numeric)")
-                    logger.info(f"Sample values: {sample_values[:5]}")
+                logger.info(f"Candidate quantity column {test_col} ('{header_name}'): quality={quality}")
         
         if best_qty_col:
             qty_col = best_qty_col
             header_name = ws.cell(row=header_row, column=qty_col).value
-            logger.info(f"AUTO-DETECTED quantity column {qty_col} ('{header_name}') with score {best_score:.2f}")
+            logger.info(f"AUTO-DETECTED quantity column {qty_col} ('{header_name}') with quality {best_score}")
     
     # Final validation and fallback
     if not desc_col:
         logger.warning("No description column found! Trying fallback detection...")
         # Try to find the first text-heavy column
         for col_num in range(1, min(10, ws.max_column + 1)):
-            text_count = 0
-            total_count = 0
-            for row_num in range(1, min(20, ws.max_row + 1)):
-                cell = ws.cell(row=row_num, column=col_num)
-                if cell.value:
-                    total_count += 1
-                    if isinstance(cell.value, str) and len(str(cell.value)) > 10:
-                        text_count += 1
-            
-            if total_count > 0 and (text_count / total_count) > 0.7:
+            quality = validate_description_column(ws, 1, col_num)
+            if quality >= 2:  # Lower threshold for fallback
                 desc_col = col_num
                 header_row = 1
-                logger.info(f"FALLBACK: Using column {col_num} as description column")
+                logger.info(f"FALLBACK: Using column {col_num} as description column (quality: {quality})")
                 break
     
     logger.info(f"=== FINAL DETECTION RESULT ===")
@@ -587,6 +549,156 @@ def find_headers_enhanced(ws) -> Tuple[Optional[int], Optional[int], Optional[in
     logger.info(f"=======================")
     
     return header_row, desc_col, qty_col
+
+def validate_description_column(ws, header_row: int, col_num: int) -> int:
+    """
+    Validate that a column actually contains meaningful descriptions.
+    Returns a quality score (higher is better, 0-10 scale).
+    """
+    quality = 0
+    text_rows = 0
+    meaningful_rows = 0
+    total_length = 0
+    numeric_rows = 0
+    short_rows = 0
+    
+    # Check up to 20 data rows after the header
+    max_rows = min(header_row + 21, ws.max_row + 1)
+    for row_num in range(header_row + 1, max_rows):
+        cell = ws.cell(row=row_num, column=col_num)
+        if not cell.value:
+            continue
+        
+        cell_value = str(cell.value).strip()
+        if len(cell_value) == 0:
+            continue
+        
+        text_rows += 1
+        total_length += len(cell_value)
+        
+        # Check if it's mostly numeric (bad for descriptions)
+        import re
+        if re.match(r'^\d+(\.\d+)?$', cell_value):
+            numeric_rows += 1
+        
+        # Check if it's too short (bad for descriptions)
+        if len(cell_value) <= 3:
+            short_rows += 1
+        
+        # Check for meaningful descriptive content
+        if (len(cell_value) > 10 and
+            re.search(r'[a-zA-Z]', cell_value) and
+            not re.match(r'^\d+$', cell_value)):
+            meaningful_rows += 1
+    
+    if text_rows == 0:
+        return 0
+    
+    # Calculate quality score
+    average_length = total_length / text_rows
+    meaningful_ratio = meaningful_rows / text_rows
+    numeric_ratio = numeric_rows / text_rows
+    short_ratio = short_rows / text_rows
+    
+    # Start with base score
+    quality = 1
+    
+    # Bonus for meaningful content
+    if meaningful_ratio > 0.7:
+        quality += 5
+    elif meaningful_ratio > 0.5:
+        quality += 3
+    elif meaningful_ratio > 0.3:
+        quality += 1
+    
+    # Bonus for good average length
+    if average_length > 30:
+        quality += 3
+    elif average_length > 15:
+        quality += 2
+    elif average_length > 5:
+        quality += 1
+    
+    # Penalty for too many numeric values
+    if numeric_ratio > 0.8:
+        quality -= 5
+    elif numeric_ratio > 0.5:
+        quality -= 3
+    elif numeric_ratio > 0.3:
+        quality -= 1
+    
+    # Penalty for too many short values
+    if short_ratio > 0.8:
+        quality -= 3
+    elif short_ratio > 0.5:
+        quality -= 2
+    
+    logger.debug(f"Column {col_num} validation: {text_rows} rows, avg length: {average_length:.1f}, meaningful: {meaningful_ratio:.2f}, numeric: {numeric_ratio:.2f}, quality: {quality}")
+    
+    return max(0, quality)
+
+def validate_quantity_column(ws, header_row: int, col_num: int) -> int:
+    """
+    Validate that a column contains numeric quantities.
+    Returns a quality score (higher is better, 0-10 scale).
+    """
+    quality = 0
+    numeric_rows = 0
+    total_rows = 0
+    positive_rows = 0
+    decimal_rows = 0
+    
+    # Check up to 20 data rows after the header
+    max_rows = min(header_row + 21, ws.max_row + 1)
+    for row_num in range(header_row + 1, max_rows):
+        cell = ws.cell(row=row_num, column=col_num)
+        if not cell.value:
+            continue
+        
+        cell_value = str(cell.value).strip()
+        if len(cell_value) == 0:
+            continue
+        
+        total_rows += 1
+        
+        # Check if it's numeric
+        try:
+            value = float(cell_value.replace(',', ''))
+            numeric_rows += 1
+            
+            if value > 0:
+                positive_rows += 1
+            
+            if '.' in cell_value or ',' in cell_value:
+                decimal_rows += 1
+        except (ValueError, TypeError):
+            pass
+    
+    if total_rows == 0:
+        return 0
+    
+    numeric_ratio = numeric_rows / total_rows
+    positive_ratio = positive_rows / total_rows
+    
+    # Start with base score if mostly numeric
+    if numeric_ratio > 0.7:
+        quality += 3
+    elif numeric_ratio > 0.5:
+        quality += 2
+    elif numeric_ratio > 0.3:
+        quality += 1
+    
+    # Bonus for positive values (quantities should be positive)
+    if positive_ratio > 0.5:
+        quality += 2
+    elif positive_ratio > 0.3:
+        quality += 1
+    
+    # Bonus for having some decimal values (common in quantities)
+    if decimal_rows > 0:
+        quality += 1
+    
+    return max(0, quality)
 
 def add_result_columns_with_formatting(ws, header_row: int, max_col: int):
     """Add result columns with proper formatting"""
@@ -837,7 +949,6 @@ def extract_items_from_sheet(ws, header_row: int, desc_col: int, qty_col: Option
                         if test_qty > 0:
                             quantity = test_qty
                             data_rows_found += 1
-                            break
                 except (ValueError, TypeError):
                     continue
         
