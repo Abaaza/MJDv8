@@ -52,6 +52,7 @@ export function EditableMatchResultsTable({
   const [priceItems, setPriceItems] = useState<Record<string, PriceItem>>({})
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({})
   const [localMatches, setLocalMatches] = useState<Record<string, Partial<MatchResult>>>({})
+  const [originalAIMatches, setOriginalAIMatches] = useState<Record<string, Partial<MatchResult>>>({})
   
   // Safety check - ensure matchResults is an array
   const safeMatchResults = useMemo(() => {
@@ -102,6 +103,31 @@ export function EditableMatchResultsTable({
     
     return grouped
   }, [safeMatchResults, startIndex, endIndex])
+
+  // Store original AI match data when match results are first loaded or updated
+  useEffect(() => {
+    if (safeMatchResults.length > 0) {
+      setOriginalAIMatches(prev => {
+        const aiMatchData: Record<string, Partial<MatchResult>> = { ...prev }
+        
+        safeMatchResults.forEach(result => {
+          // Only store original data if we don't already have it for this result
+          if (!aiMatchData[result.id]) {
+            aiMatchData[result.id] = {
+              matched_description: result.matched_description,
+              matched_rate: result.matched_rate,
+              unit: result.unit,
+              similarity_score: result.similarity_score,
+              matched_price_item_id: result.matched_price_item_id,
+              total_amount: result.total_amount
+            }
+          }
+        })
+        
+        return aiMatchData
+      })
+    }
+  }, [safeMatchResults]) // Re-run when safeMatchResults changes
 
   // Load price items for matched results
   useEffect(() => {
@@ -213,6 +239,17 @@ export function EditableMatchResultsTable({
       }
       
       onUpdateResult(id, updates)
+      
+      // Update original AI match data if in AI mode (preserve user edits)
+      if (currentMode === 'ai') {
+        setOriginalAIMatches(prev => ({
+          ...prev,
+          [id]: {
+            ...prev[id],
+            ...updates
+          }
+        }))
+      }
     }
   }
 
@@ -220,8 +257,12 @@ export function EditableMatchResultsTable({
     setMatchModes(prev => ({ ...prev, [resultId]: mode }))
     
     if (mode === 'ai') {
-      // When switching back to AI mode, the result already has the original AI match data
-      // so we don't need to do anything - the UI will show it based on the mode change
+      // When switching back to AI mode, restore the original AI match data
+      const originalAIMatch = originalAIMatches[resultId]
+      if (originalAIMatch) {
+        onUpdateResult(resultId, originalAIMatch)
+        toast.success('Restored AI match')
+      }
       return
     } else if (mode === 'manual') {
       setSelectedResultId(resultId)
@@ -287,14 +328,25 @@ export function EditableMatchResultsTable({
       const result = safeMatchResults.find(r => r.id === selectedResultId)
       const newTotal = calculateTotal(result?.quantity, finalRate)
       
-      onUpdateResult(selectedResultId, {
+      const manualMatchData = {
         matched_description: item.description,
         matched_rate: finalRate,
         unit: item.unit,
         total_amount: newTotal,
         similarity_score: 1.0, // Manual selection gets 100% confidence
         matched_price_item_id: item.id
-      })
+      }
+      
+      onUpdateResult(selectedResultId, manualMatchData)
+      
+      // Update original AI match data to preserve manual selection
+      setOriginalAIMatches(prev => ({
+        ...prev,
+        [selectedResultId]: {
+          ...prev[selectedResultId],
+          ...manualMatchData
+        }
+      }))
       
       setMatchModes(prev => ({ ...prev, [selectedResultId]: 'manual' }))
     }
@@ -341,11 +393,11 @@ export function EditableMatchResultsTable({
                 const currentMode = matchModes[result.id] || 'ai'
                 const localMatch = localMatches[result.id]
                 
-                // Use local match data if in local mode, otherwise use original result data
-                const displayData = currentMode === 'local' && localMatch ? {
-                  ...result,
-                  ...localMatch
-                } : result
+                // Use appropriate data based on current mode
+                let displayData = result
+                if (currentMode === 'local' && localMatch) {
+                  displayData = { ...result, ...localMatch }
+                }
                 
                 const total = calculateTotal(result.quantity, displayData.matched_rate)
                 const matchedPriceItem = displayData.matched_price_item_id ? priceItems[displayData.matched_price_item_id] : null
