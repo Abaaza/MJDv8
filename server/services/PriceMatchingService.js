@@ -48,14 +48,13 @@ export class PriceMatchingService {
       }
       console.log(`✅ Input file verified: ${inputFilePath}`)
       
-      // Update job status to processing
+      // Update job status to processing - but don't show progress until matching starts
       console.log(`📊 Updating job status to processing...`)
-      await this.updateJobStatus(jobId, 'processing', 10)
+      await this.updateJobStatus(jobId, 'processing', 0) // No progress shown during parsing
       console.log(`✅ Job status updated to processing`)
 
-      // Step 1: Extract items from Excel
+      // Step 1: Extract items from Excel (silent parsing - no progress updates)
       console.log(`📊 Extracting items from Excel file...`)
-      await this.updateJobStatus(jobId, 'processing', 10, 'Extracting items from Excel file...')
       
       // Store the original input file path in the job record
       console.log(`[PRICE MATCHING DEBUG] Storing original input file path: ${inputFilePath}`)
@@ -72,22 +71,14 @@ export class PriceMatchingService {
       
       const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
       console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
-      await this.updateJobStatus(jobId, 'processing', 25, `Parsed Excel file - found ${extractedItems.length} items`)
+      // Skip the parsing complete update - go straight to matching phase
       
-      await this.updateJobStatus(jobId, 'processing', 30, `Found ${extractedItems.length} items to match`, {
-        total_items: extractedItems.length
+      // Start progress updates only when matching begins - ensure total_items is set from the start
+      await this.updateJobStatus(jobId, 'processing', 30, `Starting to match ${extractedItems.length} items`, {
+        total_items: extractedItems.length,
+        matched_items: 0
       })
       
-      // Log first few items for debugging
-      if (extractedItems.length > 0) {
-        console.log(`📝 Sample items:`)
-        extractedItems.slice(0, 3).forEach((item, idx) => {
-          console.log(`   ${idx + 1}. "${item.description}" - Qty: ${item.quantity} - Row: ${item.row_number}`)
-        })
-      }
-      
-      await this.updateJobStatus(jobId, 'processing', 40, `Extracted ${extractedItems.length} items`, { total_items: extractedItems.length })
-
       if (extractedItems.length === 0) {
         // Try to understand why no items were found
         console.log(`⚠️ No items found! Checking file structure...`)
@@ -108,7 +99,7 @@ export class PriceMatchingService {
       console.log(`💰 Loading price list from database...`)
       const priceList = await this.loadPriceList()
       console.log(`✅ Loaded ${priceList.length} price items`)
-      await this.updateJobStatus(jobId, 'processing', 40, `Loaded ${priceList.length} price items`)
+      await this.updateJobStatus(jobId, 'processing', 50, `Preparing to match against ${priceList.length} price items`)
 
       if (priceList.length === 0) {
         throw new Error('No price items found in database')
@@ -929,8 +920,12 @@ Possible causes:
       
       const updateData = {
         status,
-        updated_at: new Date().toISOString(),
-        ...extraData
+        updated_at: new Date().toISOString()
+      }
+
+      // Properly merge extraData
+      if (extraData && typeof extraData === 'object') {
+        Object.assign(updateData, extraData)
       }
 
       if (progress !== null) {

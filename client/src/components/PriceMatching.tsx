@@ -483,68 +483,24 @@ export function PriceMatching() {
     
     pollIntervalRef.current = setInterval(async () => {
       try {
-        const timestamp = new Date().toISOString()
-        console.log(`🔄 [POLLING] ${timestamp} - Polling job status for:`, jobId)
-        
-        // Use backend API instead of direct Supabase query with cache-busting
-        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/status/${jobId}?t=${Date.now()}`, {
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
-        })
-        
-        if (!response.ok) {
-          throw new Error(`Status check failed: ${response.status}`)
-        }
-        
-        const data = await response.json()
+        const { data, error } = await supabase
+          .from('ai_matching_jobs')
+          .select('*')
+          .eq('id', jobId)
+          .single()
 
-        console.log(`📊 [POLLING] ${timestamp} - Job status received for ${jobId}:`, {
-          id: data.id,
-          status: data.status,
-          progress: data.progress,
-          matched_items: data.matched_items,
-          total_items: data.total_items,
-          confidence_score: data.confidence_score,
-          updated_at: data.updated_at,
-          message: data.message ? data.message.substring(0, 50) + '...' : null
-        })
+        if (error) {
+          console.error('Polling error:', error)
+          return
+        }
 
         setCurrentJob(data)
 
         if (data.status === 'processing') {
           const timestamp = new Date().toLocaleTimeString()
-          
-          // More detailed progress messages based on actual progress
-          let progressMessage = ''
-          
-          if (data.progress < 30) {
-            progressMessage = `${data.progress}% - Parsing Excel file...`
-          } else if (data.progress === 30) {
-            progressMessage = `${data.progress}% - Found ${data.total_items || 0} items to match`
-          } else if (data.progress < 40) {
-            progressMessage = `${data.progress}% - Loading price database...`
-          } else if (data.progress === 40) {
-            progressMessage = `${data.progress}% - Ready to start matching`
-          } else if (data.progress > 40 && data.progress < 80) {
-            // During matching phase - show real progress
-            if (data.error_message && data.error_message.includes('AI Matching:')) {
-              progressMessage = `${data.progress}% - ${data.error_message}`
-            } else {
-              const itemsProcessed = Math.round(((data.progress - 40) / 40) * (data.total_items || 0))
-              progressMessage = `${data.progress}% - Matching ${itemsProcessed}/${data.total_items || 0} items (${data.matched_items || 0} matches found)`
-            }
-          } else if (data.progress >= 80 && data.progress < 90) {
-            progressMessage = `${data.progress}% - Finalizing ${data.matched_items || 0} matches...`
-          } else if (data.progress >= 90) {
-            progressMessage = `${data.progress}% - Saving results...`
-          } else {
-            progressMessage = `${data.progress}% - ${data.error_message || 'Processing...'}`
-          }
+          const progressMessage = data.error_message || `${data.progress}% - Processing...`
           
           setLog(prev => {
-            // Only add if different from last message
             const lastMessage = prev[prev.length - 1]
             if (!lastMessage || !lastMessage.includes(progressMessage)) {
               return [...prev, `[${timestamp}] ${progressMessage}`]
@@ -552,7 +508,6 @@ export function PriceMatching() {
             return prev
           })
         } else if (data.status === 'completed') {
-          console.log('Job completed! Stopping polling and loading results')
           const timestamp = new Date().toLocaleTimeString()
           const successRate = data.total_items > 0 
             ? Math.round((data.matched_items / data.total_items) * 100)
@@ -567,7 +522,6 @@ export function PriceMatching() {
           isProcessingRef.current = false
           clearPollInterval()
           
-          console.log('Job completed, loading match results for job:', jobId)
           await loadMatchResults(jobId)
           
           if (data.matched_items > 0) {
@@ -577,7 +531,6 @@ export function PriceMatching() {
           }
           
         } else if (data.status === 'failed') {
-          console.log('Job failed!')
           const timestamp = new Date().toLocaleTimeString()
           const errorDetails = data.error_message || 'Unknown error'
           setLog(prev => [...prev, `[${timestamp}] ❌ Failed: ${errorDetails}`])
@@ -585,23 +538,10 @@ export function PriceMatching() {
           isProcessingRef.current = false
           clearPollInterval()
           
-          // Show detailed error to user
-          toast.error(`Processing failed: ${errorDetails.split('\n')[0]}`, {
-            description: errorDetails.length > 100 ? `${errorDetails.substring(0, 100)}...` : errorDetails
-          })
-        } else if (data.status === 'pending') {
-          const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] Waiting to start processing...`])
-        } else {
-          console.log('Unknown job status:', data.status)
-          const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] Unknown status: ${data.status}`])
+          toast.error(`Processing failed: ${errorDetails}`)
         }
       } catch (error) {
         console.error('Polling error:', error)
-        const timestamp = new Date().toLocaleTimeString()
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-        setLog(prev => [...prev, `[${timestamp}] ⚠️ Polling error: ${errorMessage}`])
       }
     }, 2000)
   }
@@ -1001,7 +941,7 @@ export function PriceMatching() {
                 <Progress value={currentJob.progress || 0} className="h-3" />
                 
                 {/* Real-time stats during processing */}
-                {currentJob.status === 'processing' && currentJob.total_items > 0 && (
+                {currentJob.status === 'processing' && (
                   <div className="grid grid-cols-3 gap-4 mt-4 text-center">
                     <div className="bg-white rounded-lg p-3">
                       <p className="text-2xl font-bold text-blue-600">{currentJob.total_items || 0}</p>
@@ -1014,7 +954,7 @@ export function PriceMatching() {
                     <div className="bg-white rounded-lg p-3">
                       <p className="text-2xl font-bold text-purple-600">
                         {currentJob.total_items > 0 
-                          ? Math.round((currentJob.matched_items / currentJob.total_items) * 100)
+                          ? Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100)
                           : 0}%
                       </p>
                       <p className="text-xs text-gray-600">Success Rate</p>
