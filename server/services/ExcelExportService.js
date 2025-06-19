@@ -108,80 +108,46 @@ export class ExcelExportService {
             if (match && rateColumnIndex > 0 && colNumber === rateColumnIndex && rowNumber !== headerRowNum) {
               newCell.value = match.matched_rate || 0
               // Preserve the original cell formatting but highlight it's been updated
-              try {
-                if (cell.style) {
-                  newCell.style = JSON.parse(JSON.stringify(cell.style))
+              if (cell.style) {
+                newCell.style = JSON.parse(JSON.stringify(cell.style))
+              }
+              // Add a light green background to indicate it's been updated
+              newCell.style = {
+                ...newCell.style,
+                fill: {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'E8F5E9' }
                 }
-                // Add a light green background to indicate it's been updated
-                newCell.style = {
-                  ...newCell.style,
-                  fill: {
-                    type: 'pattern',
-                    pattern: 'solid',
-                    fgColor: { argb: 'E8F5E9' }
-                  }
-                }
-                if (cell.numFmt || !newCell.numFmt) {
-                  newCell.numFmt = cell.numFmt || '#,##0.00'
-                }
-              } catch (styleError) {
-                console.warn(`⚠️ Could not apply style to rate cell: ${styleError.message}`)
+              }
+              if (cell.numFmt || !newCell.numFmt) {
+                newCell.numFmt = cell.numFmt || '#,##0.00'
               }
             } else {
               // Copy value as-is
-              newCell.value = cell.value
-              
-              // Deep copy all cell properties for perfect format preservation
-              try {
-                if (cell.style) {
-                  newCell.style = JSON.parse(JSON.stringify(cell.style))
-                }
-              } catch (styleError) {
-                console.warn(`⚠️ Could not copy cell style: ${styleError.message}`)
+            newCell.value = cell.value
+            
+            // Deep copy all cell properties for perfect format preservation
+            if (cell.style) {
+              newCell.style = JSON.parse(JSON.stringify(cell.style))
               }
             }
             
-            // Copy other cell properties with error handling for read-only properties
+            // Copy all other cell properties safely
             try {
-              // Only copy formula if it exists and the cell allows it
-              if (cell.formula && typeof cell.formula === 'string') {
+              if (cell.formula && !cell.sharedFormula) {
                 newCell.formula = cell.formula
+              } else if (cell.sharedFormula) {
+                // Skip shared formulas as they need special handling
+                newCell.value = cell.value
               }
-            } catch (formulaError) {
-              // Formula property might be read-only, skip it
-              console.debug(`Skipping formula for cell ${colNumber}: ${formulaError.message}`)
-            }
-            
-            try {
-              if (cell.hyperlink) {
-                newCell.hyperlink = cell.hyperlink
-              }
-            } catch (hyperlinkError) {
-              console.debug(`Skipping hyperlink for cell ${colNumber}: ${hyperlinkError.message}`)
-            }
-            
-            try {
-              if (cell.dataValidation) {
-                newCell.dataValidation = JSON.parse(JSON.stringify(cell.dataValidation))
-              }
-            } catch (validationError) {
-              console.debug(`Skipping data validation for cell ${colNumber}: ${validationError.message}`)
-            }
-            
-            try {
-              if (cell.comment) {
-                newCell.comment = cell.comment
-              }
-            } catch (commentError) {
-              console.debug(`Skipping comment for cell ${colNumber}: ${commentError.message}`)
-            }
-            
-            try {
-              if (cell.name) {
-                newCell.name = cell.name
-              }
-            } catch (nameError) {
-              console.debug(`Skipping name for cell ${colNumber}: ${nameError.message}`)
+              if (cell.hyperlink) newCell.hyperlink = cell.hyperlink
+              if (cell.dataValidation) newCell.dataValidation = JSON.parse(JSON.stringify(cell.dataValidation))
+              if (cell.comment) newCell.comment = cell.comment
+              if (cell.name) newCell.name = cell.name
+            } catch (err) {
+              // If setting any property fails, just keep the value
+              console.warn(`⚠️ Could not copy cell property: ${err.message}`)
             }
           })
           
@@ -318,19 +284,15 @@ export class ExcelExportService {
           }
         }
         
-        // Copy column properties - check if columns exist first
-        if (originalWorksheet.columns && Array.isArray(originalWorksheet.columns)) {
-          originalWorksheet.columns.forEach((column, index) => {
-            if (column && column.width) {
-              newWorksheet.getColumn(index + 1).width = column.width
-            }
-            if (column && column.hidden) {
-              newWorksheet.getColumn(index + 1).hidden = column.hidden
-            }
-          })
-        } else {
-          console.log(`   ⚠️ No columns property found for sheet: ${sheetName}`)
-        }
+        // Copy column properties
+        originalWorksheet.columns.forEach((column, index) => {
+          if (column.width) {
+            newWorksheet.getColumn(index + 1).width = column.width
+          }
+          if (column.hidden) {
+            newWorksheet.getColumn(index + 1).hidden = column.hidden
+          }
+        })
         
         // Set width for new columns
         newWorksheet.getColumn(maxColumn + 2).width = 45 // Matched Description
@@ -383,39 +345,21 @@ export class ExcelExportService {
           })
         }
         
-        // Copy merged cells - check if merges exist and are valid
-        try {
-          if (originalWorksheet.model && originalWorksheet.model.merges && Array.isArray(originalWorksheet.model.merges)) {
-            for (const mergeRange of originalWorksheet.model.merges) {
-              if (mergeRange) {
-                newWorksheet.mergeCells(mergeRange)
-              }
-            }
-          }
-        } catch (mergeError) {
-          console.warn(`⚠️ Could not copy merged cells for sheet ${sheetName}:`, mergeError.message)
+        // Copy merged cells
+        for (const mergeRange of originalWorksheet.model.merges) {
+          newWorksheet.mergeCells(mergeRange)
         }
         
-        // Copy images if any - check if getImages method exists
-        try {
-          if (originalWorksheet.getImages && typeof originalWorksheet.getImages === 'function') {
-            const images = originalWorksheet.getImages()
-            if (images && Array.isArray(images)) {
-              for (const image of images) {
-                if (image && image.buffer && image.extension) {
-                  const imageId = newWorkbook.addImage({
-                    buffer: image.buffer,
-                    extension: image.extension
-                  })
-                  if (image.range) {
-                    newWorksheet.addImage(imageId, image.range)
-                  }
-                }
-              }
-            }
+        // Copy images if any
+        if (originalWorksheet.getImages) {
+          const images = originalWorksheet.getImages()
+          for (const image of images) {
+            const imageId = newWorkbook.addImage({
+              buffer: image.buffer,
+              extension: image.extension
+            })
+            newWorksheet.addImage(imageId, image.range)
           }
-        } catch (imageError) {
-          console.warn(`⚠️ Could not copy images for sheet ${sheetName}:`, imageError.message)
         }
       }
       
@@ -537,4 +481,4 @@ export class ExcelExportService {
       throw error
     }
   }
-}
+} 

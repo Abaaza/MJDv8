@@ -71,12 +71,8 @@ export default function PriceList() {
     totalPages,
     availableCategories,
     currency,
-    sortField,
-    sortDirection,
-    handleSort,
     handleDeleteItem,
     handleDeleteAll,
-    fixOrphanedPriceItems,
     refreshData
   } = usePriceList()
 
@@ -99,7 +95,6 @@ export default function PriceList() {
         priceItems={priceItems}
         onDeleteAll={handleDeleteAll}
         onRefresh={refreshData}
-        onFixOrphaned={fixOrphanedPriceItems}
       />
 
       <Card>
@@ -131,9 +126,6 @@ export default function PriceList() {
             categoryFilter={categoryFilter}
             totalItems={totalItems}
             currency={currency}
-            sortField={sortField}
-            sortDirection={sortDirection}
-            onSort={handleSort}
           />
           
           <PriceListPagination

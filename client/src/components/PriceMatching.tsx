@@ -46,7 +46,8 @@ export function PriceMatching() {
   const [currentJob, setCurrentJob] = useState<MatchingJob | null>(null)
   const [log, setLog] = useState<string[]>([])
   const [matchResults, setMatchResults] = useState<MatchResult[]>([])
-  const [matchingMethod, setMatchingMethod] = useState<'cohere' | 'local'>('cohere')
+  // Always use Cohere for matching
+  const matchingMethod = 'cohere' as const
   
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const isProcessingRef = useRef(false)
@@ -498,7 +499,7 @@ export function PriceMatching() {
 
         if (data.status === 'processing') {
           const timestamp = new Date().toLocaleTimeString()
-          const progressMessage = data.error_message || `${data.progress}% - Processing...`
+          const progressMessage = data.error_message || `${data.progress || 0}% - Processing...`
           
           setLog(prev => {
             const lastMessage = prev[prev.length - 1]
@@ -778,33 +779,7 @@ export function PriceMatching() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Matching Method</Label>
-                <div className="flex space-x-4">
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="radio"
-                      value="cohere"
-                      checked={matchingMethod === 'cohere'}
-                      onChange={(e) => setMatchingMethod(e.target.value as 'cohere' | 'local')}
-                      disabled={isProcessing}
-                      className="text-purple-600"
-                    />
-                    <span className="text-sm">🤖 AI Match (Cohere) - Most Accurate</span>
-                  </label>
-                  <label className="flex items-center space-x-2">
-                    <input
-                      type="radio"
-                      value="local"
-                      checked={matchingMethod === 'local'}
-                      onChange={(e) => setMatchingMethod(e.target.value as 'cohere' | 'local')}
-                      disabled={isProcessing}
-                      className="text-purple-600"
-                    />
-                    <span className="text-sm">⚡ Local Match - Fast</span>
-                  </label>
-                </div>
-              </div>
+
 
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Select Inquiry Excel File</Label>

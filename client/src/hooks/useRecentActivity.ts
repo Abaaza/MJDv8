@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
@@ -22,13 +23,13 @@ export function useRecentActivity() {
     try {
       setLoading(true)
       
-      // Get recent matching jobs (limit to 5) - increased to show more recent activity
+      // Get recent matching jobs (limit to 3)
       const { data: jobs, error: jobsError } = await supabase
         .from('ai_matching_jobs')
         .select('id, project_name, status, created_at, updated_at, user_id')
         .eq('user_id', user.id)
-        .order('updated_at', { ascending: false }) // Use updated_at for more recent activity
-        .limit(5)
+        .order('created_at', { ascending: false })
+        .limit(3)
 
       if (jobsError) {
         console.error('Error fetching jobs:', jobsError)
@@ -46,13 +47,13 @@ export function useRecentActivity() {
         console.error('Error fetching clients:', clientsError)
       }
 
-      // Get recent price items (limit to 2) - increased to show more activity
+      // Get recent price items (limit to 1)
       const { data: priceItems, error: priceItemsError } = await supabase
         .from('price_items')
         .select('id, description, created_at, user_id')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
-        .limit(2)
+        .limit(1)
 
       if (priceItemsError) {
         console.error('Error fetching price items:', priceItemsError)
@@ -95,31 +96,13 @@ export function useRecentActivity() {
             icon: 'CheckCircle',
             userName
           })
-        } else if (job.status === 'processing') {
-          allActivities.push({
-            id: `job-processing-${job.id}`,
-            type: 'job_started',
-            description: `${userName} is processing "${job.project_name}"`,
-            timestamp: job.updated_at,
-            icon: 'Clock',
-            userName
-          })
-        } else if (job.status === 'pending') {
+        } else if (job.status === 'processing' || job.status === 'pending') {
           allActivities.push({
             id: `job-started-${job.id}`,
             type: 'job_started',
             description: `${userName} started price matching for "${job.project_name}"`,
             timestamp: job.created_at,
             icon: 'Play',
-            userName
-          })
-        } else if (job.status === 'failed') {
-          allActivities.push({
-            id: `job-failed-${job.id}`,
-            type: 'job_started',
-            description: `${userName} failed to process "${job.project_name}"`,
-            timestamp: job.updated_at,
-            icon: 'AlertCircle',
             userName
           })
         }
@@ -141,20 +124,19 @@ export function useRecentActivity() {
       // Add price item activities
       priceItems?.forEach(item => {
         const userName = userNameMap.get(item.user_id) || 'Unknown User'
-        const shortDesc = item.description.length > 30 ? item.description.substring(0, 30) + '...' : item.description
         allActivities.push({
           id: `price-item-added-${item.id}`,
           type: 'price_item_added',
-          description: `${userName} added price item "${shortDesc}"`,
+          description: `${userName} added new price item`,
           timestamp: item.created_at,
           icon: 'Plus',
           userName
         })
       })
 
-      // Sort by timestamp and limit to 8 total - increased to show more activity
+      // Sort by timestamp and limit to 6 total
       allActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      setActivities(allActivities.slice(0, 8))
+      setActivities(allActivities.slice(0, 6))
 
     } catch (error) {
       console.error('Error fetching recent activities:', error)
@@ -165,14 +147,6 @@ export function useRecentActivity() {
 
   useEffect(() => {
     fetchActivities()
-    
-    // Set up auto-refresh every 30 seconds
-    const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing recent activities...')
-      fetchActivities()
-    }, 30000)
-    
-    return () => clearInterval(interval)
   }, [user])
 
   return {

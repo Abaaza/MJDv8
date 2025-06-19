@@ -41,20 +41,40 @@ export class ExcelParsingService {
           const validItems = sheetItems.filter(item => {
             const hasQty = item.quantity && !isNaN(item.quantity) && parseFloat(item.quantity) > 0
             const hasDesc = item.description && item.description.trim().length > 0
+            if (!hasQty && hasDesc) {
+              console.log(`   ⚠️ Skipping item without quantity: "${item.description.substring(0, 50)}..." at row ${item.row_number}`)
+            }
+            if (hasQty && !hasDesc) {
+              console.log(`   ⚠️ Skipping item without description at row ${item.row_number}, qty: ${item.quantity}`)
+            }
             return hasQty && hasDesc
           })
           
           console.log(`   📌 Valid items with quantities: ${validItems.length}`)
           
-          // Add section headers to items
+          // Add section headers to items for better context
           validItems.forEach(item => {
-            // Find the most recent header before this item
-            const relevantHeader = sheetHeaders
+            // Find ALL headers before this item (up to 3 levels)
+            const relevantHeaders = sheetHeaders
               .filter(h => h.row < item.row_number)
-              .sort((a, b) => b.row - a.row)[0]
+              .sort((a, b) => b.row - a.row)
+              .slice(0, 3) // Take up to 3 most recent headers
             
-            if (relevantHeader) {
-              item.section_header = relevantHeader.text
+            if (relevantHeaders.length > 0) {
+              // Combine headers for hierarchical context (newest to oldest)
+              const headerContext = relevantHeaders
+                .reverse() // Put in chronological order
+                .map(h => h.text)
+                .join(' > ')
+              
+              item.section_header = headerContext
+              
+              // Also enhance the description with context if it's very short
+              if (item.description.length < 30 && !item.description.toLowerCase().includes(relevantHeaders[0].text.toLowerCase())) {
+                // Prepend the most recent header for better matching
+                item.enhanced_description = `${relevantHeaders[relevantHeaders.length - 1].text}: ${item.description}`
+                console.log(`   🔧 Enhanced description: "${item.enhanced_description}"`)
+              }
             }
           })
           
@@ -65,6 +85,7 @@ export class ExcelParsingService {
           
         } catch (sheetError) {
           console.warn(`⚠️ Error processing sheet ${sheetName}:`, sheetError.message)
+          console.warn(`   Stack:`, sheetError.stack)
         }
       }
       
@@ -78,6 +99,7 @@ export class ExcelParsingService {
       
     } catch (error) {
       console.error(`❌ Error parsing Excel file:`, error)
+      console.error(`   Stack:`, error.stack)
       throw error
     }
   }
@@ -111,6 +133,28 @@ export class ExcelParsingService {
     console.log(`   - Quantity column: ${headerInfo.quantityCol + 1}`)
     console.log(`   - Rate column: ${headerInfo.rateCol + 1 || 'Not found'}`)
     console.log(`   - Unit column: ${headerInfo.unitCol + 1 || 'Not found'}`)
+    
+    // DEBUG: Log the actual header row to verify columns
+    if (headerInfo.headerRow >= 0 && jsonData[headerInfo.headerRow]) {
+      const headerRow = jsonData[headerInfo.headerRow]
+      console.log(`   📊 Header row contents:`)
+      headerRow.forEach((cell, idx) => {
+        if (cell) {
+          console.log(`      Col ${idx + 1}: "${String(cell).trim()}"`)
+        }
+      })
+      
+      // Verify we're reading from the right column
+      if (headerInfo.descriptionCol >= 0 && headerRow[headerInfo.descriptionCol]) {
+        console.log(`   ✅ Description header verified: "${headerRow[headerInfo.descriptionCol]}"`)
+      }
+      
+      // Sample first data row to verify we're reading the right data
+      const firstDataRow = jsonData[headerInfo.headerRow + 1]
+      if (firstDataRow && firstDataRow[headerInfo.descriptionCol]) {
+        console.log(`   📝 First description value: "${String(firstDataRow[headerInfo.descriptionCol]).substring(0, 50)}..."`)
+      }
+    }
     
     const items = []
     const headers = []
@@ -147,11 +191,20 @@ export class ExcelParsingService {
       )
       
       if (item) {
+        // DEBUG: Log first few items to verify we're reading the right data
+        if (items.length < 3) {
+          console.log(`   📝 Item ${items.length + 1}: "${item.description.substring(0, 50)}..." (Row ${item.row_number})`)
+        }
         items.push(item)
       } else {
         // Count why items were skipped for debugging
         const description = this.extractDescription(row[headerInfo.descriptionCol])
         const quantity = this.extractQuantity(row[headerInfo.quantityCol])
+        
+        // DEBUG: Log what we're trying to extract
+        if (skippedNoDesc < 3 || skippedNoQty < 3) {
+          console.log(`   ⚠️ Skipped row ${rowIndex + 1}: desc="${row[headerInfo.descriptionCol]}", qty="${row[headerInfo.quantityCol]}"`)
+        }
         
         if (!description) {
           skippedNoDesc++
@@ -188,17 +241,40 @@ export class ExcelParsingService {
     if (descriptionCell && !this.extractQuantity(quantityCell)) {
       const desc = String(descriptionCell).trim()
       
-      // Check if it looks like a header (all caps, ends with colon, contains keywords)
+      // Enhanced header detection patterns for BOQ documents
+      
+      // Pattern 1: Numbered sections like "1.1 PILING", "2.3 CONCRETE"
+      const numberedSectionPattern = /^\d+(\.\d+)*\s+[A-Z]/
+      
+      // Pattern 2: Letter-based sections like "D Groundwork", "D20 Excavating"
+      const letterSectionPattern = /^[A-Z]\d*\s+[A-Z]/
+      
+      // Pattern 3: All caps headers that are meaningful (not just random text)
       const isAllCaps = desc === desc.toUpperCase() && desc.length > 3
-      const hasColon = desc.endsWith(':')
-      const headerKeywords = ['section', 'part', 'chapter', 'category', 'group', 'summary', 'total']
+      
+      // Pattern 4: Headers with specific keywords
+      const headerKeywords = [
+        'piling', 'groundwork', 'excavating', 'filling', 'concrete', 
+        'steel', 'masonry', 'plumbing', 'electrical', 'finishes',
+        'general', 'preliminary', 'summary', 'total', 'provisional'
+      ]
       const hasKeyword = headerKeywords.some(kw => desc.toLowerCase().includes(kw))
+      
+      // Pattern 5: Underlined or formatted headers (often have specific text patterns)
+      const hasUnderlinePattern = desc.includes('_') || desc.includes('=')
       
       // Check if most cells in the row are empty (typical for headers)
       const nonEmptyCells = row.filter(cell => cell && String(cell).trim()).length
-      const mostlyEmpty = nonEmptyCells <= 2
+      const mostlyEmpty = nonEmptyCells <= 3 // Allow up to 3 non-empty cells
       
-      if ((isAllCaps || hasColon || hasKeyword) && mostlyEmpty) {
+      // Determine if this is a header
+      if (numberedSectionPattern.test(desc) || 
+          letterSectionPattern.test(desc) || 
+          (isAllCaps && hasKeyword && mostlyEmpty) || 
+          (hasKeyword && mostlyEmpty && desc.length < 100) ||
+          hasUnderlinePattern) {
+        
+        console.log(`   📑 Found section header: "${desc}"`)
         return desc
       }
     }
@@ -207,119 +283,126 @@ export class ExcelParsingService {
   }
 
   /**
-   * Detect fallback structure when headers aren't clear - SIMPLIFIED FAST VERSION
+   * Detect fallback structure when headers aren't clear - AGGRESSIVE MODE
    */
   detectFallbackStructure(jsonData, sheetName) {
-    console.log(`   🔍 Fast fallback structure detection for ${sheetName}`)
+    console.log(`   🔍 Attempting AGGRESSIVE fallback structure detection for ${sheetName}`)
     
-    // Simple strategy: Look for the first row with text > 8 chars and numbers
-    for (let rowIndex = 0; rowIndex < Math.min(10, jsonData.length); rowIndex++) {
+    // Try multiple strategies to find ANY structure
+    
+    // Strategy 1: Look for any column with meaningful text and any column with numbers
+    for (let rowIndex = 0; rowIndex < Math.min(30, jsonData.length); rowIndex++) {
       const row = jsonData[rowIndex]
       if (!row || row.length < 2) continue
       
-      // Look for first text column and first numeric column
-      let descriptionCol = -1
-      let quantityCol = -1
+      const columnInfo = []
       
-      for (let colIndex = 0; colIndex < Math.min(8, row.length); colIndex++) {
+      // Analyze each column
+      for (let colIndex = 0; colIndex < Math.min(15, row.length); colIndex++) {
         const cell = row[colIndex]
         if (!cell) continue
         
         const cellStr = String(cell).trim()
+        if (cellStr.length === 0) continue
         
-        // Found a potential description column (first one with decent text)
-        if (descriptionCol === -1 && cellStr.length > 8 && /[a-zA-Z]/.test(cellStr)) {
-          const quality = this.validateDescriptionColumn(jsonData, rowIndex, colIndex)
-          if (quality >= 2) {
-            descriptionCol = colIndex
-          }
-        }
+        // Enhanced text detection - exclude single numbers or very short text
+        const hasText = isNaN(cellStr) && cellStr.length > 3 && 
+                       !cellStr.match(/^[A-Z]$/) && // Not just single letter
+                       !cellStr.match(/^\d+$/) // Not just numbers
+        const hasNumber = !isNaN(cellStr) && parseFloat(cellStr) > 0
+        const hasMeaningfulText = hasText && 
+                                 cellStr.split(' ').length > 1 || // Multiple words
+                                 cellStr.length > 10 // Or reasonably long single word
         
-        // Found a potential quantity column (look for it after description)
-        if (descriptionCol >= 0 && quantityCol === -1 && colIndex > descriptionCol) {
-          const quality = this.validateQuantityColumn(jsonData, rowIndex, colIndex)
-          if (quality >= 2) {
-            quantityCol = colIndex
-            break // Found both, stop looking
-          }
-        }
+        columnInfo.push({
+          index: colIndex,
+          content: cellStr,
+          hasText,
+          hasNumber,
+          hasMeaningfulText,
+          length: cellStr.length
+        })
       }
       
-      if (descriptionCol >= 0 && quantityCol >= 0) {
-        console.log(`   ✅ Fast fallback: Found description at col ${descriptionCol + 1}, quantity at col ${quantityCol + 1}`)
+      // Find best text column (prefer meaningful text over short text)
+      const textColumns = columnInfo.filter(col => col.hasMeaningfulText || (col.hasText && col.length > 5))
+      const numberColumns = columnInfo.filter(col => col.hasNumber)
+      
+      if (textColumns.length > 0 && numberColumns.length > 0) {
+        // Prefer columns with meaningful text (multiple words or longer text)
+        const bestTextCol = textColumns.sort((a, b) => {
+          // Prioritize meaningful text
+          if (a.hasMeaningfulText && !b.hasMeaningfulText) return -1
+          if (!a.hasMeaningfulText && b.hasMeaningfulText) return 1
+          // Then by length
+          return b.length - a.length
+        })[0]
+        
+        // For quantity, prefer columns that come after the description column
+        const quantityColumns = numberColumns.filter(col => col.index > bestTextCol.index)
+        const bestNumberCol = quantityColumns.length > 0 ? quantityColumns[0] : numberColumns[0]
+        
+        console.log(`   ✅ Aggressive Fallback: Found description at col ${bestTextCol.index + 1} ("${bestTextCol.content.substring(0, 30)}..."), quantity at col ${bestNumberCol.index + 1}`)
         return {
           found: true,
-          headerRow: rowIndex,
-          descriptionCol: descriptionCol,
-          quantityCol: quantityCol,
-          rateCol: quantityCol + 1 < row.length ? quantityCol + 1 : -1,
+          headerRow: rowIndex > 2 ? rowIndex - 2 : 0,
+          descriptionCol: bestTextCol.index,
+          quantityCol: bestNumberCol.index,
+          rateCol: numberColumns.length > 1 ? numberColumns[1].index : -1,
           unitCol: -1
         }
       }
     }
     
-    // Last resort: Just use first two columns if they have any content
-    for (let rowIndex = 0; rowIndex < Math.min(5, jsonData.length); rowIndex++) {
+    // Strategy 2: Look for Description header explicitly before using last resort
+    for (let rowIndex = 0; rowIndex < Math.min(15, jsonData.length); rowIndex++) {
       const row = jsonData[rowIndex]
-      if (row && row.length >= 2 && row[0] && row[1]) {
-        console.log(`   ⚠️ Last resort fallback: Using columns 1 and 2`)
-        return {
-          found: true,
-          headerRow: rowIndex,
-          descriptionCol: 0,
-          quantityCol: 1,
-          rateCol: 2,
-          unitCol: -1
+      if (!row) continue
+      
+      for (let colIndex = 0; colIndex < row.length; colIndex++) {
+        const cellValue = String(row[colIndex] || '').trim()
+        if (cellValue.toLowerCase() === 'description' || cellValue.toLowerCase() === 'desc') {
+          console.log(`   ✅ Found Description header in fallback search at row ${rowIndex + 1}, col ${colIndex + 1}`)
+          
+          // Look for quantity column after description
+          let quantityCol = -1
+          for (let qCol = colIndex + 1; qCol < row.length; qCol++) {
+            const qCell = String(row[qCol] || '').trim().toLowerCase()
+            if (qCell.includes('qty') || qCell.includes('quantity') || qCell === 'no' || qCell === 'nos') {
+              quantityCol = qCol
+              break
+            }
+          }
+          
+          if (quantityCol >= 0) {
+            return {
+              found: true,
+              headerRow: rowIndex,
+              descriptionCol: colIndex,
+              quantityCol: quantityCol,
+              rateCol: -1,
+              unitCol: -1
+            }
+          }
         }
+      }
+    }
+    
+    // LAST RESORT: Only if we really can't find headers
+    if (jsonData.length > 5) {
+      console.log(`   ⚠️ Using LAST RESORT fallback - WARNING: This may pick wrong columns!`)
+      console.log(`   ⚠️ Please ensure your Excel has a 'Description' header`)
+      return {
+        found: true,
+        headerRow: 0,
+        descriptionCol: 0,
+        quantityCol: 1,
+        rateCol: jsonData[0] && jsonData[0].length > 2 ? 2 : -1,
+        unitCol: -1
       }
     }
     
     return { found: false }
-  }
-
-  /**
-   * Validate that a column contains numeric quantities - SIMPLIFIED VERSION
-   * Returns a quality score (higher is better)
-   */
-  validateQuantityColumn(jsonData, headerRow, colIndex) {
-    let quality = 0
-    let numericRows = 0
-    let totalRows = 0
-    let positiveRows = 0
-    
-    // Check only first 5 data rows after the header for speed
-    const maxRows = Math.min(headerRow + 6, jsonData.length)
-    for (let rowIndex = headerRow + 1; rowIndex < maxRows; rowIndex++) {
-      const row = jsonData[rowIndex]
-      if (!row || !row[colIndex]) continue
-      
-      const cellValue = String(row[colIndex]).trim()
-      if (cellValue.length === 0) continue
-      
-      totalRows++
-      
-      // Check if it's numeric (simplified)
-      if (!isNaN(cellValue) && cellValue !== '') {
-        const value = parseFloat(cellValue)
-        numericRows++
-        
-        if (value > 0) {
-          positiveRows++
-        }
-      }
-    }
-    
-    if (totalRows === 0) return 0
-    
-    const numericRatio = numericRows / totalRows
-    const positiveRatio = positiveRows / totalRows
-    
-    // Simplified scoring
-    if (numericRatio > 0.7 && positiveRatio > 0.5) quality = 5
-    else if (numericRatio > 0.5) quality = 3
-    else if (numericRatio > 0.3) quality = 1
-    
-    return quality
   }
 
   /**
@@ -337,22 +420,31 @@ export class ExcelParsingService {
       const row = jsonData[rowIndex]
       if (!row) continue
       
-      // Track potential description columns with quality scores
-      const descriptionCandidates = []
+      // First pass: Look for exact "Description" match (case-insensitive)
+      let foundExactDescription = false
+      for (let colIndex = 0; colIndex < row.length; colIndex++) {
+        const cellValue = String(row[colIndex] || '').trim()
+        
+        // Check for exact "Description" match first (highest priority)
+        if (cellValue.toLowerCase() === 'description') {
+          descriptionCol = colIndex
+          headerRow = rowIndex
+          foundExactDescription = true
+          console.log(`   ✅ Found exact "Description" header at row ${rowIndex + 1}, col ${colIndex + 1}`)
+        }
+      }
       
+      // Second pass: Look for other headers
       for (let colIndex = 0; colIndex < row.length; colIndex++) {
         const cellValue = this.normalizeHeaderText(row[colIndex])
         
-        // Description column patterns
-        if (this.isDescriptionHeader(cellValue)) {
-          // Validate this column actually contains meaningful descriptions
-          const quality = this.validateDescriptionColumn(jsonData, rowIndex, colIndex)
-          descriptionCandidates.push({
-            colIndex,
-            quality,
-            headerName: String(row[colIndex] || '').trim()
-          })
-          console.log(`   🔍 Found potential description column at ${colIndex + 1}: "${String(row[colIndex] || '').trim()}" (quality: ${quality})`)
+        // Skip if we already found exact description column
+        if (foundExactDescription && colIndex === descriptionCol) continue
+        
+        // Description column patterns (only if we haven't found exact match)
+        if (!foundExactDescription && this.isDescriptionHeader(cellValue)) {
+          descriptionCol = colIndex
+          headerRow = rowIndex
         }
         
         // Quantity column patterns
@@ -374,16 +466,6 @@ export class ExcelParsingService {
         }
       }
       
-      // Select the best description column based on quality
-      if (descriptionCandidates.length > 0) {
-        const bestCandidate = descriptionCandidates.sort((a, b) => b.quality - a.quality)[0]
-        if (bestCandidate.quality >= 3) { // Minimum quality threshold
-          descriptionCol = bestCandidate.colIndex
-          headerRow = rowIndex
-          console.log(`   ✅ Selected description column ${descriptionCol + 1}: "${bestCandidate.headerName}" (quality: ${bestCandidate.quality})`)
-        }
-      }
-      
       // If we found description and quantity, that's good enough
       if (descriptionCol >= 0 && quantityCol >= 0) {
         break
@@ -401,48 +483,6 @@ export class ExcelParsingService {
   }
 
   /**
-   * Validate that a column actually contains meaningful descriptions
-   * Returns a quality score (higher is better) - SIMPLIFIED VERSION
-   */
-  validateDescriptionColumn(jsonData, headerRow, colIndex) {
-    let quality = 0
-    let textRows = 0
-    let meaningfulRows = 0
-    let totalLength = 0
-    
-    // Check only first 5 data rows after the header for speed
-    const maxRows = Math.min(headerRow + 6, jsonData.length)
-    for (let rowIndex = headerRow + 1; rowIndex < maxRows; rowIndex++) {
-      const row = jsonData[rowIndex]
-      if (!row || !row[colIndex]) continue
-      
-      const cellValue = String(row[colIndex]).trim()
-      if (cellValue.length === 0) continue
-      
-      textRows++
-      totalLength += cellValue.length
-      
-      // Check for meaningful descriptive content (simplified)
-      if (cellValue.length > 8 && /[a-zA-Z]/.test(cellValue)) {
-        meaningfulRows++
-      }
-    }
-    
-    if (textRows === 0) return 0
-    
-    // Simplified quality calculation
-    const averageLength = totalLength / textRows
-    const meaningfulRatio = meaningfulRows / textRows
-    
-    // Base score
-    if (meaningfulRatio > 0.5 && averageLength > 10) quality = 5
-    else if (meaningfulRatio > 0.3 && averageLength > 6) quality = 3
-    else if (textRows > 0 && averageLength > 4) quality = 1
-    
-    return quality
-  }
-
-  /**
    * Normalize header text for comparison
    */
   normalizeHeaderText(cellValue) {
@@ -454,6 +494,12 @@ export class ExcelParsingService {
    * Check if a header is a description column
    */
   isDescriptionHeader(normalized) {
+    // Exclude patterns that are definitely NOT description columns
+    const excludePatterns = ['bill', 'billing', 'flag', 'flags', 'ref', 'reference', 'page', 'section', 'no', 'number', 'serial', 'sr']
+    if (excludePatterns.some(pattern => normalized === pattern || normalized.endsWith(pattern))) {
+      return false
+    }
+    
     const patterns = [
       'description', 'desc', 'item', 'itemdescription', 'workdescription',
       'particulars', 'work', 'activity', 'specification', 'details',
@@ -505,6 +551,11 @@ export class ExcelParsingService {
    * Extract item data from a row - AGGRESSIVE MODE
    */
   extractItemFromRow(row, headerInfo, rowNumber, sheetName) {
+    // DEBUG: Log what we're extracting
+    if (rowNumber <= headerInfo.headerRow + 3) {
+      console.log(`   🔍 Row ${rowNumber}: Extracting from col ${headerInfo.descriptionCol + 1} = "${row[headerInfo.descriptionCol]}", col ${headerInfo.quantityCol + 1} = "${row[headerInfo.quantityCol]}"`)
+    }
+    
     const description = this.extractDescription(row[headerInfo.descriptionCol])
     const quantity = this.extractQuantity(row[headerInfo.quantityCol])
     const rate = headerInfo.rateCol >= 0 ? this.extractRate(row[headerInfo.rateCol]) : null
@@ -515,11 +566,13 @@ export class ExcelParsingService {
     let finalQuantity = quantity
     
     if (!finalDescription && row && row.length > 0) {
+      console.log(`   ⚠️ No description found in designated column ${headerInfo.descriptionCol + 1}, searching other columns...`)
       // Look for description in any column with meaningful text
       for (let i = 0; i < row.length; i++) {
         if (i === headerInfo.quantityCol || i === headerInfo.rateCol) continue
         const cellDesc = this.extractDescription(row[i])
         if (cellDesc && cellDesc.length > 0) { // Even more lenient
+          console.log(`   ✅ Found description in column ${i + 1}: "${cellDesc.substring(0, 30)}..."`)
           finalDescription = cellDesc
           break
         }
@@ -574,6 +627,18 @@ export class ExcelParsingService {
     if (!cellValue) return null
     
     let desc = String(cellValue).trim()
+    
+    // CRITICAL: Reject pure numbers or very short numeric values
+    if (desc.match(/^\d+$/) && desc.length <= 3) {
+      console.log(`   ❌ Rejecting numeric-only description: "${desc}"`)
+      return null
+    }
+    
+    // Also reject single letters
+    if (desc.match(/^[A-Z]$/i)) {
+      console.log(`   ❌ Rejecting single letter description: "${desc}"`)
+      return null
+    }
     
     // Only remove very obvious prefixes, keep most content
     desc = desc.replace(/^(item\s*\d+[\.\-\:\s]*)/i, '')

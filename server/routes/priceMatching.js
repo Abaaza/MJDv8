@@ -174,10 +174,10 @@ router.get('/download/:jobId', async (req, res) => {
     if (jobStatus.output_file_path) {
       console.log(`[DOWNLOAD DEBUG] Using output_file_path from database`)
       filePath = jobStatus.output_file_path
-      
-      // If it's not an absolute path, assume it's in the output directory
-      if (!path.isAbsolute(filePath)) {
-        filePath = path.join(__dirname, '..', filePath)
+    
+    // If it's not an absolute path, assume it's in the output directory
+    if (!path.isAbsolute(filePath)) {
+      filePath = path.join(__dirname, '..', filePath)
       }
     } else {
       console.log(`[DOWNLOAD DEBUG] No output_file_path in database, searching output directory`)
@@ -206,7 +206,7 @@ router.get('/download/:jobId', async (req, res) => {
     
     if (!await fs.pathExists(filePath)) {
       console.log(`[DOWNLOAD DEBUG] File not found at: ${filePath}`)
-      return res.status(404).json({ error: 'Output file not found on disk' })
+        return res.status(404).json({ error: 'Output file not found on disk' })
     }
 
     console.log(`[DOWNLOAD DEBUG] File found, sending: ${filePath}`)
@@ -233,33 +233,14 @@ router.get('/status/:jobId', async (req, res) => {
     
     console.log(`📊 Status check requested for job: ${jobId}`)
     
-    // Add cache-busting headers to prevent stale data
-    res.set({
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0'
-    })
-    
     // Create service instance when needed (after dotenv is loaded)
     const priceMatchingService = getPriceMatchingService()
     const status = await priceMatchingService.getJobStatus(jobId)
     
-    if (!status) {
-      console.log(`❌ No status found for job: ${jobId}`)
-      return res.status(404).json({ 
-        error: 'Job not found',
-        jobId 
-      })
-    }
-    
-    console.log(`📊 Status response for job ${jobId}:`, {
+    console.log(`📊 Status found for job ${jobId}:`, {
       status: status.status,
       progress: status.progress,
-      matched_items: status.matched_items,
-      total_items: status.total_items,
-      confidence_score: status.confidence_score,
-      message: status.message,
-      updated_at: status.updated_at
+      matched_items: status.matched_items
     })
     
     res.json(status)
@@ -337,13 +318,13 @@ router.post('/export/:jobId', async (req, res) => {
     if (originalFilePath && await fs.pathExists(originalFilePath)) {
       // Always use format-preserving export
       console.log(`✅ Using format-preserving export with original file: ${originalFilePath}`)
-      outputPath = await exportService.exportWithOriginalFormat(
-        originalFilePath,
-        matchResults,
-        jobId,
-        jobStatus.original_filename
-      )
-    } else {
+        outputPath = await exportService.exportWithOriginalFormat(
+          originalFilePath,
+          matchResults,
+          jobId,
+          jobStatus.original_filename
+        )
+      } else {
       // Last resort: create a simple formatted export
       console.log('⚠️ Original file not found, using filtered export format')
       console.log('This will not preserve the original Excel formatting!')
@@ -512,6 +493,67 @@ router.post('/test-cohere-match', async (req, res) => {
       message: error.message,
       stack: error.stack
     })
+  }
+})
+
+// Add a test route for debugging progress updates
+router.post('/test-progress/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params
+    const priceMatchingService = new PriceMatchingService()
+    
+    console.log(`🧪 [TEST] Testing progress updates for job: ${jobId}`)
+    
+    // Test updating job status
+    const updateResult = await priceMatchingService.updateJobStatus(
+      jobId, 
+      'processing', 
+      50, 
+      'Test progress update from debug endpoint', 
+      {
+        total_items: 100,
+        matched_items: 25
+      }
+    )
+    
+    console.log(`🧪 [TEST] Update result: ${updateResult}`)
+    
+    // Fetch the job to verify update worked
+    const { data: job, error } = await priceMatchingService.supabase
+      .from('ai_matching_jobs')
+      .select('*')
+      .eq('id', jobId)
+      .single()
+    
+    if (error) {
+      console.error(`🧪 [TEST] Error fetching job: ${error}`)
+      return res.status(500).json({ error: 'Failed to fetch job', details: error })
+    }
+    
+    console.log(`🧪 [TEST] Current job state:`, {
+      status: job.status,
+      progress: job.progress,
+      total_items: job.total_items,
+      matched_items: job.matched_items,
+      message: job.message
+    })
+    
+    res.json({
+      success: true,
+      updateResult,
+      currentJobState: {
+        status: job.status,
+        progress: job.progress,
+        total_items: job.total_items,
+        matched_items: job.matched_items,
+        message: job.message,
+        updated_at: job.updated_at
+      }
+    })
+    
+  } catch (error) {
+    console.error('🧪 [TEST] Test progress endpoint error:', error)
+    res.status(500).json({ error: 'Test failed', details: error.message })
   }
 })
 

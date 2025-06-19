@@ -332,13 +332,24 @@ export class CohereMatchingService {
    * Create query text from BOQ item
    */
   createQueryText(boqItem) {
+    // Use enhanced description if available, otherwise regular description
+    const description = boqItem.enhanced_description || boqItem.description || ''
+    
     const parts = [
-      boqItem.description || '',
+      description,
       boqItem.unit || '',
-      boqItem.section || ''
+      boqItem.section || '',
+      boqItem.section_header || ''  // Include section headers for better context
     ].filter(part => part);
     
-    return parts.join(' ').toLowerCase();
+    const queryText = parts.join(' ').toLowerCase();
+    
+    // Log if we're using enhanced description
+    if (boqItem.enhanced_description) {
+      console.log(`[COHERE] Using enhanced description: "${boqItem.enhanced_description.substring(0, 60)}..."`)
+    }
+    
+    return queryText;
   }
 
   /**

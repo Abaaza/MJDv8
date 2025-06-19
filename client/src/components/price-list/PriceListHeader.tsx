@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Plus, MoreVertical, Trash2, Settings } from "lucide-react"
+import { Plus, MoreVertical, Trash2 } from "lucide-react"
 import { PriceItemForm } from "@/components/PriceItemForm"
 import { CSVExport } from "@/components/CSVExport"
 import { CSVImport } from "@/components/CSVImport"
@@ -63,10 +63,9 @@ interface PriceListHeaderProps {
   priceItems: PriceItem[]
   onDeleteAll: () => void
   onRefresh: () => void
-  onFixOrphaned?: () => void
 }
 
-export function PriceListHeader({ totalItems, priceItems, onDeleteAll, onRefresh, onFixOrphaned }: PriceListHeaderProps) {
+export function PriceListHeader({ totalItems, priceItems, onDeleteAll, onRefresh }: PriceListHeaderProps) {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
 
   return (
@@ -85,12 +84,6 @@ export function PriceListHeader({ totalItems, priceItems, onDeleteAll, onRefresh
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
-            {onFixOrphaned && (
-              <DropdownMenuItem onClick={onFixOrphaned}>
-                <Settings className="mr-2 h-4 w-4" />
-                Fix Orphaned Items
-              </DropdownMenuItem>
-            )}
             <DropdownMenuItem onClick={onDeleteAll} className="text-destructive">
               <Trash2 className="mr-2 h-4 w-4" />
               Delete All Items

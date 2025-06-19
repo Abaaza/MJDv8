@@ -934,7 +934,8 @@ Possible causes:
 
       if (message !== null) {
         // Ensure message fits within database constraints (e.g., 500 chars)
-        updateData.message = message ? message.substring(0, 500) : null
+        // Note: The database column is actually 'error_message', not 'message'
+        updateData.error_message = message ? message.substring(0, 500) : null
       }
 
       console.log(`🔄 [UPDATE JOB STATUS] Updating database with:`, updateData)
@@ -954,7 +955,7 @@ Possible causes:
       // Verify the update worked by reading it back
       const { data: verifyData, error: verifyError } = await this.supabase
         .from('ai_matching_jobs')
-        .select('status, progress, message, updated_at')
+        .select('status, progress, error_message, total_items, matched_items, updated_at')
         .eq('id', jobId)
         .single()
       
@@ -964,7 +965,9 @@ Possible causes:
         console.log(`🔍 [UPDATE JOB STATUS] Verified database state for job ${jobId}:`, {
           status: verifyData.status,
           progress: verifyData.progress,
-          message: verifyData.message?.substring(0, 50) + '...',
+          message: verifyData.error_message?.substring(0, 50) + '...',
+          total_items: verifyData.total_items,
+          matched_items: verifyData.matched_items,
           updated_at: verifyData.updated_at
         })
       }

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Search, ChevronLeft, ChevronRight } from "lucide-react"
+import { Trash2, Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { PriceItemSelectionModal } from "./PriceItemSelectionModal"
 import { supabase } from "@/integrations/supabase/client"
 import { toast } from "sonner"
@@ -50,6 +50,8 @@ export function EditableMatchResultsTable({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [matchModes, setMatchModes] = useState<Record<string, 'ai' | 'local' | 'manual'>>({})
   const [priceItems, setPriceItems] = useState<Record<string, PriceItem>>({})
+  const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({})
+  const [localMatches, setLocalMatches] = useState<Record<string, Partial<MatchResult>>>({})
   
   // Safety check - ensure matchResults is an array
   const safeMatchResults = useMemo(() => {
@@ -178,23 +180,50 @@ export function EditableMatchResultsTable({
   }
 
   const handleFieldChange = (id: string, field: keyof MatchResult, value: string | number) => {
-    const updates: Partial<MatchResult> = { [field]: value }
+    const currentMode = matchModes[id] || 'ai'
     
-    // Recalculate total if quantity or rate changes
-    const result = safeMatchResults.find(r => r.id === id)
-    if (result && (field === 'quantity' || field === 'matched_rate')) {
-      const newQuantity = field === 'quantity' ? Number(value) : result.quantity
-      const newRate = field === 'matched_rate' ? Number(value) : result.matched_rate
-      updates.total_amount = calculateTotal(newQuantity, newRate)
+    if (currentMode === 'local' && localMatches[id]) {
+      // Update local match data
+      const result = safeMatchResults.find(r => r.id === id)
+      const newLocalMatch = { ...localMatches[id], [field]: value }
+      
+      // Recalculate total if quantity or rate changes
+      if (result && (field === 'quantity' || field === 'matched_rate')) {
+        const newQuantity = field === 'quantity' ? Number(value) : result.quantity
+        const newRate = field === 'matched_rate' ? Number(value) : (newLocalMatch.matched_rate || 0)
+        newLocalMatch.total_amount = calculateTotal(newQuantity, newRate)
+      }
+      
+      setLocalMatches(prev => ({ ...prev, [id]: newLocalMatch }))
+      
+      // Also update the original result for quantity changes
+      if (field === 'quantity') {
+        onUpdateResult(id, { quantity: value as number })
+      }
+    } else {
+      // Update original result data
+      const updates: Partial<MatchResult> = { [field]: value }
+      
+      // Recalculate total if quantity or rate changes
+      const result = safeMatchResults.find(r => r.id === id)
+      if (result && (field === 'quantity' || field === 'matched_rate')) {
+        const newQuantity = field === 'quantity' ? Number(value) : result.quantity
+        const newRate = field === 'matched_rate' ? Number(value) : result.matched_rate
+        updates.total_amount = calculateTotal(newQuantity, newRate)
+      }
+      
+      onUpdateResult(id, updates)
     }
-    
-    onUpdateResult(id, updates)
   }
 
   const handleMatchModeChange = async (resultId: string, mode: 'ai' | 'local' | 'manual') => {
     setMatchModes(prev => ({ ...prev, [resultId]: mode }))
     
-    if (mode === 'manual') {
+    if (mode === 'ai') {
+      // When switching back to AI mode, the result already has the original AI match data
+      // so we don't need to do anything - the UI will show it based on the mode change
+      return
+    } else if (mode === 'manual') {
       setSelectedResultId(resultId)
       setIsModalOpen(true)
     } else if (mode === 'local') {
@@ -202,6 +231,8 @@ export function EditableMatchResultsTable({
       const result = safeMatchResults.find(r => r.id === resultId)
       if (result) {
         try {
+          // Set loading state
+          setLoadingStates(prev => ({ ...prev, [resultId]: true }))
           toast.info('Running local matching...')
           
           const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/match-item-local`, {
@@ -218,16 +249,18 @@ export function EditableMatchResultsTable({
           const data = await response.json()
           
           if (data.success && data.match) {
-            // Update the result with local match
-            onUpdateResult(resultId, {
-              matched_description: data.match.matched_description,
-              matched_rate: data.match.matched_rate,
-              unit: data.match.unit,
-              similarity_score: data.match.similarity_score / 100, // Convert from percentage to decimal
-              matched_price_item_id: data.match.matched_price_item_id,
-              total_amount: data.match.total_amount,
-              match_method: 'local'
-            })
+            // Store local match separately to preserve AI match data
+            setLocalMatches(prev => ({
+              ...prev,
+              [resultId]: {
+                matched_description: data.match.matched_description,
+                matched_rate: data.match.matched_rate,
+                unit: data.match.unit,
+                similarity_score: data.match.similarity_score / 100, // Convert from percentage to decimal
+                matched_price_item_id: data.match.matched_price_item_id,
+                total_amount: data.match.total_amount
+              }
+            }))
             
             toast.success('Local match found!')
           } else {
@@ -240,6 +273,9 @@ export function EditableMatchResultsTable({
           toast.error('Local matching failed')
           // Reset to AI mode on error
           setMatchModes(prev => ({ ...prev, [resultId]: 'ai' }))
+        } finally {
+          // Clear loading state
+          setLoadingStates(prev => ({ ...prev, [resultId]: false }))
         }
       }
     }
@@ -302,9 +338,17 @@ export function EditableMatchResultsTable({
               
               {/* Items in this section */}
               {group.items.map((result) => {
-                const currentMode = matchModes[result.id] || (result.match_method === 'local' ? 'local' : 'ai')
-                const total = calculateTotal(result.quantity, result.matched_rate)
-                const matchedPriceItem = result.matched_price_item_id ? priceItems[result.matched_price_item_id] : null
+                const currentMode = matchModes[result.id] || 'ai'
+                const localMatch = localMatches[result.id]
+                
+                // Use local match data if in local mode, otherwise use original result data
+                const displayData = currentMode === 'local' && localMatch ? {
+                  ...result,
+                  ...localMatch
+                } : result
+                
+                const total = calculateTotal(result.quantity, displayData.matched_rate)
+                const matchedPriceItem = displayData.matched_price_item_id ? priceItems[displayData.matched_price_item_id] : null
                 
                 return (
                   <TableRow key={result.id}>
@@ -344,32 +388,41 @@ export function EditableMatchResultsTable({
                       {currentMode === 'ai' && (
                         <div className="mt-2 p-2 border rounded bg-blue-50 text-left">
                           <div className="text-xs font-medium text-blue-800 text-left">
-                            {matchedPriceItem ? matchedPriceItem.description : (result.matched_description || 'No match found')}
+                            {matchedPriceItem ? matchedPriceItem.description : (displayData.matched_description || 'No match found')}
                           </div>
-                          {(matchedPriceItem || result.matched_rate) && (
+                          {(matchedPriceItem || displayData.matched_rate) && (
                             <div className="text-xs text-blue-600 mt-1 text-left">
-                              Rate: {getCurrencySymbol(currency)}{formatNumber(result.matched_rate || matchedPriceItem?.rate || 0)} per {matchedPriceItem?.unit || result.unit || 'unit'}
+                              Rate: {getCurrencySymbol(currency)}{formatNumber(displayData.matched_rate || matchedPriceItem?.rate || 0)} per {matchedPriceItem?.unit || displayData.unit || 'unit'}
                             </div>
                           )}
                           <div className="text-xs text-blue-600 mt-1 text-left">
-                            Confidence: {Math.round(result.similarity_score)}%
+                            Confidence: {Math.round(displayData.similarity_score)}%
                           </div>
                         </div>
                       )}
                       
                       {currentMode === 'local' && (
                         <div className="mt-2 p-2 border rounded bg-green-50 text-left">
-                          <div className="text-xs font-medium text-green-800 text-left">
-                            {matchedPriceItem ? matchedPriceItem.description : (result.matched_description || 'No local match found')}
-                          </div>
-                          {(matchedPriceItem || result.matched_rate) && (
-                            <div className="text-xs text-green-600 mt-1 text-left">
-                              Rate: {getCurrencySymbol(currency)}{formatNumber(result.matched_rate || matchedPriceItem?.rate || 0)} per {matchedPriceItem?.unit || result.unit || 'unit'}
+                          {loadingStates[result.id] ? (
+                            <div className="flex items-center space-x-2">
+                              <Loader2 className="h-4 w-4 animate-spin text-green-600" />
+                              <span className="text-xs text-green-600">Finding best local match...</span>
                             </div>
+                          ) : (
+                            <>
+                              <div className="text-xs font-medium text-green-800 text-left">
+                                {matchedPriceItem ? matchedPriceItem.description : (displayData.matched_description || 'No local match found')}
+                              </div>
+                              {(matchedPriceItem || displayData.matched_rate) && (
+                                <div className="text-xs text-green-600 mt-1 text-left">
+                                  Rate: {getCurrencySymbol(currency)}{formatNumber(displayData.matched_rate || matchedPriceItem?.rate || 0)} per {matchedPriceItem?.unit || displayData.unit || 'unit'}
+                                </div>
+                              )}
+                              <div className="text-xs text-green-600 mt-1 text-left">
+                                Confidence: {Math.round(displayData.similarity_score < 1 ? displayData.similarity_score * 100 : displayData.similarity_score)}%
+                              </div>
+                            </>
                           )}
-                          <div className="text-xs text-green-600 mt-1 text-left">
-                            Confidence: {Math.round(result.similarity_score)}%
-                          </div>
                         </div>
                       )}
                       
@@ -401,11 +454,7 @@ export function EditableMatchResultsTable({
                     
                     <TableCell className="text-left !text-left">
                       <div className="w-16 text-xs text-left p-2 bg-muted/50 rounded border text-muted-foreground">
-                        {(() => {
-                          const unit = matchedPriceItem?.unit || result.unit || 'N/A'
-                          console.log(`Unit for ${result.id}: matchedPriceItem?.unit=${matchedPriceItem?.unit}, result.unit=${result.unit}, final=${unit}`)
-                          return unit
-                        })()}
+                        {matchedPriceItem?.unit || displayData.unit || 'N/A'}
                       </div>
                     </TableCell>
                     
@@ -413,7 +462,7 @@ export function EditableMatchResultsTable({
                       <Input
                         type="number"
                         step="0.01"
-                        value={result.matched_rate || ''}
+                        value={displayData.matched_rate || ''}
                         onChange={(e) => handleFieldChange(result.id, 'matched_rate', parseFloat(e.target.value) || 0)}
                         className="w-20 text-xs text-left"
                       />
@@ -421,10 +470,10 @@ export function EditableMatchResultsTable({
                     
                     <TableCell className="text-left !text-left">
                       <Badge 
-                        variant={result.similarity_score >= 80 ? "default" : "secondary"}
+                        variant={(displayData.similarity_score < 1 ? displayData.similarity_score * 100 : displayData.similarity_score) >= 80 ? "default" : "secondary"}
                         className="text-xs"
                       >
-                        {Math.round(result.similarity_score)}%
+                        {Math.round(displayData.similarity_score < 1 ? displayData.similarity_score * 100 : displayData.similarity_score)}%
                       </Badge>
                     </TableCell>
                     

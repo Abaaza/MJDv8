@@ -60,17 +60,34 @@ export class LocalPriceMatchingService {
    */
   async matchItems(items, priceList, jobId, originalFileName, updateJobStatus) {
     try {
-      console.log(`🔍 Starting local price matching...`)
-      console.log(`📋 Items to match: ${items.length}`)
-      console.log(`💰 Price list entries: ${priceList.length}`)
+      console.log(`🔍 [LOCAL MATCH DEBUG] Starting local price matching...`)
+      console.log(`📋 [LOCAL MATCH DEBUG] Items to match: ${items.length}`)
+      console.log(`💰 [LOCAL MATCH DEBUG] Price list entries: ${priceList.length}`)
+      console.log(`🆔 [LOCAL MATCH DEBUG] Job ID: ${jobId}`)
+      console.log(`📄 [LOCAL MATCH DEBUG] Original filename: ${originalFileName}`)
+      console.log(`🔧 [LOCAL MATCH DEBUG] updateJobStatus function type: ${typeof updateJobStatus}`)
+      
+      // Test the updateJobStatus function immediately
+      if (typeof updateJobStatus !== 'function') {
+        throw new Error('updateJobStatus is not a function!')
+      }
+      
+      console.log(`🧪 [LOCAL MATCH DEBUG] Testing updateJobStatus function...`)
+      const testResult = await updateJobStatus(jobId, 'processing', 35, 'Local matching initialized - testing progress updates', {
+        total_items: items.length,
+        matched_items: 0
+      })
+      console.log(`🧪 [LOCAL MATCH DEBUG] Test updateJobStatus result: ${testResult}`)
       
       // Preprocess price list descriptions with enhanced processing
+      console.log(`🔄 [LOCAL MATCH DEBUG] Preprocessing price list...`)
       const processedPriceList = priceList.map(item => ({
         ...item,
         processed_description: this.preprocessDescription(item.description || item.full_context),
         tokens: this.tokenizeDescription(item.description || item.full_context),
         keywords: this.extractKeywords(item.description || item.full_context)
       }))
+      console.log(`✅ [LOCAL MATCH DEBUG] Price list preprocessed successfully`)
       
       const matches = []
       let matchedCount = 0
@@ -90,10 +107,18 @@ export class LocalPriceMatchingService {
         // Update progress more frequently for better user experience
         if (i % 5 === 0 || i === items.length - 1) {
           const progress = 40 + Math.round((i / items.length) * 40)
-          await updateJobStatus(jobId, 'processing', progress, `Local Matching: ${i + 1}/${items.length} items (${matchedCount} matches)`, {
-            total_items: items.length,
-            matched_items: matchedCount
-          })
+          console.log(`🔄 [LOCAL MATCH DEBUG] About to call updateJobStatus for item ${i + 1}/${items.length}`)
+          console.log(`🔄 [LOCAL MATCH DEBUG] Progress: ${progress}%, Matched: ${matchedCount}`)
+          
+          try {
+            const updateResult = await updateJobStatus(jobId, 'processing', progress, `Local Matching: ${i + 1}/${items.length} items (${matchedCount} matches)`, {
+              total_items: items.length,
+              matched_items: matchedCount
+            })
+            console.log(`✅ [LOCAL MATCH DEBUG] updateJobStatus result: ${updateResult}`)
+          } catch (updateError) {
+            console.error(`❌ [LOCAL MATCH DEBUG] updateJobStatus failed:`, updateError)
+          }
           
           // Log progress for debugging
           console.log(`📊 [LOCAL MATCH PROGRESS] ${i + 1}/${items.length} items processed, ${matchedCount} matches found`)
@@ -124,9 +149,10 @@ export class LocalPriceMatchingService {
           matchedCount++
           totalConfidence += match.confidence
           
-          console.log(`✅ Match found: "${item.description.substring(0, 40)}..." -> "${match.item.description?.substring(0, 40)}..." (${Math.round(match.confidence * 100)}%)`)
+          console.log(`✅ [LOCAL MATCH DEBUG] Match ${matchedCount} found: "${item.description.substring(0, 40)}..." -> "${match.item.description?.substring(0, 40)}..." (${Math.round(match.confidence * 100)}%)`)
         } else {
-          console.log(`❌ No match: "${item.description.substring(0, 40)}..." (best: ${match ? Math.round(match.confidence * 100) : 0}%)`)
+          console.error(`❌ [LOCAL MATCH DEBUG] ERROR: No match returned for item ${i + 1}: "${item.description.substring(0, 40)}..."`)
+          console.error(`❌ [LOCAL MATCH DEBUG] This should never happen - findBestMatch should always return a match!`)
         }
       }
       
