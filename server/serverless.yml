@@ -1,6 +1,6 @@
 # serverless.yml
 
-service: mjd-backend-3
+service: mjd-backend-4
 frameworkVersion: "3"
 
 provider:
