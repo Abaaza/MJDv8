@@ -11,7 +11,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Building2, AlertCircle } from 'lucide-react';
 
 export default function Auth() {
-  const { user, loading } = useAuth();
+  const { user, loading, error: authError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -40,10 +40,35 @@ export default function Auth() {
     });
   };
 
+  const getErrorMessage = (errorCode) => {
+    switch (errorCode) {
+      case 'InvalidLogin':
+        return 'Invalid email or password. Please try again.';
+      case 'UserNotFound':
+        return 'No account found with this email.';
+      case 'EmailNotConfirmed':
+        return 'Please confirm your email address.';
+      default:
+        return 'An unexpected error occurred. Please try again later.';
+    }
+  };
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
     setError('');
+
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address.');
+      setAuthLoading(false);
+      return;
+    }
+
+    if (!validatePassword(password)) {
+      setError('Password must be at least 6 characters long.');
+      setAuthLoading(false);
+      return;
+    }
 
     try {
       cleanupAuthState();
@@ -65,7 +90,7 @@ export default function Auth() {
         window.location.href = '/';
       }
     } catch (error: any) {
-      setError(error.message || 'An error occurred during sign in');
+      setError(getErrorMessage(error.message) || 'An error occurred during sign in');
     } finally {
       setAuthLoading(false);
     }
@@ -76,6 +101,18 @@ export default function Auth() {
     setAuthLoading(true);
     setError('');
     setSuccess('');
+
+    if (!validateEmail(email)) {
+      setError('Please enter a valid email address.');
+      setAuthLoading(false);
+      return;
+    }
+
+    if (!validatePassword(password)) {
+      setError('Password must be at least 6 characters long.');
+      setAuthLoading(false);
+      return;
+    }
 
     try {
       cleanupAuthState();
@@ -115,107 +152,122 @@ export default function Auth() {
     }
   };
 
+  const validateEmail = (email) => {
+    const re = /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/;
+    return re.test(email);
+  };
+
+  const validatePassword = (password) => {
+    return password.length >= 6;
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
-      <div className="w-full max-w-md mx-auto">
-        <Card className="w-full">
-          <CardHeader className="text-center">
-            <div className="flex justify-center mb-4">
-              <Building2 className="h-12 w-12 text-primary" />
-            </div>
-            <CardTitle className="text-2xl">ConstructCRM</CardTitle>
-            <CardDescription>
-              Sign in to your account or create a new one
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="signin">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="signin">Sign In</TabsTrigger>
-                <TabsTrigger value="signup">Sign Up</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="signin">
-                <form onSubmit={handleSignIn} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="signin-email">Email</Label>
-                    <Input
-                      id="signin-email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
+    <div className="min-h-screen w-full lg:grid lg:grid-cols-2">
+      <div className="flex items-center justify-center py-12">
+        <div className="mx-auto grid w-[400px] gap-6">
+          <div className="grid gap-2 text-center">
+            <h1 className="text-3xl font-bold">Login</h1>
+            <p className="text-balance text-muted-foreground">
+              Enter your email below to login to your account
+            </p>
+          </div>
+          <Tabs defaultValue="signin">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="signin">Sign In</TabsTrigger>
+              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+            </TabsList>
+            <TabsContent value="signin">
+              <form onSubmit={handleSignIn} className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="signin-email">Email</Label>
+                  <Input
+                    id="signin-email"
+                    type="email"
+                    placeholder="m@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <div className="flex items-center">
                     <Label htmlFor="signin-password">Password</Label>
-                    <Input
-                      id="signin-password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
+                    <a
+                      href="#"
+                      className="ml-auto inline-block text-sm underline"
+                    >
+                      Forgot your password?
+                    </a>
                   </div>
-                  <Button type="submit" className="w-full" disabled={authLoading}>
-                    {authLoading ? 'Signing in...' : 'Sign In'}
-                  </Button>
-                </form>
-              </TabsContent>
-
-              <TabsContent value="signup">
-                <form onSubmit={handleSignUp} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-name">Full Name</Label>
-                    <Input
-                      id="signup-name"
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email</Label>
-                    <Input
-                      id="signup-email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password</Label>
-                    <Input
-                      id="signup-password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" disabled={authLoading}>
-                    {authLoading ? 'Creating account...' : 'Create Account'}
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
-
-            {error && (
-              <Alert className="mt-4" variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            {success && (
-              <Alert className="mt-4">
-                <AlertDescription>{success}</AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-        </Card>
+                  <Input
+                    id="signin-password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={authLoading}>
+                  {authLoading ? "Logging in..." : "Login"}
+                </Button>
+              </form>
+            </TabsContent>
+            <TabsContent value="signup">
+              <form onSubmit={handleSignUp} className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="signup-name">Full Name</Label>
+                  <Input
+                    id="signup-name"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="signup-email">Email</Label>
+                  <Input
+                    id="signup-email"
+                    type="email"
+                    placeholder="m@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="signup-password">Password</Label>
+                  <Input
+                    id="signup-password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button type="submit" className="w-full" disabled={authLoading}>
+                  {authLoading ? "Creating account..." : "Create Account"}
+                </Button>
+              </form>
+            </TabsContent>
+          </Tabs>
+          {(error || authError) && (
+            <Alert className="mt-4" variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error || authError.message}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert className="mt-4">
+              <AlertDescription>{success}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
+      <div className="hidden bg-muted lg:block">
+        <div className="flex h-full items-center justify-center">
+          <Building2 className="h-24 w-24 text-primary" />
+        </div>
       </div>
     </div>
   );

@@ -1,8 +1,8 @@
-
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Edit, Trash2 } from "lucide-react"
+import { Edit, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
+import { SortField, SortDirection } from "@/hooks/usePriceList"
 
 interface PriceItem {
   id: string
@@ -61,6 +61,9 @@ interface PriceListTableProps {
   categoryFilter: string
   totalItems: number
   currency: string
+  sortField: SortField
+  sortDirection: SortDirection
+  onSort: (field: SortField) => void
 }
 
 export function PriceListTable({ 
@@ -70,7 +73,10 @@ export function PriceListTable({
   searchTerm, 
   categoryFilter, 
   totalItems,
-  currency 
+  currency,
+  sortField,
+  sortDirection,
+  onSort
 }: PriceListTableProps) {
   const getKeywords = (item: PriceItem) => {
     const keywords = []
@@ -92,16 +98,38 @@ export function PriceListTable({
     }
   }
 
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-4 w-4" />
+    }
+    return sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+  }
+
+  const SortableHeader = ({ field, children, className = "" }: { field: SortField; children: React.ReactNode; className?: string }) => (
+    <TableHead className={`text-left ${className}`}>
+      <Button
+        variant="ghost"
+        className="h-auto p-0 font-medium hover:bg-transparent"
+        onClick={() => onSort(field)}
+      >
+        <div className="flex items-center gap-1">
+          {children}
+          {getSortIcon(field)}
+        </div>
+      </Button>
+    </TableHead>
+  )
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[80px] text-center">Code</TableHead>
-          <TableHead className="text-center">Description</TableHead>
-          <TableHead className="text-center">Category</TableHead>
-          <TableHead className="text-center">Unit</TableHead>
-          <TableHead className="text-center">Rate ({currency})</TableHead>
-          <TableHead className="text-center">Keywords</TableHead>
+          <SortableHeader field="code" className="w-[80px]">Code</SortableHeader>
+          <SortableHeader field="description">Description</SortableHeader>
+          <SortableHeader field="category">Category</SortableHeader>
+          <SortableHeader field="unit">Unit</SortableHeader>
+          <SortableHeader field="rate">Rate ({currency})</SortableHeader>
+          <TableHead className="text-left">Keywords</TableHead>
           <TableHead className="w-[100px] text-center">Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -112,20 +140,20 @@ export function PriceListTable({
           
           return (
             <TableRow key={item.id}>
-              <TableCell className="font-mono text-center w-[80px]">{item.code || '-'}</TableCell>
-              <TableCell className="font-medium text-center" title={item.description}>
+              <TableCell className="font-mono text-left w-[80px]">{item.code || '-'}</TableCell>
+              <TableCell className="font-medium text-left" title={item.description}>
                 {item.description}
               </TableCell>
-              <TableCell className="text-center">
+              <TableCell className="text-left">
                 {item.category && <Badge variant="outline">{item.category}</Badge>}
               </TableCell>
-              <TableCell className="text-center">{item.unit || '-'}</TableCell>
-              <TableCell className="font-mono text-center">
+              <TableCell className="text-left">{item.unit || '-'}</TableCell>
+              <TableCell className="font-mono text-left">
                 {item.rate !== null && item.rate !== undefined && item.rate !== 0 ? 
                   `${getCurrencySymbol(currency)}${Number(item.rate).toFixed(2)}` : '-'}
               </TableCell>
-              <TableCell className="text-center">
-                <div className="flex flex-wrap gap-1 justify-center">
+              <TableCell className="text-left">
+                <div className="flex flex-wrap gap-1 justify-start">
                   {getKeywords(item).map((keyword, index) => (
                     <Badge key={index} variant="secondary" className="text-xs">
                       {keyword}

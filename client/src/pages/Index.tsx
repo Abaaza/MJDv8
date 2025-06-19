@@ -29,41 +29,33 @@ export default function Index() {
     { 
       title: "Total Clients", 
       value: loading ? "..." : stats.totalClients.toString(), 
-      change: "+2", 
-      icon: Users, 
-      color: "text-blue-600" 
+      icon: Users,
     },
     { 
       title: "Price Items", 
       value: loading ? "..." : stats.activePriceItems.toLocaleString(), 
-      change: "+156", 
-      icon: DollarSign, 
-      color: "text-yellow-600" 
+      icon: DollarSign,
     },
     { 
       title: "Matching Jobs", 
       value: loading ? "..." : stats.totalMatchingJobs.toString(), 
-      change: "+3", 
-      icon: FolderOpen, 
-      color: "text-green-600" 
+      icon: FolderOpen,
     },
     { 
       title: "Matched Items", 
       value: loading ? "..." : stats.totalMatchedItems.toLocaleString(), 
-      change: "+12", 
-      icon: Zap, 
-      color: "text-purple-600" 
+      icon: Zap,
     },
   ]
 
   const getStatusIcon = (type: string) => {
     if (type === 'job_started') {
-      return <Zap className="h-4 w-4 text-blue-600" />
+      return <Zap className="h-4 w-4 text-blue-500" />
     }
     if (type === 'job_completed' || type === 'client_added' || type === 'price_item_added') {
-      return <CheckCircle className="h-4 w-4 text-green-600" />
+      return <CheckCircle className="h-4 w-4 text-green-500" />
     }
-    return <Clock className="h-4 w-4 text-yellow-600" />
+    return <Clock className="h-4 w-4 text-gray-500" />
   }
 
   const handleCreateClient = async (clientData: any) => {
@@ -75,64 +67,46 @@ export default function Index() {
   }
 
   return (
-    <div className="pt-[10px] px-6 pb-6 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="text-left">
-          <h1 className="text-3xl font-bold mt-0">Dashboard</h1>
-          <p className="text-muted-foreground">Welcome back to your construction CRM</p>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+      <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
         {dashboardStats.map((stat) => (
           <Card key={stat.title}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
-              <stat.icon className={`h-4 w-4 ${stat.color}`} />
+              <stat.icon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stat.value}</div>
-              <p className="text-xs text-muted-foreground">
-                <span className="text-green-600">{stat.change}</span> from last month
-              </p>
             </CardContent>
           </Card>
         ))}
       </div>
-
-      <div className="grid gap-6 lg:grid-cols-1">
-        {/* Recent Activity */}
-        <Card>
-          <CardHeader>
-            <div className="text-center">
+      <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3">
+        <Card className="xl:col-span-2">
+          <CardHeader className="flex flex-row items-center">
+            <div className="grid gap-2">
               <CardTitle>Recent Activity</CardTitle>
-              <CardDescription>Latest updates across your system</CardDescription>
+              <CardDescription>
+                Latest updates across your system.
+              </CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent>
             {activitiesLoading ? (
               <div className="text-center text-muted-foreground py-4">Loading activities...</div>
             ) : activities.length === 0 ? (
               <div className="text-center text-muted-foreground py-4">No recent activity</div>
             ) : (
-              <div className="space-y-6 w-full px-4">
+              <div className="space-y-4">
                 {activities.map((activity) => (
-                  <div key={activity.id} className="flex items-start">
-                    <div className="w-8 flex-shrink-0 mt-1">
-                      {getStatusIcon(activity.type)}
+                  <div key={activity.id} className="grid grid-cols-[25px_1fr_auto] items-start gap-4">
+                    <span className="flex h-2 w-2 translate-y-1 rounded-full bg-sky-500" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {activity.description}
+                      </p>
                     </div>
-                    <div className="flex-1 min-w-0 pr-4 ml-[6%]">
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-medium leading-tight">
-                          {activity.description.replace(/^[A-Za-z]+\s+[A-Za-z]+\s+/, '')}
-                        </p>
-                        <p className="text-xs text-muted-foreground font-normal">
-                          {activity.description.match(/^[A-Za-z]+\s+[A-Za-z]+/)?.[0]}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="w-24 flex-shrink-0 text-xs text-muted-foreground whitespace-nowrap mt-1 text-right">
+                    <div className="text-sm text-muted-foreground">
                       {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
                     </div>
                   </div>
@@ -141,35 +115,39 @@ export default function Index() {
             )}
           </CardContent>
         </Card>
-      </div>
-
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>Common tasks and shortcuts</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Quick Actions</CardTitle>
+            <CardDescription>Common tasks and shortcuts</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
             <Button 
               variant="outline" 
-              className="h-24 flex flex-col space-y-2"
+              className="w-full justify-start gap-4"
               onClick={() => setIsAddClientOpen(true)}
             >
-              <Users className="h-6 w-6" />
-              <span>Add Client</span>
+              <Users className="h-5 w-5" />
+              <span>Add New Client</span>
             </Button>
             <Button 
               variant="outline" 
-              className="h-24 flex flex-col space-y-2"
+              className="w-full justify-start gap-4"
               onClick={() => navigate('/matching-jobs')}
             >
-              <Zap className="h-6 w-6" />
-              <span>Upload BOQ</span>
+              <Zap className="h-5 w-5" />
+              <span>Start New Matching Job</span>
             </Button>
-          </div>
-        </CardContent>
-      </Card>
+            <Button 
+              variant="outline" 
+              className="w-full justify-start gap-4"
+              onClick={() => navigate('/price-list')}
+            >
+              <DollarSign className="h-5 w-5" />
+              <span>Manage Price List</span>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Client Form Modal */}
       <ClientForm
@@ -177,6 +155,6 @@ export default function Index() {
         onClose={() => setIsAddClientOpen(false)}
         onSave={handleCreateClient}
       />
-    </div>
+    </main>
   )
 }

@@ -71,9 +71,15 @@ export default function PriceList() {
     totalPages,
     availableCategories,
     currency,
+    itemsPerPage,
+    setItemsPerPage,
+    sortField,
+    sortDirection,
+    onSort,
     handleDeleteItem,
     handleDeleteAll,
-    refreshData
+    refreshData,
+    itemsPerPageOptions
   } = usePriceList()
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -106,6 +112,11 @@ export default function PriceList() {
                 Comprehensive pricing for materials, labor, and equipment • 
                 Showing {priceItems.length} of {totalItems.toLocaleString()} items
                 {searchTerm || categoryFilter !== "all" ? " (filtered)" : ""}
+                {sortField && (
+                  <span className="ml-2">
+                    • Sorted by {sortField} ({sortDirection})
+                  </span>
+                )}
               </CardDescription>
             </div>
             <PriceListFilters
@@ -126,12 +137,19 @@ export default function PriceList() {
             categoryFilter={categoryFilter}
             totalItems={totalItems}
             currency={currency}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onSort={onSort}
           />
           
           <PriceListPagination
             currentPage={currentPage}
             totalPages={totalPages}
             onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            onItemsPerPageChange={setItemsPerPage}
+            itemsPerPageOptions={itemsPerPageOptions}
+            totalItems={totalItems}
           />
         </CardContent>
       </Card>

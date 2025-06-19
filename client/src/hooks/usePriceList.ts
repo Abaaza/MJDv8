@@ -52,7 +52,10 @@ interface PriceItem {
   updated_at: string
 }
 
-const ITEMS_PER_PAGE = 50
+export type SortField = 'code' | 'description' | 'category' | 'unit' | 'rate' | 'created_at'
+export type SortDirection = 'asc' | 'desc'
+
+const ITEMS_PER_PAGE_OPTIONS = [50, 100, 200]
 
 export function usePriceList() {
   const [priceItems, setPriceItems] = useState<PriceItem[]>([])
@@ -64,6 +67,9 @@ export function usePriceList() {
   const [totalPages, setTotalPages] = useState(0)
   const [availableCategories, setAvailableCategories] = useState<string[]>([])
   const [currency, setCurrency] = useState("USD")
+  const [itemsPerPage, setItemsPerPage] = useState(ITEMS_PER_PAGE_OPTIONS[0])
+  const [sortField, setSortField] = useState<SortField>('created_at')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const { user } = useAuth()
 
   const fetchCurrency = async () => {
@@ -126,7 +132,7 @@ export function usePriceList() {
       }
 
       setTotalItems(count || 0)
-      setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE))
+      setTotalPages(Math.ceil((count || 0) / itemsPerPage))
     } catch (error) {
       console.error('Error fetching total count:', error)
     }
@@ -134,13 +140,13 @@ export function usePriceList() {
 
   const fetchPriceItems = async () => {
     try {
-      const offset = (currentPage - 1) * ITEMS_PER_PAGE
+      const offset = (currentPage - 1) * itemsPerPage
       
       let query = supabase
         .from('price_items')
         .select('*')
-        .order('created_at', { ascending: false })
-        .range(offset, offset + ITEMS_PER_PAGE - 1)
+        .order(sortField, { ascending: sortDirection === 'asc' })
+        .range(offset, offset + itemsPerPage - 1)
 
       if (searchTerm) {
         query = query.or(`description.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%,subcategory.ilike.%${searchTerm}%,code.ilike.%${searchTerm}%`)
@@ -165,6 +171,21 @@ export function usePriceList() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
+    }
+    setCurrentPage(1) // Reset to first page when sorting
+  }
+
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage)
+    setCurrentPage(1) // Reset to first page when changing items per page
   }
 
   const handleDeleteItem = async (id: string) => {
@@ -230,11 +251,15 @@ export function usePriceList() {
       fetchTotalCount()
       fetchCurrency()
     }
-  }, [user, currentPage, searchTerm, categoryFilter])
+  }, [user, currentPage, searchTerm, categoryFilter, itemsPerPage, sortField, sortDirection])
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, categoryFilter])
+  }, [searchTerm, categoryFilter, itemsPerPage])
+
+  useEffect(() => {
+    fetchTotalCount()
+  }, [itemsPerPage])
 
   return {
     priceItems,
@@ -249,8 +274,14 @@ export function usePriceList() {
     totalPages,
     availableCategories,
     currency,
+    itemsPerPage,
+    setItemsPerPage: handleItemsPerPageChange,
+    sortField,
+    sortDirection,
+    onSort: handleSort,
     handleDeleteItem,
     handleDeleteAll,
-    refreshData
+    refreshData,
+    itemsPerPageOptions: ITEMS_PER_PAGE_OPTIONS
   }
 }

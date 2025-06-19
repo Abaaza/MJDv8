@@ -175,8 +175,6 @@ export function PriceMatching() {
     return null
   }
 
-
-
   const handleUpdateResult = async (id: string, updates: Partial<MatchResult>) => {
     // Update local state
     setMatchResults(prev => prev.map(result => 
@@ -679,10 +677,10 @@ export function PriceMatching() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'completed': return <CheckCircle className="h-4 w-4 text-green-600" />
-      case 'processing': return <Zap className="h-4 w-4 text-blue-600" />
-      case 'failed': return <AlertCircle className="h-4 w-4 text-red-600" />
-      default: return <AlertCircle className="h-4 w-4 text-gray-600" />
+      case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />
+      case 'processing': return <Zap className="h-4 w-4 text-blue-500 animate-pulse" />
+      case 'failed': return <AlertCircle className="h-4 w-4 text-red-500" />
+      default: return <AlertCircle className="h-4 w-4 text-gray-500" />
     }
   }
 
@@ -696,155 +694,85 @@ export function PriceMatching() {
   }
 
   return (
-    <div className="space-y-3">
-      {/* Main Price Matching Form */}
+    <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-                      <div>
-            <CardTitle className="flex items-center space-x-2">
-              <Zap className="h-5 w-5 text-purple-600" />
-              <span>Smart Price Matching</span>
-            </CardTitle>
-            <CardDescription>
-              Upload your BoQ Excel file and automatically match items with quantities against your price list using intelligent parsing and matching algorithms
-            </CardDescription>
-          </div>
-          </div>
+          <CardTitle>Smart Price Matching</CardTitle>
+          <CardDescription>
+            Upload your Bill of Quantities (BoQ) and let our AI match it against your price list.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-6">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="project-name" className="text-sm font-medium">Project Name</Label>
-                <Input
-                  id="project-name"
-                  value={projectName}
-                  onChange={(e) => setProjectName(e.target.value)}
-                  placeholder="Enter project name"
-                  disabled={isProcessing}
-                  className="w-full"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="client-input" className="text-sm font-medium">Client Name</Label>
-                <div className="flex space-x-2">
-                  <div className="relative flex-1">
-                    <Input
-                      id="client-input"
-                      value={clientNameInput}
-                      onChange={(e) => handleClientNameChange(e.target.value)}
-                      placeholder="Type client name..."
-                      disabled={isProcessing}
-                      className="w-full"
-                      onFocus={() => {
-                        if (filteredClients.length > 0) {
-                          setShowClientSuggestions(true)
-                        }
-                      }}
-                      onBlur={() => {
-                        // Delay hiding suggestions to allow click
-                        setTimeout(() => setShowClientSuggestions(false), 200)
-                      }}
-                    />
-                    {showClientSuggestions && filteredClients.length > 0 && (
-                      <div className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto">
-                        {filteredClients.map((client) => (
-                          <div
-                            key={client.id}
-                            className="px-4 py-2 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 text-gray-900 dark:text-gray-100"
-                            onMouseDown={() => handleClientSelect(client)}
-                          >
-                            <div className="font-medium">{client.name}</div>
-                            {client.company_name && (
-                              <div className="text-sm text-gray-500 dark:text-gray-400">{client.company_name}</div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowClientForm(true)}
+        <CardContent className="grid gap-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid gap-2">
+              <Label htmlFor="project-name">Project Name</Label>
+              <Input id="project-name" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="e.g., Summerfield Residential" disabled={isProcessing} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="client-input">Client</Label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    id="client-input"
+                    value={clientNameInput}
+                    onChange={(e) => handleClientNameChange(e.target.value)}
+                    placeholder="Search or create a client"
                     disabled={isProcessing}
-                    className="shrink-0"
-                  >
-                    <Plus className="h-4 w-4" />
-                    Add New
-                  </Button>
+                    onFocus={() => setShowClientSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowClientSuggestions(false), 200)}
+                  />
+                  {showClientSuggestions && filteredClients.length > 0 && (
+                    <div className="absolute z-10 w-full mt-1 bg-card border rounded-md shadow-lg max-h-60 overflow-auto">
+                      {filteredClients.map((client) => (
+                        <div key={client.id} className="px-3 py-2 cursor-pointer hover:bg-muted" onMouseDown={() => handleClientSelect(client)}>
+                          <p className="font-medium">{client.name}</p>
+                          {client.company_name && <p className="text-sm text-muted-foreground">{client.company_name}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-
-
-
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Select Inquiry Excel File</Label>
-                <ExcelUpload 
-                  onFileSelect={handleFileSelect}
-                  disabled={isProcessing}
-                />
+                <Button variant="outline" onClick={() => setShowClientForm(true)} disabled={isProcessing}><Plus className="h-4 w-4" /></Button>
               </div>
             </div>
-
-            {currentJob && (
-              <div className="p-4 border rounded-lg bg-muted/50">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium">Current Job</h4>
-                  <div className="flex items-center space-x-2">
-                    {getStatusIcon(currentJob.status)}
-                    <Badge className={getStatusColor(currentJob.status)}>
-                      {currentJob.status}
-                    </Badge>
-                  </div>
-                </div>
-                
-                <p className="text-sm text-muted-foreground mb-2">
-                  {currentJob.project_name}
-                </p>
-
-                {currentJob.status === 'completed' && (
-                  <div className="space-y-2">
-                    <p className="text-sm">
-                      Matched {currentJob.matched_items || 0} of {currentJob.total_items || 0} items
-                    </p>
-                    <p className="text-sm">
-                      Average confidence: {currentJob.confidence_score || 0}%
-                    </p>
-            
-                  </div>
-                )}
-
-                {currentJob.status === 'processing' && currentJob.progress && (
-                  <div className="space-y-2">
-                    <Progress value={currentJob.progress} className="w-full" />
-                    <p className="text-sm text-muted-foreground">
-                      {currentJob.progress}% complete
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-
           </div>
-
-          <div className="flex justify-center pt-4">
-            <Button
-              onClick={handleStartMatching}
-              disabled={!selectedFile || !projectName.trim() || !clientNameInput.trim() || isProcessing}
-              className="px-8"
-              size="lg"
-            >
-              <Play className="h-4 w-4 mr-2" />
-              {isProcessing ? 'Processing...' : 'Start Matching'}
-            </Button>
+          <div className="grid gap-2">
+            <Label>BoQ File</Label>
+            <ExcelUpload onFileSelect={handleFileSelect} disabled={isProcessing} />
           </div>
+          <Button onClick={handleStartMatching} disabled={!selectedFile || !projectName.trim() || !clientNameInput.trim() || isProcessing} size="lg">
+            <Play className="h-5 w-5 mr-2" />
+            {isProcessing ? 'Processing...' : 'Start Matching'}
+          </Button>
         </CardContent>
       </Card>
+
+      {isProcessing && currentJob && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Processing Job</CardTitle>
+            <CardDescription>Job ID: {currentJob.id}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-4">
+              {getStatusIcon(currentJob.status)}
+              <div className="flex-1">
+                <p className="font-medium">{currentJob.status}</p>
+                <Progress value={currentJob.progress || 0} className="mt-1" />
+              </div>
+              <Badge variant="outline">{currentJob.progress || 0}%</Badge>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <Card><CardContent className="p-4"><p className="text-2xl font-bold">{currentJob.total_items || 0}</p><p className="text-xs text-muted-foreground">Total Items</p></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-2xl font-bold">{currentJob.matched_items || 0}</p><p className="text-xs text-muted-foreground">Matched</p></CardContent></Card>
+              <Card><CardContent className="p-4"><p className="text-2xl font-bold">{currentJob.total_items > 0 ? Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100) : 0}%</p><p className="text-xs text-muted-foreground">Success Rate</p></CardContent></Card>
+            </div>
+            <div ref={logContainerRef} className="bg-muted/50 p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs space-y-1 border">
+              {log.map((entry, index) => (<p key={index} className={entry.includes('✅') ? 'text-green-500' : entry.includes('❌') ? 'text-red-500' : 'text-muted-foreground'}>{entry}</p>))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {matchResults.length > 0 && (
         <Card>
@@ -852,121 +780,21 @@ export function PriceMatching() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>Match Results</CardTitle>
-                <CardDescription>
-                  Review and edit the matches. Results are automatically saved in real-time. The EditableMatchResultsTable includes: (1) AI Match results, (2) Local Match option, and (3) Manual Search option.
-                </CardDescription>
+                <CardDescription>Review and edit the matches. Changes are saved automatically.</CardDescription>
               </div>
-              <div className="flex space-x-2">
-                <Button onClick={exportToExcel} size="sm" variant="outline">
-                  <FileSpreadsheet className="h-4 w-4 mr-2" />
-                  Export Results
-                </Button>
-              </div>
+              <Button onClick={exportToExcel} size="sm" variant="outline">
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Export Results
+              </Button>
             </div>
           </CardHeader>
           <CardContent>
-            <EditableMatchResultsTable
-              matchResults={matchResults}
-              onUpdateResult={handleUpdateResult}
-              onDeleteResult={handleDeleteResult}
-              currency="GBP"
-            />
+            <EditableMatchResultsTable matchResults={matchResults} onUpdateResult={handleUpdateResult} onDeleteResult={handleDeleteResult} currency="GBP" />
           </CardContent>
         </Card>
       )}
 
-      {/* Client Form Modal */}
-      <ClientForm
-        isOpen={showClientForm}
-        onClose={() => setShowClientForm(false)}
-        onSave={createClient}
-      />
-
-      {/* Progress Section - Only show during processing */}
-      {currentJob && currentJob.status === 'processing' && (
-        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 border-blue-200 dark:border-gray-700">
-          <CardContent className="pt-6">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {getStatusIcon(currentJob.status)}
-                  <div>
-                    <p className="font-semibold text-lg">
-                      {currentJob.status === 'processing' ? 'Processing your file...' : 
-                       currentJob.status === 'completed' ? 'Processing complete!' :
-                       currentJob.status === 'failed' ? 'Processing failed' :
-                       'Pending...'}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Job ID: {currentJob.id}
-                    </p>
-                  </div>
-                </div>
-                <Badge variant={getStatusColor(currentJob.status)} className="text-sm">
-                  {currentJob.status}
-                </Badge>
-              </div>
-              
-              {/* Enhanced Progress Bar */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Progress</span>
-                  <span className="font-medium">{currentJob.progress || 0}%</span>
-                </div>
-                <Progress value={currentJob.progress || 0} className="h-3" />
-                
-                {/* Real-time stats during processing */}
-                {currentJob.status === 'processing' && (
-                  <div className="grid grid-cols-3 gap-4 mt-4 text-center">
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-2xl font-bold text-blue-600">{currentJob.total_items || 0}</p>
-                      <p className="text-xs text-gray-600">Total Items</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-2xl font-bold text-green-600">{currentJob.matched_items || 0}</p>
-                      <p className="text-xs text-gray-600">Matched</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-2xl font-bold text-purple-600">
-                        {currentJob.total_items > 0 
-                          ? Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100)
-                          : 0}%
-                      </p>
-                      <p className="text-xs text-gray-600">Success Rate</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              {/* Live Log */}
-              <div 
-                ref={logContainerRef}
-                className="bg-gray-900 dark:bg-gray-950 text-green-400 dark:text-green-500 p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs space-y-1 border border-gray-700 dark:border-gray-800"
-              >
-                {log.length === 0 ? (
-                  <p className="text-gray-500">Waiting for updates...</p>
-                ) : (
-                  log.map((entry, index) => (
-                    <div 
-                      key={index} 
-                      className={
-                        entry.includes('✅') ? 'text-green-400' :
-                        entry.includes('❌') ? 'text-red-400' :
-                        entry.includes('⚠️') ? 'text-yellow-400' :
-                        entry.includes('📊') ? 'text-blue-400' :
-                        entry.includes('📈') ? 'text-purple-400' :
-                        'text-gray-300'
-                      }
-                    >
-                      {entry}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <ClientForm isOpen={showClientForm} onClose={() => setShowClientForm(false)} onSave={createClient} />
     </div>
   )
 }
