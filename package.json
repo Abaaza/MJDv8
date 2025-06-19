@@ -18,7 +18,8 @@
     "start": "cd server && npm start"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "rollup": "^4.24.0"
   },
   "workspaces": [
     "client",

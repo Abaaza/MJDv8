@@ -4,6 +4,8 @@ frontend:
     preBuild:
       commands:
         - npm ci # Install root workspace dependencies first
+        - npm install @rollup/rollup-linux-x64-gnu --no-save || true # Fix rollup at root level
+        - npm rebuild rollup || true # Rebuild rollup at root level
         - cd client
         - npm ci # Install client dependencies
         - npm install @rollup/rollup-linux-x64-gnu --no-save || true # Fix rollup platform dependency
@@ -14,6 +16,7 @@ frontend:
         - npm install @swc/core --force --no-save || true # Force reinstall SWC as fallback
     build:
       commands:
+        - cd client # Ensure we're in the client directory for build
         - npm run build
   artifacts:
     baseDirectory: client/dist
