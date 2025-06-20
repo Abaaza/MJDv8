@@ -225,7 +225,7 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/mjd-backend-4/prod/1750416653572-2025-06-20T10:50:53.572Z/mjd-backend-4.zip"
+                "S3Key": "serverless/mjd-backend-4/prod/1750417740510-2025-06-20T11:09:00.510Z/mjd-backend-4.zip"
               },
               "Handler": "handler.handler",
               "Runtime": "nodejs20.x",
@@ -619,7 +619,7 @@
         ],
         "artifactsS3KeyDirname": "serverless/mjd-backend-4/prod/code-artifacts",
         "artifact": "C:\\Users\\abaza\\OneDrive\\Desktop\\MJDv8\\server\\.serverless\\mjd-backend-4.zip",
-        "artifactDirectoryName": "serverless/mjd-backend-4/prod/1750416653572-2025-06-20T10:50:53.572Z"
+        "artifactDirectoryName": "serverless/mjd-backend-4/prod/1750417740510-2025-06-20T11:09:00.510Z"
       },
       "custom": {
         "$ref": "$[\"service\"][\"custom\"]"
@@ -631,7 +631,7 @@
   },
   "package": {
     "individually": false,
-    "artifactDirectoryName": "serverless/mjd-backend-4/prod/1750416653572-2025-06-20T10:50:53.572Z",
+    "artifactDirectoryName": "serverless/mjd-backend-4/prod/1750417740510-2025-06-20T11:09:00.510Z",
     "artifact": "mjd-backend-4.zip"
   }
 }

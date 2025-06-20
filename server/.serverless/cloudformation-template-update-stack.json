@@ -171,7 +171,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/mjd-backend-4/prod/1750416653572-2025-06-20T10:50:53.572Z/mjd-backend-4.zip"
+          "S3Key": "serverless/mjd-backend-4/prod/1750417740510-2025-06-20T11:09:00.510Z/mjd-backend-4.zip"
         },
         "Handler": "handler.handler",
         "Runtime": "nodejs20.x",
