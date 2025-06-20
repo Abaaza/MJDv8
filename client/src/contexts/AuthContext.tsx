@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { useTheme } from '@/components/theme-provider';
 
 interface Profile {
   id: string;
@@ -11,6 +12,7 @@ interface Profile {
   push_notifications: boolean;
   created_at: string;
   updated_at: string;
+  status?: string;
 }
 
 interface AuthContextType {
@@ -49,6 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { setTheme } = useTheme();
 
   const fetchProfile = async (userId: string): Promise<Profile | null> => {
     try {
@@ -56,7 +59,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, name, role, theme, email_notifications, push_notifications, created_at, updated_at')
+        .select('id, name, role, theme, email_notifications, push_notifications, created_at, updated_at, status')
         .eq('id', userId)
         .single();
 
@@ -97,7 +100,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       console.log('Profile fetched successfully:', data);
       setError(null);
-      return data;
+      
+      // Apply theme immediately
+      if (data.theme) {
+        setTheme(data.theme as 'light' | 'dark' | 'system');
+      }
+
+      // Check if user is active
+      if (data.status === 'pending') {
+        throw new Error('Your account is pending admin approval. Please wait for approval before signing in.');
+      }
+      
+      return {
+        ...data,
+        status: data.status || 'active'
+      };
     } catch (error) {
       console.error('Unexpected error fetching profile:', error);
       setError('Unexpected error occurred');
@@ -193,7 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [setTheme]);
 
   const signOut = async () => {
     try {

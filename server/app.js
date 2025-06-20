@@ -26,8 +26,8 @@ await fs.ensureDir(tempDir);
 await fs.ensureDir(outputDir);
 
 // Routes
-app.use('/api/price-matching', priceMatchingRouter);
-app.use('/api/user-management', userManagementRouter);
+app.use('/price-matching', priceMatchingRouter);
+app.use('/user-management', userManagementRouter);
 
 // Health check
 app.get('/health', (req, res) => {
