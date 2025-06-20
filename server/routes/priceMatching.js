@@ -261,12 +261,17 @@ router.post('/export/:jobId', async (req, res) => {
     const { jobId } = req.params
     const { matchResults } = req.body
     
+    console.log(`📊 Export requested for job: ${jobId}`)
+    console.log(`📊 Match results received:`, {
+      hasMatchResults: !!matchResults,
+      isArray: Array.isArray(matchResults),
+      length: matchResults?.length || 0
+    })
+    
     if (!matchResults || !Array.isArray(matchResults)) {
-      return res.status(400).json({ error: 'Match results are required' })
+      return res.status(400).json({ error: 'Match results are required and must be an array' })
     }
 
-    console.log(`📊 Export requested for job: ${jobId} with ${matchResults.length} results`)
-    
     // Create service instance when needed (after dotenv is loaded)
     const priceMatchingService = getPriceMatchingService()
     const exportService = new ExcelExportService()
@@ -277,6 +282,41 @@ router.post('/export/:jobId', async (req, res) => {
     if (!jobStatus) {
       return res.status(404).json({ error: 'Job not found' })
     }
+    
+    // If no match results provided, try to load from database
+    let resultsToExport = matchResults
+    if (matchResults.length === 0) {
+      console.log(`⚠️ No match results provided, attempting to load from database...`)
+      
+      // Try to load results from database
+      const { data: dbResults, error: dbError } = await priceMatchingService.supabase
+        .from('match_results')
+        .select('*')
+        .eq('job_id', jobId)
+        .order('row_number')
+      
+      if (!dbError && dbResults && dbResults.length > 0) {
+        console.log(`✅ Loaded ${dbResults.length} results from database`)
+        resultsToExport = dbResults.map(result => ({
+          id: result.id,
+          original_description: result.original_description,
+          matched_description: result.matched_description || '',
+          matched_rate: result.matched_rate || 0,
+          similarity_score: result.similarity_score || 0,
+          row_number: result.row_number,
+          sheet_name: result.sheet_name,
+          quantity: result.quantity || 0,
+          unit: result.unit || '',
+          total_amount: (result.quantity || 0) * (result.matched_rate || 0),
+          matched_price_item_id: result.matched_price_item_id,
+          match_method: result.match_method || 'cohere'
+        }))
+      } else {
+        console.log(`⚠️ No results found in database either`)
+      }
+    }
+    
+    console.log(`📊 Export will process ${resultsToExport.length} results`)
     
     let outputPath = null
     let originalFilePath = null
@@ -315,26 +355,60 @@ router.post('/export/:jobId', async (req, res) => {
       }
     }
     
-    if (originalFilePath && await fs.pathExists(originalFilePath)) {
-      // Always use format-preserving export
-      console.log(`✅ Using format-preserving export with original file: ${originalFilePath}`)
-        outputPath = await exportService.exportWithOriginalFormat(
-          originalFilePath,
-          matchResults,
-          jobId,
-          jobStatus.original_filename
-        )
+    // If we have results to export, proceed with export
+    if (resultsToExport.length > 0 || (originalFilePath && await fs.pathExists(originalFilePath))) {
+      if (originalFilePath && await fs.pathExists(originalFilePath)) {
+        // Always use format-preserving export
+        console.log(`✅ Using format-preserving export with original file: ${originalFilePath}`)
+        try {
+          outputPath = await exportService.exportWithOriginalFormat(
+            originalFilePath,
+            resultsToExport,
+            jobId,
+            jobStatus.original_filename
+          )
+        } catch (exportError) {
+          console.error(`❌ Format-preserving export failed:`, exportError)
+          console.log(`⚠️ Falling back to simple export format`)
+          outputPath = await exportService.exportFilteredResults(jobId, resultsToExport, jobStatus.original_filename)
+        }
       } else {
-      // Last resort: create a simple formatted export
-      console.log('⚠️ Original file not found, using filtered export format')
-      console.log('This will not preserve the original Excel formatting!')
-      console.log('To preserve formatting, ensure the original input file is available')
-      outputPath = await exportService.exportFilteredResults(jobId, matchResults, jobStatus.original_filename)
+        // Last resort: create a simple formatted export
+        console.log('⚠️ Original file not found, using filtered export format')
+        console.log('This will not preserve the original Excel formatting!')
+        console.log('To preserve formatting, ensure the original input file is available')
+        outputPath = await exportService.exportFilteredResults(jobId, resultsToExport, jobStatus.original_filename)
+      }
+    } else {
+      // If no results and no original file, try to use the already processed output file
+      console.log(`⚠️ No results to export and no original file found`)
+      
+      // Check if there's already an output file from the processing
+      if (jobStatus.output_file_path) {
+        outputPath = jobStatus.output_file_path
+        if (!path.isAbsolute(outputPath)) {
+          outputPath = path.join(__dirname, '..', outputPath)
+        }
+        console.log(`📄 Using existing output file: ${outputPath}`)
+      } else {
+        // Search for output file in output directory
+        const outputDir = path.join(__dirname, '..', 'output')
+        const files = await fs.readdir(outputDir).catch(() => [])
+        const matchingFiles = files.filter(f => f.includes(jobId))
+        
+        if (matchingFiles.length > 0) {
+          outputPath = path.join(outputDir, matchingFiles[matchingFiles.length - 1])
+          console.log(`📄 Found existing output file: ${outputPath}`)
+        }
+      }
     }
     
     if (!outputPath || !await fs.pathExists(outputPath)) {
       console.error(`Export file not found at: ${outputPath}`)
-      return res.status(404).json({ error: 'Export file could not be created' })
+      return res.status(404).json({ 
+        error: 'No results available for export. The file may have been processed but results were not saved to the database.',
+        suggestion: 'Try downloading the original processed file instead.'
+      })
     }
 
     const fileName = path.basename(outputPath)
@@ -349,8 +423,11 @@ router.post('/export/:jobId', async (req, res) => {
     // Clean up the export file after sending (but not the original)
     fileStream.on('end', async () => {
       try {
-        await fs.remove(outputPath)
-        console.log(`🧹 Cleaned up export file: ${outputPath}`)
+        // Only clean up if it's a newly generated file (contains 'matched-' or 'filtered-')
+        if (fileName.includes('matched-') || fileName.includes('filtered-')) {
+          await fs.remove(outputPath)
+          console.log(`🧹 Cleaned up export file: ${outputPath}`)
+        }
       } catch (err) {
         console.error('Error cleaning up export file:', err)
       }
@@ -360,7 +437,8 @@ router.post('/export/:jobId', async (req, res) => {
     console.error('Export endpoint error:', error)
     res.status(500).json({ 
       error: 'Export failed',
-      message: error.message 
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     })
   }
 })

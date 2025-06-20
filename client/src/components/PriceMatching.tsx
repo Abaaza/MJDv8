@@ -30,6 +30,7 @@ interface MatchResult {
   unit?: string
   total_amount?: number
   matched_price_item_id?: string
+  section_header?: string
 }
 
 export function PriceMatching() {
@@ -591,7 +592,8 @@ export function PriceMatching() {
         quantity: result.quantity || 0,
         unit: result.price_items?.unit || '',
         total_amount: (result.quantity || 0) * (result.matched_rate || 0),
-        matched_price_item_id: result.matched_price_item_id
+        matched_price_item_id: result.matched_price_item_id,
+        section_header: result.section_header
       })) || []
 
       console.log('Transformed results:', resultsWithUnits.length)

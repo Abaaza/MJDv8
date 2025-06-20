@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { Database, CheckCircle, AlertCircle, Wifi, WifiOff, Key, Trash2 } from 'lucide-react';
+import { UserManagementSection } from './UserManagementSection';
 
 interface AppSettings {
   id: number;
@@ -142,6 +143,9 @@ export const AdminSettingsSection: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* User Management Section */}
+      <UserManagementSection />
+
       {/* Database Status */}
       <Card>
         <CardHeader>

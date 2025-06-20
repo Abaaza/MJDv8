@@ -269,10 +269,44 @@ export function EditableMatchResultsTable({
         <TableBody>
           {currentPageResults.map((group, groupIndex) => (
             <React.Fragment key={`group-${groupIndex}`}>
-              {group.header && (
-                <TableRow className="bg-muted/50 hover:bg-muted/50">
-                  <TableCell colSpan={8} className="font-semibold py-2">
-                    <div className="flex items-center gap-2"><div className="h-4 w-1 bg-primary rounded-full" />{group.header}</div>
+              {groupIndex > 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-2 bg-background border-none p-0" />
+                </TableRow>
+              )}
+              {group.header !== null ? (
+                <TableRow className="bg-gradient-to-r from-primary/10 to-primary/5 hover:from-primary/15 hover:to-primary/10 border-y border-primary/20">
+                  <TableCell colSpan={8} className="font-semibold py-4 px-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-6 w-1.5 bg-primary rounded-full" />
+                          <div className="h-4 w-1 bg-primary/60 rounded-full" />
+                          <div className="h-2 w-0.5 bg-primary/30 rounded-full" />
+                        </div>
+                        <span className="text-base text-foreground/90 tracking-wide">{group.header}</span>
+                      </div>
+                      <Badge variant="secondary" className="ml-auto">
+                        {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
+                      </Badge>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : groupIndex === 0 && (
+                <TableRow className="bg-muted/30 hover:bg-muted/40 border-y border-muted-foreground/10">
+                  <TableCell colSpan={8} className="font-medium py-3 px-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-5 w-1 bg-muted-foreground/50 rounded-full" />
+                          <div className="h-3 w-0.5 bg-muted-foreground/30 rounded-full" />
+                        </div>
+                        <span className="text-sm text-muted-foreground">General Items</span>
+                      </div>
+                      <Badge variant="outline" className="ml-auto text-xs">
+                        {group.items.length} {group.items.length === 1 ? 'item' : 'items'}
+                      </Badge>
+                    </div>
                   </TableCell>
                 </TableRow>
               )}

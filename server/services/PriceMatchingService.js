@@ -298,7 +298,8 @@ export class PriceMatchingService {
       matched_rate: match.matched_rate,
       similarity_score: match.similarity_score,
       quantity: match.quantity,
-      matched_price_item_id: match.matched_price_item_id
+      matched_price_item_id: match.matched_price_item_id,
+      section_header: match.section_header || null
     }))
 
     // Save to database

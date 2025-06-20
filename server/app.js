@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import { fileURLToPath } from 'url';
 import { priceMatchingRouter } from './routes/priceMatching.js';
+import userManagementRouter from './routes/userManagement.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +27,7 @@ await fs.ensureDir(outputDir);
 
 // Routes
 app.use('/api/price-matching', priceMatchingRouter);
+app.use('/api/user-management', userManagementRouter);
 
 // Health check
 app.get('/health', (req, res) => {

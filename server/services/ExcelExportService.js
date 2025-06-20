@@ -24,6 +24,14 @@ export class ExcelExportService {
     try {
       console.log(`📄 Creating export with original format for: ${originalFileName}`)
       
+      // Validate matchResults
+      if (!matchResults || !Array.isArray(matchResults)) {
+        console.log('⚠️ No match results provided or invalid format, using empty array')
+        matchResults = []
+      }
+      
+      console.log(`📊 Processing ${matchResults.length} match results`)
+      
       // Use ExcelJS for better format preservation
       const originalWorkbook = new ExcelJS.Workbook()
       await originalWorkbook.xlsx.readFile(originalFilePath)
@@ -57,9 +65,11 @@ export class ExcelExportService {
         
         // Create row lookup for matches
         const matchLookup = new Map()
-        sheetMatches.forEach(match => {
-          matchLookup.set(match.row_number, match)
-        })
+        if (Array.isArray(sheetMatches) && sheetMatches.length > 0) {
+          sheetMatches.forEach(match => {
+            matchLookup.set(match.row_number, match)
+          })
+        }
         
         // Find rate column index and last used column
         let rateColumnIndex = -1
@@ -385,7 +395,13 @@ export class ExcelExportService {
    */
   async exportFilteredResults(jobId, matchResults, originalFileName = 'filtered_results.xlsx') {
     try {
-      console.log(`📤 Exporting ${matchResults.length} filtered results`)
+      console.log(`📤 Exporting ${matchResults?.length || 0} filtered results`)
+      
+      // Validate matchResults
+      if (!matchResults || !Array.isArray(matchResults)) {
+        console.error('❌ Invalid matchResults provided to exportFilteredResults')
+        throw new Error('Match results must be a valid array')
+      }
       
       const outputPath = path.join(this.outputDir, `filtered-${jobId}-${originalFileName}`)
       
@@ -424,30 +440,32 @@ export class ExcelExportService {
       })
       
       // Add data rows
-      matchResults.forEach(match => {
-        const row = worksheet.addRow([
-          match.sheet_name || '',
-          match.row_number || '',
-          match.original_description || '',
-          match.matched_description || '',
-          match.quantity || '',
-          match.matched_rate || '',
-          match.unit || '',
-          match.total_amount || '',
-          Math.round((match.similarity_score || 0) * 100) + '%',
-          match.match_method || ''
-        ])
-        
-        // Add borders to data rows
-        row.eachCell((cell) => {
-          cell.border = {
-            top: { style: 'thin' },
-            left: { style: 'thin' },
-            bottom: { style: 'thin' },
-            right: { style: 'thin' }
-          }
+      if (matchResults && matchResults.length > 0) {
+        matchResults.forEach(match => {
+          const row = worksheet.addRow([
+            match.sheet_name || '',
+            match.row_number || '',
+            match.original_description || '',
+            match.matched_description || '',
+            match.quantity || '',
+            match.matched_rate || '',
+            match.unit || '',
+            match.total_amount || '',
+            Math.round((match.similarity_score || 0) * 100) + '%',
+            match.match_method || ''
+          ])
+          
+          // Add borders to data rows
+          row.eachCell((cell) => {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            }
+          })
         })
-      })
+      }
       
       // Auto-fit columns
       worksheet.columns.forEach(column => {
@@ -468,7 +486,12 @@ export class ExcelExportService {
       
       worksheet.getCell(`A${summaryRowIndex + 1}`).value = `Total Items: ${matchResults.length}`
       worksheet.getCell(`A${summaryRowIndex + 2}`).value = `Total Amount: ${matchResults.reduce((sum, match) => sum + (match.total_amount || 0), 0).toLocaleString()}`
-      worksheet.getCell(`A${summaryRowIndex + 3}`).value = `Average Confidence: ${Math.round(matchResults.reduce((sum, match) => sum + (match.similarity_score || 0), 0) / matchResults.length * 100)}%`
+      
+      // Calculate average confidence safely
+      const avgConfidence = matchResults.length > 0 
+        ? Math.round(matchResults.reduce((sum, match) => sum + (match.similarity_score || 0), 0) / matchResults.length * 100)
+        : 0
+      worksheet.getCell(`A${summaryRowIndex + 3}`).value = `Average Confidence: ${avgConfidence}%`
       
       // Save workbook
       await workbook.xlsx.writeFile(outputPath)
