@@ -701,7 +701,7 @@ export function PriceMatching() {
         <CardHeader>
           <CardTitle>Smart Price Matching</CardTitle>
           <CardDescription>
-            Upload your Bill of Quantities (BoQ) and let our AI match it against your price list.
+            Upload your Bill of Quantities (BoQ) and let our AI match it against your price list.1
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
