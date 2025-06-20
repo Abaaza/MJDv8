@@ -293,7 +293,7 @@ export function PriceMatching() {
       toast.info('Exporting filtered Excel results...')
       
       // Export the current edited results
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/export/${currentJob.id}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/price-matching/export/${currentJob.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -439,7 +439,7 @@ export function PriceMatching() {
       setLog(prev => [...prev, `[${timestamp3}] Uploading file and starting processing...`])
 
       console.log('Calling Node.js backend...')
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/process-base64`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/price-matching/process-base64`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -624,7 +624,7 @@ export function PriceMatching() {
       setLog(prev => [...prev, `[${timestamp}] Downloading results...`])
       
       // Download from Node.js backend
-              const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/download/${currentJob.id}`)
+              const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/price-matching/download/${currentJob.id}`)
       
       if (!response.ok) {
         const errorData = await response.json()

@@ -235,7 +235,7 @@ export default function Projects() {
       })) || []
 
       // Use the export endpoint which creates a properly formatted Excel file
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/export/${jobId}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/price-matching/export/${jobId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

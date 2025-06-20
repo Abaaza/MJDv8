@@ -204,7 +204,7 @@ export function EditableMatchResultsTable({
         setLoadingStates(prev => ({ ...prev, [resultId]: true }))
         toast.info('Running local matching...')
         try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/price-matching/match-item-local`, {
+          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/price-matching/match-item-local`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ itemDescription: result.original_description, quantity: result.quantity })

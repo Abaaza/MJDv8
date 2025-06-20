@@ -143,6 +143,19 @@
                     "logs:PutLogEvents"
                   ],
                   "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:DeleteObject",
+                    "s3:ListBucket"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::mjd-backend-4-prod-uploads",
+                    "arn:aws:s3:::mjd-backend-4-prod-uploads/*"
+                  ]
                 }
               ]
             }
@@ -171,7 +184,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/mjd-backend-4/prod/1750451387016-2025-06-20T20:29:47.016Z/mjd-backend-4.zip"
+          "S3Key": "serverless/mjd-backend-4/prod/1750454268781-2025-06-20T21:17:48.781Z/mjd-backend-4.zip"
         },
         "Handler": "handler.handler",
         "Runtime": "nodejs20.x",
@@ -183,7 +196,8 @@
             "NODE_ENV": "production",
             "SUPABASE_URL": "https://yqsumodzyahvxywwfpnc.supabase.co",
             "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwMjU1NTAsImV4cCI6MjA2NTYwMTU1MH0.vfTx3_A7DMpcazSA_pbuYaiMuZvVssKn9JUQUb9qaS4",
-            "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDAyNTU1MCwiZXhwIjoyMDY1NjAxNTUwfQ.eeLQH1KM6Ovs5FPPcfcuCR3ZbgnsuY2sTpZfC1qnz-Q"
+            "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDAyNTU1MCwiZXhwIjoyMDY1NjAxNTUwfQ.eeLQH1KM6Ovs5FPPcfcuCR3ZbgnsuY2sTpZfC1qnz-Q",
+            "S3_BUCKET_NAME": "mjd-backend-4-prod-uploads"
           }
         },
         "Role": {
@@ -197,14 +211,14 @@
         "ApiLogGroup"
       ]
     },
-    "ApiLambdaVersionihPVcqn1vriKUEXhjV66gDstvh6IUPsQJV6BSrWPDw": {
+    "ApiLambdaVersionq4vxzlnbYNAK9lR4o9SFoMNRnZ6jvlpKAsYhxp4aU": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "ApiLambdaFunction"
         },
-        "CodeSha256": "oliz5oNZJfmdRp7vMfTNHsjRzT3HcUzg77PXEZoBzF8="
+        "CodeSha256": "ElhYg4mbZ9VcWYdF5UplWR2T9r6q0uuBhNrg8B3vojI="
       }
     },
     "HttpApi": {
@@ -343,6 +357,38 @@
         }
       },
       "DependsOn": "HttpApiIntegrationApi"
+    },
+    "S3BucketUploads": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": "mjd-backend-4-prod-uploads",
+        "CorsConfiguration": {
+          "CorsRules": [
+            {
+              "AllowedOrigins": [
+                "*"
+              ],
+              "AllowedHeaders": [
+                "*"
+              ],
+              "AllowedMethods": [
+                "GET",
+                "PUT",
+                "POST",
+                "DELETE",
+                "HEAD"
+              ],
+              "MaxAge": 3000
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": false,
+          "BlockPublicPolicy": false,
+          "IgnorePublicAcls": false,
+          "RestrictPublicBuckets": false
+        }
+      }
     }
   },
   "Outputs": {
@@ -357,7 +403,7 @@
     "ApiLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "ApiLambdaVersionihPVcqn1vriKUEXhjV66gDstvh6IUPsQJV6BSrWPDw"
+        "Ref": "ApiLambdaVersionq4vxzlnbYNAK9lR4o9SFoMNRnZ6jvlpKAsYhxp4aU"
       },
       "Export": {
         "Name": "sls-mjd-backend-4-prod-ApiLambdaFunctionQualifiedArn"
@@ -395,6 +441,14 @@
       },
       "Export": {
         "Name": "sls-mjd-backend-4-prod-HttpApiUrl"
+      }
+    },
+    "S3BucketName": {
+      "Value": {
+        "Ref": "S3BucketUploads"
+      },
+      "Export": {
+        "Name": "mjd-backend-4-prod-S3BucketName"
       }
     }
   }
