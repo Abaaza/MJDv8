@@ -223,7 +223,7 @@
                 "S3Bucket": {
                   "Ref": "ServerlessDeploymentBucket"
                 },
-                "S3Key": "serverless/mjd-backend-4/prod/1750419066216-2025-06-20T11:31:06.216Z/mjd-backend-4.zip"
+                "S3Key": "serverless/mjd-backend-4/prod/1750451387016-2025-06-20T20:29:47.016Z/mjd-backend-4.zip"
               },
               "Handler": "handler.handler",
               "Runtime": "nodejs20.x",
@@ -249,14 +249,14 @@
               "ApiLogGroup"
             ]
           },
-          "ApiLambdaVersionwNsjrt4GReOq6OGRqrJcLY5aEiLkmZbUMztC4oi6ec": {
+          "ApiLambdaVersionihPVcqn1vriKUEXhjV66gDstvh6IUPsQJV6BSrWPDw": {
             "Type": "AWS::Lambda::Version",
             "DeletionPolicy": "Retain",
             "Properties": {
               "FunctionName": {
                 "Ref": "ApiLambdaFunction"
               },
-              "CodeSha256": "Fta7Tp7yNCvWSYdxeF4idG68LvQaVodsPXNR7Tn2rWU="
+              "CodeSha256": "oliz5oNZJfmdRp7vMfTNHsjRzT3HcUzg77PXEZoBzF8="
             }
           },
           "HttpApi": {
@@ -406,7 +406,7 @@
           "ApiLambdaFunctionQualifiedArn": {
             "Description": "Current Lambda function version",
             "Value": {
-              "Ref": "ApiLambdaVersionwNsjrt4GReOq6OGRqrJcLY5aEiLkmZbUMztC4oi6ec"
+              "Ref": "ApiLambdaVersionihPVcqn1vriKUEXhjV66gDstvh6IUPsQJV6BSrWPDw"
             },
             "Export": {
               "Name": "sls-mjd-backend-4-prod-ApiLambdaFunctionQualifiedArn"
@@ -579,7 +579,7 @@
         "memory": 2048,
         "runtime": "nodejs20.x",
         "vpc": {},
-        "versionLogicalId": "ApiLambdaVersionwNsjrt4GReOq6OGRqrJcLY5aEiLkmZbUMztC4oi6ec"
+        "versionLogicalId": "ApiLambdaVersionihPVcqn1vriKUEXhjV66gDstvh6IUPsQJV6BSrWPDw"
       }
     },
     "configValidationMode": "warn",
@@ -613,7 +613,7 @@
         ],
         "artifactsS3KeyDirname": "serverless/mjd-backend-4/prod/code-artifacts",
         "artifact": "C:\\Users\\abaza\\OneDrive\\Desktop\\MJDv8\\server\\.serverless\\mjd-backend-4.zip",
-        "artifactDirectoryName": "serverless/mjd-backend-4/prod/1750419066216-2025-06-20T11:31:06.216Z"
+        "artifactDirectoryName": "serverless/mjd-backend-4/prod/1750451387016-2025-06-20T20:29:47.016Z"
       },
       "custom": {
         "$ref": "$[\"service\"][\"custom\"]"
@@ -625,7 +625,7 @@
   },
   "package": {
     "individually": false,
-    "artifactDirectoryName": "serverless/mjd-backend-4/prod/1750419066216-2025-06-20T11:31:06.216Z",
+    "artifactDirectoryName": "serverless/mjd-backend-4/prod/1750451387016-2025-06-20T20:29:47.016Z",
     "artifact": "mjd-backend-4.zip"
   }
 }

@@ -5,6 +5,7 @@ import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import { PriceMatchingService } from '../services/PriceMatchingService.js'
 import { ExcelExportService } from '../services/ExcelExportService.js'
+const S3Service = require('../services/S3Service')
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -12,16 +13,7 @@ const __dirname = path.dirname(__filename)
 const router = express.Router()
 
 // Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const tempDir = path.join(__dirname, '..', 'temp')
-    cb(null, tempDir)
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
-    cb(null, `upload-${uniqueSuffix}-${file.originalname}`)
-  }
-})
+const storage = multer.memoryStorage() // Use memory storage for S3 uploads
 
 const upload = multer({ 
   storage,
@@ -58,13 +50,61 @@ router.post('/process', upload.single('file'), async (req, res) => {
     }
 
     console.log(`Starting price matching for job: ${jobId} using ${matchingMethod}`)
-    console.log(`File: ${req.file.filename}`)
+    console.log(`File: ${req.file.originalname}`)
+
+    // Upload file to S3
+    const s3Result = await S3Service.uploadFile(
+      req.file.buffer,
+      req.file.originalname,
+      jobId,
+      'input'
+    )
+
+    console.log(`File uploaded to S3: ${s3Result.key}`)
+
+    // Save to temp directory for processing (until we update the service to read from S3)
+    const tempDir = path.join(__dirname, '..', 'temp')
+    await fs.ensureDir(tempDir)
+    const tempFilePath = path.join(tempDir, `job-${jobId}-${req.file.originalname}`)
+    await fs.writeFile(tempFilePath, req.file.buffer)
 
     // Create service instance when needed (after dotenv is loaded)
     const priceMatchingService = getPriceMatchingService()
 
+    // Update job with S3 file information
+    await priceMatchingService.supabase
+      .from('matching_jobs')
+      .update({ 
+        input_file_s3_key: s3Result.key,
+        input_file_s3_url: s3Result.url 
+      })
+      .eq('id', jobId)
+
     // Start processing in background with proper error handling
-    priceMatchingService.processFile(jobId, req.file.path, req.file.originalname, matchingMethod)
+    priceMatchingService.processFile(jobId, tempFilePath, req.file.originalname, matchingMethod)
+      .then(async () => {
+        // After processing, upload output to S3 if it exists
+        const outputPath = await findOutputFile(jobId)
+        if (outputPath) {
+          const outputBuffer = await fs.readFile(outputPath)
+          const outputFileName = path.basename(outputPath)
+          const outputS3Result = await S3Service.uploadFile(
+            outputBuffer,
+            outputFileName,
+            jobId,
+            'output'
+          )
+          
+          // Update job with output S3 information
+          await priceMatchingService.supabase
+            .from('matching_jobs')
+            .update({ 
+              output_file_s3_key: outputS3Result.key,
+              output_file_s3_url: outputS3Result.url 
+            })
+            .eq('id', jobId)
+        }
+      })
       .catch(async (error) => {
         console.error(`Background processing failed for job ${jobId}:`, error)
         // Update job status to failed
@@ -79,7 +119,8 @@ router.post('/process', upload.single('file'), async (req, res) => {
       success: true, 
       message: `Processing started using ${matchingMethod}`,
       jobId,
-      matchingMethod
+      matchingMethod,
+      s3Key: s3Result.key
     })
 
   } catch (error) {
@@ -105,19 +146,62 @@ router.post('/process-base64', async (req, res) => {
     console.log(`Starting price matching for job: ${jobId} using ${matchingMethod}`)
     console.log(`File: ${fileName}`)
 
-    // Convert base64 to file
-    const tempDir = path.join(__dirname, '..', 'temp')
-    // Include jobId in the filename to make it easier to find later
-    const tempFilePath = path.join(tempDir, `job-${jobId}-${fileName}`)
-    
+    // Convert base64 to buffer
     const buffer = Buffer.from(fileData, 'base64')
+    
+    // Upload to S3
+    const s3Result = await S3Service.uploadFile(
+      buffer,
+      fileName,
+      jobId,
+      'input'
+    )
+
+    console.log(`File uploaded to S3: ${s3Result.key}`)
+
+    // Save to temp directory for processing
+    const tempDir = path.join(__dirname, '..', 'temp')
+    await fs.ensureDir(tempDir)
+    const tempFilePath = path.join(tempDir, `job-${jobId}-${fileName}`)
     await fs.writeFile(tempFilePath, buffer)
 
     // Create service instance when needed (after dotenv is loaded)
     const priceMatchingService = getPriceMatchingService()
 
+    // Update job with S3 file information
+    await priceMatchingService.supabase
+      .from('matching_jobs')
+      .update({ 
+        input_file_s3_key: s3Result.key,
+        input_file_s3_url: s3Result.url 
+      })
+      .eq('id', jobId)
+
     // Start processing in background with proper error handling
     priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
+      .then(async () => {
+        // After processing, upload output to S3 if it exists
+        const outputPath = await findOutputFile(jobId)
+        if (outputPath) {
+          const outputBuffer = await fs.readFile(outputPath)
+          const outputFileName = path.basename(outputPath)
+          const outputS3Result = await S3Service.uploadFile(
+            outputBuffer,
+            outputFileName,
+            jobId,
+            'output'
+          )
+          
+          // Update job with output S3 information
+          await priceMatchingService.supabase
+            .from('matching_jobs')
+            .update({ 
+              output_file_s3_key: outputS3Result.key,
+              output_file_s3_url: outputS3Result.url 
+            })
+            .eq('id', jobId)
+        }
+      })
       .catch(async (error) => {
         console.error(`Background processing failed for job ${jobId}:`, error)
         // Update job status to failed
@@ -132,7 +216,8 @@ router.post('/process-base64', async (req, res) => {
       success: true, 
       message: `Processing started using ${matchingMethod}`,
       jobId,
-      matchingMethod
+      matchingMethod,
+      s3Key: s3Result.key
     })
 
   } catch (error) {
@@ -143,6 +228,36 @@ router.post('/process-base64', async (req, res) => {
     })
   }
 })
+
+// Helper function to find output file
+async function findOutputFile(jobId) {
+  const priceMatchingService = getPriceMatchingService()
+  const jobStatus = await priceMatchingService.getJobStatus(jobId)
+  
+  if (jobStatus?.output_file_path) {
+    const filePath = path.isAbsolute(jobStatus.output_file_path) 
+      ? jobStatus.output_file_path 
+      : path.join(__dirname, '..', jobStatus.output_file_path)
+    
+    if (await fs.pathExists(filePath)) {
+      return filePath
+    }
+  }
+  
+  // Fallback: search in output directory
+  const outputDir = path.join(__dirname, '..', 'output')
+  try {
+    const files = await fs.readdir(outputDir)
+    const matchingFiles = files.filter(f => f.includes(jobId))
+    if (matchingFiles.length > 0) {
+      return path.join(outputDir, matchingFiles[matchingFiles.length - 1])
+    }
+  } catch (err) {
+    console.error('Error searching output directory:', err)
+  }
+  
+  return null
+}
 
 // Download processed results - always use format-preserving version
 router.get('/download/:jobId', async (req, res) => {
@@ -160,7 +275,8 @@ router.get('/download/:jobId', async (req, res) => {
     console.log(`[DOWNLOAD DEBUG] Job status:`, {
       exists: !!jobStatus,
       status: jobStatus?.status,
-      output_file_path: jobStatus?.output_file_path
+      output_file_path: jobStatus?.output_file_path,
+      output_file_s3_key: jobStatus?.output_file_s3_key
     })
     
     if (!jobStatus) {
@@ -168,6 +284,24 @@ router.get('/download/:jobId', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' })
     }
     
+    // First try to download from S3 if available
+    if (jobStatus.output_file_s3_key) {
+      console.log(`[DOWNLOAD DEBUG] Downloading from S3: ${jobStatus.output_file_s3_key}`)
+      try {
+        const s3File = await S3Service.downloadFile(jobStatus.output_file_s3_key)
+        const fileName = s3File.Metadata?.originalName || `matched-${jobId}.xlsx`
+        
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+        res.setHeader('Content-Type', s3File.ContentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        
+        return res.send(s3File.Body)
+      } catch (s3Error) {
+        console.error('[DOWNLOAD DEBUG] S3 download failed:', s3Error)
+        // Fall back to local file
+      }
+    }
+    
+    // Fall back to local file system
     let filePath = null
     
     // First try to use output_file_path if available
@@ -175,25 +309,29 @@ router.get('/download/:jobId', async (req, res) => {
       console.log(`[DOWNLOAD DEBUG] Using output_file_path from database`)
       filePath = jobStatus.output_file_path
     
-    // If it's not an absolute path, assume it's in the output directory
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.join(__dirname, '..', filePath)
+      // If it's not an absolute path, assume it's in the output directory
+      if (!path.isAbsolute(filePath)) {
+        filePath = path.join(__dirname, '..', filePath)
       }
     } else {
       console.log(`[DOWNLOAD DEBUG] No output_file_path in database, searching output directory`)
       
       // Fallback: Search for file in output directory
       const outputDir = path.join(__dirname, '..', 'output')
-      const files = await fs.readdir(outputDir)
-      
-      // Look for files matching the job ID
-      const matchingFiles = files.filter(f => f.includes(jobId))
-      console.log(`[DOWNLOAD DEBUG] Found ${matchingFiles.length} files matching job ID:`, matchingFiles)
-      
-      if (matchingFiles.length > 0) {
-        // Use the most recent one (in case there are multiple)
-        filePath = path.join(outputDir, matchingFiles[matchingFiles.length - 1])
-        console.log(`[DOWNLOAD DEBUG] Selected file: ${filePath}`)
+      try {
+        const files = await fs.readdir(outputDir)
+        
+        // Look for files matching the job ID
+        const matchingFiles = files.filter(f => f.includes(jobId))
+        console.log(`[DOWNLOAD DEBUG] Found ${matchingFiles.length} files matching job ID:`, matchingFiles)
+        
+        if (matchingFiles.length > 0) {
+          // Use the most recent one (in case there are multiple)
+          filePath = path.join(outputDir, matchingFiles[matchingFiles.length - 1])
+          console.log(`[DOWNLOAD DEBUG] Selected file: ${filePath}`)
+        }
+      } catch (err) {
+        console.error(`[DOWNLOAD DEBUG] Error reading output directory:`, err)
       }
     }
     
@@ -206,7 +344,7 @@ router.get('/download/:jobId', async (req, res) => {
     
     if (!await fs.pathExists(filePath)) {
       console.log(`[DOWNLOAD DEBUG] File not found at: ${filePath}`)
-        return res.status(404).json({ error: 'Output file not found on disk' })
+      return res.status(404).json({ error: 'Output file not found on disk' })
     }
 
     console.log(`[DOWNLOAD DEBUG] File found, sending: ${filePath}`)

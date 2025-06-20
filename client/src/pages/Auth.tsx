@@ -8,16 +8,20 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
-import { Building2, AlertCircle } from 'lucide-react';
+import { Building2, AlertCircle, Clock } from 'lucide-react';
 
 export default function Auth() {
   const { user, loading, error: authError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [company, setCompany] = useState('');
+  const [phone, setPhone] = useState('');
+  const [message, setMessage] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showAccessRequestForm, setShowAccessRequestForm] = useState(false);
 
   if (loading) {
     return (
@@ -47,7 +51,7 @@ export default function Auth() {
       case 'UserNotFound':
         return 'No account found with this email.';
       case 'EmailNotConfirmed':
-        return 'Please confirm your email address.';
+        return 'Your account is pending admin approval.';
       default:
         return 'An unexpected error occurred. Please try again later.';
     }
@@ -73,10 +77,17 @@ export default function Auth() {
     try {
       cleanupAuthState();
       
-      try {
-        await supabase.auth.signOut({ scope: 'global' });
-      } catch (err) {
-        // Continue even if this fails
+      // First check if user has been approved
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('status')
+        .eq('email', email)
+        .single();
+
+      if (profileData && profileData.status === 'pending') {
+        setError('Your account is pending admin approval. Please wait for approval before signing in.');
+        setAuthLoading(false);
+        return;
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -116,35 +127,64 @@ export default function Auth() {
 
     try {
       cleanupAuthState();
-      
-      try {
-        await supabase.auth.signOut({ scope: 'global' });
-      } catch (err) {
-        // Continue even if this fails
+
+      // Check if access request already exists
+      const { data: existingRequest, error: checkError } = await supabase
+        .from('access_requests')
+        .select('status')
+        .eq('email', email)
+        .single();
+
+      if (existingRequest) {
+        if (existingRequest.status === 'pending') {
+          setError('An access request for this email is already pending approval.');
+        } else if (existingRequest.status === 'rejected') {
+          setError('Your access request was previously rejected. Please contact an administrator.');
+        } else {
+          setError('An account with this email already exists.');
+        }
+        setAuthLoading(false);
+        return;
       }
 
-      const redirectUrl = `${window.location.origin}/`;
+      // Create access request
+      const { error: requestError } = await supabase
+        .from('access_requests')
+        .insert({
+          email,
+          full_name: name,
+          company: company || null,
+          phone: phone || null,
+          message: message || null,
+          requested_role: 'user'
+        });
 
+      if (requestError) throw requestError;
+
+      // Create the user account but it will be inactive until approved
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: redirectUrl,
           data: {
             name: name,
+            status: 'pending'
           }
         }
       });
 
       if (error) throw error;
 
-      if (data.user) {
-        if (data.user.email_confirmed_at) {
-          window.location.href = '/';
-        } else {
-          setSuccess('Check your email for a confirmation link!');
-        }
-      }
+      setSuccess('Your access request has been submitted! An administrator will review your request soon. You will be able to sign in once approved.');
+      setShowAccessRequestForm(false);
+      
+      // Clear form
+      setEmail('');
+      setPassword('');
+      setName('');
+      setCompany('');
+      setPhone('');
+      setMessage('');
     } catch (error: any) {
       setError(error.message || 'An error occurred during sign up');
     } finally {
@@ -174,7 +214,7 @@ export default function Auth() {
           <Tabs defaultValue="signin">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              <TabsTrigger value="signup">Request Access</TabsTrigger>
             </TabsList>
             <TabsContent value="signin">
               <form onSubmit={handleSignIn} className="grid gap-4">
@@ -245,8 +285,36 @@ export default function Auth() {
                     required
                   />
                 </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="signup-company">Company (Optional)</Label>
+                  <Input
+                    id="signup-company"
+                    type="text"
+                    value={company}
+                    onChange={(e) => setCompany(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="signup-phone">Phone (Optional)</Label>
+                  <Input
+                    id="signup-phone"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="signup-message">Message (Optional)</Label>
+                  <Input
+                    id="signup-message"
+                    type="text"
+                    placeholder="Why do you need access?"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                  />
+                </div>
                 <Button type="submit" className="w-full" disabled={authLoading}>
-                  {authLoading ? "Creating account..." : "Create Account"}
+                  {authLoading ? "Submitting request..." : "Request Access"}
                 </Button>
               </form>
             </TabsContent>
@@ -259,6 +327,7 @@ export default function Auth() {
           )}
           {success && (
             <Alert className="mt-4">
+              <Clock className="h-4 w-4" />
               <AlertDescription>{success}</AlertDescription>
             </Alert>
           )}
