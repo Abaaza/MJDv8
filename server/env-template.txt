@@ -1,19 +1,15 @@
 # Copy this to .env and fill in your actual values
-
+ 
 # Supabase Configuration
-SUPABASE_URL=your_supabase_url_here
-SUPABASE_ANON_KEY=your_supabase_anon_key_here
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
-
+SUPABASE_URL=https://yqsumodzyahvxywwfpnc.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwMjU1NTAsImV4cCI6MjA2NTYwMTU1MH0.vfTx3_A7DMpcazSA_pbuYaiMuZvVssKn9JUQUb9qaS4
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDAyNTU1MCwiZXhwIjoyMDY1NjAxNTUwfQ.eeLQH1KM6Ovs5FPPcfcuCR3ZbgnsuY2sTpZfC1qnz-Q
 # Server Configuration
 PORT=3001
 NODE_ENV=development
-
+ 
 # Python Configuration
 PYTHON_EXECUTABLE=python
-
-# Cohere AI Configuration (for AI matching)
-COHERE_API_KEY=your_cohere_api_key_here
-
-# Note: You can also set Cohere API key in your Supabase admin settings
-# If both are set, environment variable takes precedence 
+ 
+# Note: Cohere API key is now fetched from admin settings in your Supabase database
+# No need to add COHERE_API_KEY here - just make sure it's set in your admin panel!

@@ -16,7 +16,6 @@ frontend:
         - npm install @swc/core --force --no-save || true # Force reinstall SWC as fallback
     build:
       commands:
-        - cd client # Ensure we're in the client directory for build
         - npm run build
   artifacts:
     baseDirectory: client/dist

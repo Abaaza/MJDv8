@@ -63,7 +63,6 @@ functions:
 
 plugins:
   - serverless-dotenv-plugin
-  - serverless-offline
 
 package:
   individually: false
@@ -82,6 +81,13 @@ package:
 
 custom:
   dotenv:
+    path: ./.env
+    include:
+      - SUPABASE_URL
+      - SUPABASE_ANON_KEY
+      - SUPABASE_SERVICE_ROLE_KEY
+      - COHERE_API_KEY
+      - OPENAI_API_KEY
     exclude:
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY

@@ -1,0 +1,15 @@
+import { writeFileSync } from 'fs';
+
+const envContent = `# Supabase Configuration
+SUPABASE_URL=https://yqsumodzyahvxywwfpnc.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwMjU1NTAsImV4cCI6MjA2NTYwMTU1MH0.vfTx3_A7DMpcazSA_pbuYaiMuZvVssKn9JUQUb9qaS4
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDAyNTU1MCwiZXhwIjoyMDY1NjAxNTUwfQ.eeLQH1KM6Ovs5FPPcfcuCR3ZbgnsuY2sTpZfC1qnz-Q
+COHERE_API_KEY=placeholder_cohere_key
+OPENAI_API_KEY=placeholder_openai_key
+PORT=3001
+NODE_ENV=development
+PYTHON_EXECUTABLE=python
+`;
+
+writeFileSync('.env', envContent, 'utf8');
+console.log('.env file created successfully!'); 
