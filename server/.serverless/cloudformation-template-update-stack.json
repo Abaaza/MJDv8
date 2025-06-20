@@ -184,7 +184,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/mjd-backend-4/prod/1750457762196-2025-06-20T22:16:02.196Z/mjd-backend-4.zip"
+          "S3Key": "serverless/mjd-backend-4/prod/1750458903683-2025-06-20T22:35:03.683Z/mjd-backend-4.zip"
         },
         "Handler": "handler.handler",
         "Runtime": "nodejs20.x",
@@ -211,42 +211,21 @@
         "ApiLogGroup"
       ]
     },
-    "ApiLambdaVersionx4GDugXNVgXNZkkxcfqnuQxekgQwjUFp6Fm5BXkY0": {
+    "ApiLambdaVersionB9prvBl8vh4wxy5yXqAZeZnZsCFryZ9lhI7frs2k4E": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "ApiLambdaFunction"
         },
-        "CodeSha256": "Ez6ME9Frh2zJGHnU/+qw7epwGVCCEvsfLe4DN3mOMxY="
+        "CodeSha256": "VIBqsxC3DjclSeEqCYGbm99uIxHL2/mY8APAcqhTDXA="
       }
     },
     "HttpApi": {
       "Type": "AWS::ApiGatewayV2::Api",
       "Properties": {
         "Name": "prod-mjd-backend-4",
-        "ProtocolType": "HTTP",
-        "CorsConfiguration": {
-          "AllowHeaders": [
-            "Content-Type",
-            "Authorization",
-            "X-Amz-Date",
-            "X-Api-Key",
-            "X-Amz-Security-Token",
-            "X-Amz-User-Agent"
-          ],
-          "AllowMethods": [
-            "GET",
-            "POST",
-            "PUT",
-            "DELETE",
-            "PATCH",
-            "OPTIONS"
-          ],
-          "AllowOrigins": [
-            "*"
-          ]
-        }
+        "ProtocolType": "HTTP"
       }
     },
     "HttpApiStage": {
@@ -403,7 +382,7 @@
     "ApiLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "ApiLambdaVersionx4GDugXNVgXNZkkxcfqnuQxekgQwjUFp6Fm5BXkY0"
+        "Ref": "ApiLambdaVersionB9prvBl8vh4wxy5yXqAZeZnZsCFryZ9lhI7frs2k4E"
       },
       "Export": {
         "Name": "sls-mjd-backend-4-prod-ApiLambdaFunctionQualifiedArn"

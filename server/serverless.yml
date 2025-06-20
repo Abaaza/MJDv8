@@ -36,24 +36,6 @@ provider:
             - "arn:aws:s3:::${self:custom.s3BucketName}/*"
 
   httpApi:
-    cors:
-      allowedOrigins:
-        - "*"
-      allowedHeaders:
-        - Content-Type
-        - Authorization
-        - X-Amz-Date
-        - X-Api-Key
-        - X-Amz-Security-Token
-        - X-Amz-User-Agent
-      allowedMethods:
-        - GET
-        - POST
-        - PUT
-        - DELETE
-        - PATCH
-        - OPTIONS
-      allowCredentials: false
     payload: "2.0"
 
 functions:
