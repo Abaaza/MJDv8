@@ -171,7 +171,7 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/mjd-backend-4/prod/1750417740510-2025-06-20T11:09:00.510Z/mjd-backend-4.zip"
+          "S3Key": "serverless/mjd-backend-4/prod/1750419066216-2025-06-20T11:31:06.216Z/mjd-backend-4.zip"
         },
         "Handler": "handler.handler",
         "Runtime": "nodejs20.x",
@@ -183,9 +183,7 @@
             "NODE_ENV": "production",
             "SUPABASE_URL": "https://yqsumodzyahvxywwfpnc.supabase.co",
             "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwMjU1NTAsImV4cCI6MjA2NTYwMTU1MH0.vfTx3_A7DMpcazSA_pbuYaiMuZvVssKn9JUQUb9qaS4",
-            "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDAyNTU1MCwiZXhwIjoyMDY1NjAxNTUwfQ.eeLQH1KM6Ovs5FPPcfcuCR3ZbgnsuY2sTpZfC1qnz-Q",
-            "COHERE_API_KEY": "placeholder_cohere_key",
-            "OPENAI_API_KEY": "placeholder_openai_key"
+            "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDAyNTU1MCwiZXhwIjoyMDY1NjAxNTUwfQ.eeLQH1KM6Ovs5FPPcfcuCR3ZbgnsuY2sTpZfC1qnz-Q"
           }
         },
         "Role": {
@@ -199,14 +197,14 @@
         "ApiLogGroup"
       ]
     },
-    "ApiLambdaVersionY4FGShdLdOEyzTDChBRBpIGyekzZwRG6Fa5jgsDDMA": {
+    "ApiLambdaVersionwNsjrt4GReOq6OGRqrJcLY5aEiLkmZbUMztC4oi6ec": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "ApiLambdaFunction"
         },
-        "CodeSha256": "ZAR8TV9uyj6WxTyW0P47GTHyvTi44f2qPTxICkD24w0="
+        "CodeSha256": "Fta7Tp7yNCvWSYdxeF4idG68LvQaVodsPXNR7Tn2rWU="
       }
     },
     "HttpApi": {
@@ -359,7 +357,7 @@
     "ApiLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "ApiLambdaVersionY4FGShdLdOEyzTDChBRBpIGyekzZwRG6Fa5jgsDDMA"
+        "Ref": "ApiLambdaVersionwNsjrt4GReOq6OGRqrJcLY5aEiLkmZbUMztC4oi6ec"
       },
       "Export": {
         "Name": "sls-mjd-backend-4-prod-ApiLambdaFunctionQualifiedArn"

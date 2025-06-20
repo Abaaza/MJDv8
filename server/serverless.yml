@@ -13,8 +13,6 @@ provider:
     SUPABASE_URL: ${env:SUPABASE_URL}
     SUPABASE_ANON_KEY: ${env:SUPABASE_ANON_KEY}
     SUPABASE_SERVICE_ROLE_KEY: ${env:SUPABASE_SERVICE_ROLE_KEY}
-    COHERE_API_KEY: ${env:COHERE_API_KEY}
-    OPENAI_API_KEY: ${env:OPENAI_API_KEY}
 
   # IAM permissions for Lambda
   iam:
@@ -86,8 +84,6 @@ custom:
       - SUPABASE_URL
       - SUPABASE_ANON_KEY
       - SUPABASE_SERVICE_ROLE_KEY
-      - COHERE_API_KEY
-      - OPENAI_API_KEY
     exclude:
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
