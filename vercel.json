@@ -6,6 +6,9 @@
   "functions": {
     "api/index.js": {
       "maxDuration": 30
+    },
+    "api/process.js": {
+      "maxDuration": 300
     }
   },
   "rewrites": [
@@ -20,6 +23,10 @@
     {
       "source": "/health",
       "destination": "/api"
+    },
+    {
+      "source": "/api/process",
+      "destination": "/api/process"
     },
     {
       "source": "/(.*)",

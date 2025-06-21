@@ -201,47 +201,70 @@ router.post('/process-base64', async (req, res) => {
       console.log('✅ [VERCEL DEBUG] Job updated with storage info')
     }
 
-    // Start processing in background with proper error handling - DON'T AWAIT
-    console.log('🚀 [VERCEL DEBUG] Starting background processing...')
-    setImmediate(async () => {
+    // In Vercel, trigger separate processing function
+    if (process.env.VERCEL) {
+      console.log('🚀 [VERCEL DEBUG] Triggering separate processing function...')
+      
+      // Call the separate processing function
       try {
-        console.log(`🔄 [VERCEL DEBUG] Background processing started for job ${jobId}`)
-        await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
-        console.log(`✅ [VERCEL DEBUG] Background processing completed for job ${jobId}`)
+        const processingUrl = `${req.protocol}://${req.get('host')}/api/process`
+        console.log(`📞 [VERCEL DEBUG] Calling processing function: ${processingUrl}`)
         
-        // After processing, upload output to Vercel Blob if it exists
-        const outputPath = await findOutputFile(jobId)
-        if (outputPath) {
-          const outputBuffer = await fs.readFile(outputPath)
-          const outputFileName = path.basename(outputPath)
-          const outputStorageResult = await VercelBlobService.uploadFile(
-            outputBuffer,
-            outputFileName,
-            jobId,
-            'output'
-          )
-          
-          // Update job with output storage information
-          await priceMatchingService.supabase
-            .from('matching_jobs')
-            .update({ 
-              output_file_s3_key: outputStorageResult.key,
-              output_file_s3_url: outputStorageResult.url 
-            })
-            .eq('id', jobId)
-          console.log(`✅ [VERCEL DEBUG] Output uploaded to storage for job ${jobId}`)
-        }
+        fetch(processingUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobId })
+        }).catch(error => {
+          console.error(`❌ [VERCEL DEBUG] Processing function call failed:`, error)
+        })
+        
+        console.log('✅ [VERCEL DEBUG] Processing function triggered')
       } catch (error) {
-        console.error(`❌ [VERCEL DEBUG] Background processing failed for job ${jobId}:`, error)
-        console.error(`❌ [VERCEL DEBUG] Error stack:`, error.stack)
-        // Update job status to failed
-        try {
-          await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
-        } catch (updateError) {
-          console.error(`❌ [VERCEL DEBUG] Failed to update job status for ${jobId}:`, updateError)
-        }
+        console.error(`❌ [VERCEL DEBUG] Failed to trigger processing function:`, error)
       }
-    })
+    } else {
+      // Local development - use direct processing
+      console.log('🚀 [LOCAL DEBUG] Starting local processing...')
+      setImmediate(async () => {
+        try {
+          console.log(`🔄 [LOCAL DEBUG] Background processing started for job ${jobId}`)
+          await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
+          console.log(`✅ [LOCAL DEBUG] Background processing completed for job ${jobId}`)
+          
+          // After processing, upload output to Vercel Blob if it exists
+          const outputPath = await findOutputFile(jobId)
+          if (outputPath) {
+            const outputBuffer = await fs.readFile(outputPath)
+            const outputFileName = path.basename(outputPath)
+            const outputStorageResult = await VercelBlobService.uploadFile(
+              outputBuffer,
+              outputFileName,
+              jobId,
+              'output'
+            )
+            
+            // Update job with output storage information
+            await priceMatchingService.supabase
+              .from('matching_jobs')
+              .update({ 
+                output_file_s3_key: outputStorageResult.key,
+                output_file_s3_url: outputStorageResult.url 
+              })
+              .eq('id', jobId)
+            console.log(`✅ [LOCAL DEBUG] Output uploaded to storage for job ${jobId}`)
+          }
+        } catch (error) {
+          console.error(`❌ [LOCAL DEBUG] Background processing failed for job ${jobId}:`, error)
+          console.error(`❌ [LOCAL DEBUG] Error stack:`, error.stack)
+          // Update job status to failed
+          try {
+            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
+          } catch (updateError) {
+            console.error(`❌ [LOCAL DEBUG] Failed to update job status for ${jobId}:`, updateError)
+          }
+        }
+      })
+    }
 
     console.log('✅ [VERCEL DEBUG] Returning success response')
     res.json({ 
