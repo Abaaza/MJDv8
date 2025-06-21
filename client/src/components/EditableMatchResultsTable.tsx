@@ -10,6 +10,7 @@ import { PriceItemSelectionModal } from "./PriceItemSelectionModal"
 import { supabase } from "@/integrations/supabase/client"
 import { toast } from "sonner"
 import { Card, CardContent } from '@/components/ui/card'
+import { apiEndpoint } from '@/config/api'
 
 interface MatchResult {
   id: string
@@ -204,10 +205,15 @@ export function EditableMatchResultsTable({
         setLoadingStates(prev => ({ ...prev, [resultId]: true }))
         toast.info('Running local matching...')
         try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/price-matching/match-item-local`, {
+          const response = await fetch(apiEndpoint('/price-matching/match-item-local'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ itemDescription: result.original_description, quantity: result.quantity })
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              description: result.original_description,
+              threshold: 0.5
+            })
           })
           const data = await response.json()
           if (data.success && data.match) {

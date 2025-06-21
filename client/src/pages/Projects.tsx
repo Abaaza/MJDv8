@@ -12,6 +12,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { Tables } from "@/integrations/supabase/types"
 import { toast } from "sonner"
 import { EditableMatchResultsTable } from "@/components/EditableMatchResultsTable"
+import { apiEndpoint } from '@/config/api'
 
 type MatchingJob = Tables<'ai_matching_jobs'>
 
@@ -235,12 +236,14 @@ export default function Projects() {
       })) || []
 
       // Use the export endpoint which creates a properly formatted Excel file
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/price-matching/export/${jobId}`, {
+      const response = await fetch(apiEndpoint(`/price-matching/export/${jobId}`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ matchResults })
+        body: JSON.stringify({
+          matchResults: []
+        })
       })
       
       if (!response.ok) {

@@ -1,6 +1,23 @@
 import { useMutation } from '@tanstack/react-query'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+// Smart API URL detection
+const getApiUrl = () => {
+  // If VITE_API_URL is explicitly set, use it
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL
+  }
+  
+  // In production (Vercel), use the same domain
+  if (import.meta.env.PROD) {
+    // Use relative URLs in production - they'll automatically use the same domain
+    return ''
+  }
+  
+  // In development, use localhost
+  return 'http://localhost:3001'
+}
+
+const API_BASE_URL = getApiUrl()
 
 interface MatchRequest {
   jobId: string

@@ -30,7 +30,7 @@ function AppContent() {
   // Debug logging for API URL
   useEffect(() => {
     console.log('=== API Configuration Debug ===');
-    console.log('VITE_API_URL env var:', import.meta.env.VITE_API_URL);
+    // API URL is now handled automatically by config/api.ts
     console.log('All env vars:', import.meta.env);
     console.log('==============================');
   }, []);

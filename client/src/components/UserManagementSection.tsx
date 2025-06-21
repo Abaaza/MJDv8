@@ -25,6 +25,8 @@ import {
   Monitor,
   AlertTriangle
 } from 'lucide-react';
+import { apiEndpoint } from '@/config/api'
+import { toast } from 'react-hot-toast';
 
 interface AccessRequest {
   id: string;
@@ -78,6 +80,8 @@ export const UserManagementSection: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  const [isTestingConnection, setIsTestingConnection] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Access Requests State
   const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
@@ -280,6 +284,36 @@ export const UserManagementSection: React.FC = () => {
       </Badge>
     );
   };
+
+  const testBackendConnection = async () => {
+    setIsTestingConnection(true)
+    setConnectionError(null)
+    
+    try {
+      console.log('Testing backend connection...')
+      const response = await fetch(apiEndpoint('/health'), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      console.log('Backend connection successful:', data)
+      toast.success('Backend connection successful!')
+    } catch (error) {
+      console.error('Backend connection failed:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      setConnectionError(`Failed to connect: ${errorMessage}`)
+      toast.error('Backend connection failed')
+    } finally {
+      setIsTestingConnection(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
