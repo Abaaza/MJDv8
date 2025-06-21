@@ -5,7 +5,13 @@ watchPatterns = ["server/**"]
 
 [deploy]
 startCommand = "cd server && npm start"
-restartPolicyType = "always"
+healthcheckPath = "/health"
+healthcheckTimeout = 100
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
 
 [env]
-NODE_ENV = "production" 
+NODE_ENV = "production"
+
+[variables]
+PORT = "3001" 

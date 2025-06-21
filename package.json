@@ -1,44 +1,13 @@
 {
-  "name": "mjd-construction-crm",
+  "name": "mjdv8",
   "version": "1.0.0",
-  "description": "MJD Construction CRM - Price Matching System",
-  "private": true,
+  "description": "MJD Price Matching Application",
   "scripts": {
-    "install:all": "npm install && cd client && npm install && cd ../server && npm install",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:client": "cd client && npm run dev",
-    "dev:server": "cd server && npm run dev",
-    "build": "cd client && npm run build",
-    "build:client": "cd client && npm run build",
-    "deploy:backend": "cd server && npm run deploy",
-    "deploy:frontend": "npm run build:client",
-    "deploy:all": "npm run deploy:backend && npm run deploy:frontend",
-    "test": "cd server && npm test",
-    "lint": "cd client && npm run lint",
-    "start": "cd server && npm start"
+    "install": "cd server && npm install",
+    "start": "cd server && npm start",
+    "build": "cd server && npm install"
   },
-  "devDependencies": {
-    "concurrently": "^8.2.2",
-    "rollup": "^4.24.0"
-  },
-  "workspaces": [
-    "client",
-    "server"
-  ],
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=8.0.0"
-  },
-  "keywords": [
-    "construction",
-    "crm",
-    "price-matching",
-    "react",
-    "express",
-    "aws",
-    "lambda",
-    "amplify"
-  ],
-  "author": "MJD Construction",
-  "license": "MIT"
+    "node": ">=20.0.0"
+  }
 } 
