@@ -27,9 +27,7 @@ async function createUserManagementTables() {
         
         INSERT INTO user_roles (name, description, permissions, is_system_role) VALUES
         ('admin', 'Full system access', '{"users": ["read", "write", "delete"], "settings": ["read", "write"]}', true),
-        ('manager', 'Manage projects', '{"users": ["read"], "settings": ["read"]}', true),
-        ('user', 'Basic access', '{"jobs": ["read", "write"]}', true),
-        ('viewer', 'Read-only access', '{"jobs": ["read"]}', true)
+        ('user', 'Basic access', '{"jobs": ["read", "write"]}', true)
         ON CONFLICT (name) DO NOTHING;
       `
     })

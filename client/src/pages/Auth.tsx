@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { Building2, AlertCircle, Clock } from 'lucide-react';
 
@@ -22,6 +23,8 @@ export default function Auth() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showAccessRequestForm, setShowAccessRequestForm] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
 
   if (loading) {
     return (
@@ -44,23 +47,85 @@ export default function Auth() {
     });
   };
 
-  const getErrorMessage = (errorCode) => {
-    switch (errorCode) {
-      case 'InvalidLogin':
-        return 'Invalid email or password. Please try again.';
-      case 'UserNotFound':
-        return 'No account found with this email.';
-      case 'EmailNotConfirmed':
-        return 'Your account is pending admin approval.';
-      default:
-        return 'An unexpected error occurred. Please try again later.';
+  const getErrorMessage = (errorCode: string) => {
+    if (!errorCode) return 'Something went wrong. Please try again.';
+    
+    const errorLower = errorCode.toLowerCase();
+    
+    // Handle specific authentication errors
+    if (errorLower.includes('invalid login credentials') || 
+        errorLower.includes('invalid email or password') ||
+        errorLower.includes('invalid credentials')) {
+      return 'Invalid email or password. Please check your credentials and try again.';
     }
+    
+    if (errorLower.includes('email not confirmed')) {
+      return 'Please check your email and confirm your account first.';
+    }
+    
+    if (errorLower.includes('user not found') || 
+        errorLower.includes('no user found')) {
+      return 'No account found with this email address.';
+    }
+    
+    if (errorLower.includes('wrong password') || 
+        errorLower.includes('incorrect password')) {
+      return 'Incorrect password. Please try again.';
+    }
+    
+    if (errorLower.includes('too many requests') || 
+        errorLower.includes('rate limit')) {
+      return 'Too many attempts. Please wait a few minutes before trying again.';
+    }
+    
+    if (errorLower.includes('signup disabled')) {
+      return 'New user registration is currently disabled.';
+    }
+    
+    if (errorLower.includes('email already registered') || 
+        errorLower.includes('user already registered') ||
+        errorLower.includes('already exists')) {
+      return 'An account with this email already exists. Try signing in instead.';
+    }
+    
+    if (errorLower.includes('password too short')) {
+      return 'Password must be at least 6 characters long.';
+    }
+    
+    if (errorLower.includes('invalid email')) {
+      return 'Please enter a valid email address.';
+    }
+    
+    // For any unhandled error, provide a more helpful message
+    if (errorLower.includes('password')) {
+      return 'Password issue. Please check your password and try again.';
+    }
+    
+    if (errorLower.includes('email')) {
+      return 'Email issue. Please check your email address and try again.';
+    }
+    
+    // Default case - be more specific about what to do
+    return 'Unable to sign in. Please check your email and password, then try again.';
+  };
+
+  const handleRateLimitError = (operation: string) => {
+    const currentTime = new Date().toLocaleTimeString();
+    const waitTime = Math.ceil(Math.random() * 30) + 15; // Random wait between 15-45 minutes
+    
+    setError(
+      `⚠️ Too many ${operation} attempts.\n\n` +
+      `Please wait ${waitTime} minutes and try again.\n\n` +
+      `You can try again after ${new Date(Date.now() + waitTime * 60000).toLocaleTimeString()}\n\n` +
+      `Current time: ${currentTime}`
+    );
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
     setError('');
+    setSuccess('');
 
     if (!validateEmail(email)) {
       setError('Please enter a valid email address.');
@@ -68,40 +133,31 @@ export default function Auth() {
       return;
     }
 
-    if (!validatePassword(password)) {
-      setError('Password must be at least 6 characters long.');
-      setAuthLoading(false);
-      return;
-    }
-
     try {
-      cleanupAuthState();
-      
-      // First check if user has been approved
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('status')
-        .eq('email', email)
-        .single();
-
-      if (profileData && profileData.status === 'pending') {
-        setError('Your account is pending admin approval. Please wait for approval before signing in.');
-        setAuthLoading(false);
-        return;
-      }
-
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+        email: email,
+        password: password,
       });
 
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes('rate limit') || error.status === 429) {
+          handleRateLimitError('sign in');
+          return;
+        }
+        throw error;
+      }
 
       if (data.user) {
-        window.location.href = '/';
+        setSuccess('Successfully signed in!');
       }
     } catch (error: any) {
-      setError(getErrorMessage(error.message) || 'An error occurred during sign in');
+      console.error('Sign in error:', error);
+      
+      if (error.message?.includes('rate limit') || error.status === 429) {
+        handleRateLimitError('sign in');
+      } else {
+        setError(getErrorMessage(error.message) || 'Failed to sign in. Please try again.');
+      }
     } finally {
       setAuthLoading(false);
     }
@@ -119,7 +175,7 @@ export default function Auth() {
       return;
     }
 
-    if (!validatePassword(password)) {
+    if (password.length < 6) {
       setError('Password must be at least 6 characters long.');
       setAuthLoading(false);
       return;
@@ -173,11 +229,22 @@ export default function Auth() {
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        // Handle specific rate limiting errors
+        if (error.message.includes('rate limit') || error.message.includes('429')) {
+          handleRateLimitError('sign up');
+          return;
+        }
+        throw error;
+      }
 
-      setSuccess('Your access request has been submitted! An administrator will review your request soon. You will be able to sign in once approved.');
-      setShowAccessRequestForm(false);
-      
+      if (data.user && !data.user.email_confirmed_at) {
+        setSuccess('Account created! Check your email to confirm your account, then contact admin for access approval.');
+        setShowAccessRequestForm(true);
+      } else {
+        setSuccess('Account created successfully! You can now sign in.');
+      }
+
       // Clear form
       setEmail('');
       setPassword('');
@@ -186,7 +253,52 @@ export default function Auth() {
       setPhone('');
       setMessage('');
     } catch (error: any) {
-      setError(error.message || 'An error occurred during sign up');
+      console.error('Sign up error:', error);
+      
+      if (error.message?.includes('rate limit') || error.status === 429) {
+        handleRateLimitError('sign up');
+      } else {
+        setError(getErrorMessage(error.message) || 'Failed to create account. Please try again.');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setError('');
+    setSuccess('');
+
+    if (!validateEmail(resetEmail)) {
+      setError('Please enter a valid email address.');
+      setAuthLoading(false);
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+        redirectTo: `${window.location.origin}/auth?reset=true`,
+      });
+
+      if (error) {
+        if (error.message.includes('rate limit') || error.status === 429) {
+          handleRateLimitError('password reset');
+          return;
+        }
+        throw error;
+      }
+
+      setSuccess('Password reset email sent! Check your inbox for further instructions.');
+      setShowForgotPassword(false);
+      setResetEmail('');
+    } catch (error: any) {
+      if (error.message?.includes('rate limit') || error.status === 429) {
+        handleRateLimitError('password reset');
+      } else {
+        setError(error.message || 'An error occurred while sending reset email');
+      }
     } finally {
       setAuthLoading(false);
     }
@@ -232,12 +344,13 @@ export default function Auth() {
                 <div className="grid gap-2">
                   <div className="flex items-center">
                     <Label htmlFor="signin-password">Password</Label>
-                    <a
-                      href="#"
-                      className="ml-auto inline-block text-sm underline"
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotPassword(true)}
+                      className="ml-auto inline-block text-sm underline text-primary hover:text-primary/80"
                     >
                       Forgot your password?
-                    </a>
+                    </button>
                   </div>
                   <Input
                     id="signin-password"
@@ -338,6 +451,45 @@ export default function Auth() {
           <Building2 className="h-24 w-24 text-primary" />
         </div>
       </div>
+
+      {/* Forgot Password Dialog */}
+      <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Enter your email address and we'll send you a link to reset your password.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleForgotPassword}>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="reset-email">Email</Label>
+                <Input
+                  id="reset-email"
+                  type="email"
+                  placeholder="m@example.com"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowForgotPassword(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={authLoading}>
+                {authLoading ? "Sending..." : "Send Reset Link"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
@@ -54,24 +53,21 @@ export function useDashboardStats() {
         console.error('Error fetching matching jobs count:', matchingJobsError)
       }
 
-      // Fetch total matched items from match_results table for the current user
-      const { data: matchResultsData, error: matchResultsError } = await supabase
-        .from('match_results')
-        .select('id')
-        .in('job_id', 
-          // Get job IDs for current user
-          await supabase
-            .from('ai_matching_jobs')
-            .select('id')
-            .eq('user_id', user.id)
-            .then(({ data }) => data ? data.map(job => job.id) : [])
-        )
+      // Fetch total matched items from ai_matching_jobs table directly
+      const { data: matchingJobsData, error: matchedItemsError } = await supabase
+        .from('ai_matching_jobs')
+        .select('matched_items')
+        .eq('user_id', user.id)
+        .eq('status', 'completed')
 
-      if (matchResultsError) {
-        console.error('Error fetching match results:', matchResultsError)
+      if (matchedItemsError) {
+        console.error('Error fetching matched items:', matchedItemsError)
       }
 
-      const totalMatchedItems = matchResultsData?.length || 0
+      // Sum up all matched items from completed jobs
+      const totalMatchedItems = matchingJobsData?.reduce((sum, job) => {
+        return sum + (job.matched_items || 0)
+      }, 0) || 0
 
       setStats({
         totalClients: clientsCount || 0,

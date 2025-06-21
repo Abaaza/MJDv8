@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -11,7 +10,7 @@ const navigation = [
   { name: "Clients", href: "/clients", icon: Users },
   { name: "Matched Jobs", href: "/projects", icon: FolderOpen },
   { name: "Price List", href: "/price-list", icon: DollarSign },
-  { name: "Price Matcher", href: "/price-matcher", icon: Zap },
+  { name: "Price Matcher", href: "/price-match", icon: Zap },
 ];
 
 export function Sidebar() {

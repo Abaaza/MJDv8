@@ -17,14 +17,8 @@ INSERT INTO user_roles (name, description, permissions, is_system_role) VALUES
 ('admin', 'Full system access with user management capabilities', 
  '{"users": ["read", "write", "delete"], "settings": ["read", "write"], "jobs": ["read", "write", "delete"], "clients": ["read", "write", "delete"], "prices": ["read", "write", "delete"]}', 
  true),
-('manager', 'Manage projects and view reports', 
- '{"users": ["read"], "settings": ["read"], "jobs": ["read", "write"], "clients": ["read", "write"], "prices": ["read", "write"]}', 
- true),
 ('user', 'Basic user access for project work', 
  '{"jobs": ["read", "write"], "clients": ["read"], "prices": ["read"]}', 
- true),
-('viewer', 'Read-only access for viewing data', 
- '{"jobs": ["read"], "clients": ["read"], "prices": ["read"]}', 
  true)
 ON CONFLICT (name) DO NOTHING;
 

@@ -145,37 +145,80 @@ router.post('/access-requests/:id/approve', requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Request has already been processed' })
     }
     
-    // Create user account
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email: request.email,
-      password: Math.random().toString(36).slice(-12) + 'A1!', // Temporary password
-      email_confirm: true,
-      user_metadata: {
-        full_name: request.full_name,
-        company: request.company
-      }
-    })
+    let authData;
+    let userId;
     
-    if (authError) {
-      console.error('Error creating user:', authError)
-      return res.status(500).json({ error: 'Failed to create user account' })
+    // First check if user already exists
+    const { data: existingUser, error: userCheckError } = await supabase.auth.admin.listUsers()
+    const existingAuthUser = existingUser?.users?.find(u => u.email === request.email)
+    
+    if (existingAuthUser) {
+      // User already exists in auth
+      console.log('User already exists in auth:', request.email)
+      authData = { user: existingAuthUser }
+      userId = existingAuthUser.id
+    } else {
+      // Create new user account
+      const { data: newAuthData, error: authError } = await supabase.auth.admin.createUser({
+        email: request.email,
+        password: Math.random().toString(36).slice(-12) + 'A1!', // Temporary password
+        email_confirm: true,
+        user_metadata: {
+          full_name: request.full_name,
+          company: request.company
+        }
+      })
+      
+      if (authError) {
+        console.error('Error creating user:', authError)
+        return res.status(500).json({ error: 'Failed to create user account' })
+      }
+      
+      authData = newAuthData
+      userId = newAuthData.user.id
     }
     
-    // Create profile
-    const { error: profileError } = await supabase
+    // Check if profile already exists
+    const { data: existingProfile, error: profileCheckError } = await supabase
       .from('profiles')
-      .insert([{
-        id: authData.user.id,
-        name: request.full_name,
-        role: user_role || request.requested_role,
-        status: 'active',
-        approved_by: req.user.id,
-        approved_at: new Date().toISOString()
-      }])
+      .select('id')
+      .eq('id', userId)
+      .single()
     
-    if (profileError) {
-      console.error('Error creating profile:', profileError)
-      return res.status(500).json({ error: 'Failed to create user profile' })
+    if (!existingProfile) {
+      // Create profile only if it doesn't exist
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert([{
+          id: userId,
+          name: request.full_name,
+          role: user_role || request.requested_role,
+          status: 'active',
+          approved_by: req.user.id,
+          approved_at: new Date().toISOString()
+        }])
+      
+      if (profileError) {
+        console.error('Error creating profile:', profileError)
+        return res.status(500).json({ error: 'Failed to create user profile' })
+      }
+    } else {
+      // Update existing profile
+      const { error: profileUpdateError } = await supabase
+        .from('profiles')
+        .update({
+          name: request.full_name,
+          role: user_role || request.requested_role,
+          status: 'active',
+          approved_by: req.user.id,
+          approved_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+      
+      if (profileUpdateError) {
+        console.error('Error updating profile:', profileUpdateError)
+        return res.status(500).json({ error: 'Failed to update user profile' })
+      }
     }
     
     // Update access request
@@ -203,13 +246,13 @@ router.post('/access-requests/:id/approve', requireAdmin, async (req, res) => {
         new_values: {
           email: request.email,
           role: user_role || request.requested_role,
-          created_user_id: authData.user.id
+          approved_user_id: userId
         }
       }])
     
     res.json({
       message: 'Access request approved successfully',
-      user_id: authData.user.id,
+      user_id: userId,
       email: request.email
     })
     

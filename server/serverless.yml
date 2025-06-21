@@ -1,5 +1,4 @@
 # serverless.yml
-
 service: mjd-backend-4
 frameworkVersion: "3"
 
@@ -9,39 +8,66 @@ provider:
   region: ${opt:region, 'us-east-1'}
   stage: ${opt:stage, 'prod'}
   environment:
-    NODE_ENV: ${opt:stage, 'production'}
-    SUPABASE_URL: ${env:SUPABASE_URL}
-    SUPABASE_ANON_KEY: ${env:SUPABASE_ANON_KEY}
-    SUPABASE_SERVICE_ROLE_KEY: ${env:SUPABASE_SERVICE_ROLE_KEY}
+    NODE_ENV: production
+    SUPABASE_URL: ${env:SUPABASE_URL, 'https://yqsumodzyahvxywwfpnc.supabase.co'}
+    SUPABASE_ANON_KEY: ${env:SUPABASE_ANON_KEY, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwMjU1NTAsImV4cCI6MjA2NTYwMTU1MH0.vfTx3_A7DMpcazSA_pbuYaiMuZvVssKn9JUQUb9qaS4'}
+    SUPABASE_SERVICE_ROLE_KEY: ${env:SUPABASE_SERVICE_ROLE_KEY, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDAyNTU1MCwiZXhwIjoyMDY1NjAxNTUwfQ.eeLQH1KM6Ovs5FPPcfcuCR3ZbgnsuY2sTpZfC1qnz-Q'}
     S3_BUCKET_NAME: ${self:custom.s3BucketName}
+    AWS_REGION: ${self:provider.region}
 
   # IAM permissions for Lambda
-  iam:
-    role:
-      statements:
-        - Effect: Allow
-          Action:
-            - logs:CreateLogGroup
-            - logs:CreateLogStream
-            - logs:PutLogEvents
-          Resource: "*"
-        - Effect: Allow
-          Action:
-            - s3:PutObject
-            - s3:GetObject
-            - s3:DeleteObject
-            - s3:ListBucket
-          Resource:
-            - "arn:aws:s3:::${self:custom.s3BucketName}"
-            - "arn:aws:s3:::${self:custom.s3BucketName}/*"
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - logs:CreateLogGroup
+        - logs:CreateLogStream
+        - logs:PutLogEvents
+      Resource: "*"
+    - Effect: Allow
+      Action:
+        - s3:PutObject
+        - s3:GetObject
+        - s3:DeleteObject
+        - s3:ListBucket
+        - s3:CreateBucket
+        - s3:GetBucketLocation
+      Resource:
+        - "arn:aws:s3:::${self:custom.s3BucketName}"
+        - "arn:aws:s3:::${self:custom.s3BucketName}/*"
 
   httpApi:
+    cors:
+      allowedOrigins:
+        - "https://main.d197lvv1o18hb3.amplifyapp.com"
+        - "http://localhost:8080"
+        - "http://localhost:5173"
+        - "http://localhost:3000"
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - X-Amz-Date
+        - X-Api-Key
+        - X-Amz-Security-Token
+        - X-Amz-User-Agent
+        - X-Requested-With
+        - Accept
+        - Origin
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+        - OPTIONS
+        - HEAD
+      allowCredentials: true
+      maxAge: 86400
     payload: "2.0"
 
 functions:
   api:
     handler: handler.handler
-    timeout: 900
+    timeout: 30
     memorySize: 2048
     events:
       - httpApi:
@@ -54,6 +80,8 @@ functions:
 plugins:
   - serverless-dotenv-plugin
 
+useDotenv: true
+
 package:
   individually: false
   patterns:
@@ -62,25 +90,26 @@ package:
     - "!.env*"
     - "!README.md"
     - "!.gitignore"
+    - "!temp/**"
+    - "!output/**"
+    - "!test/**"
+    - "!*.log"
     - "handler.js"
     - "app.js"
     - "routes/**"
     - "services/**"
-    - "temp/**"
-    - "output/**"
+    - "check-environment.js"
 
 custom:
   s3BucketName: mjd-backend-4-${self:provider.stage}-uploads
   dotenv:
     path: ./.env
+    required:
+      file: true
     include:
       - SUPABASE_URL
       - SUPABASE_ANON_KEY
       - SUPABASE_SERVICE_ROLE_KEY
-    exclude:
-      - AWS_ACCESS_KEY_ID
-      - AWS_SECRET_ACCESS_KEY
-      - AWS_SESSION_TOKEN
 
 resources:
   Resources:
@@ -91,7 +120,10 @@ resources:
         CorsConfiguration:
           CorsRules:
             - AllowedOrigins:
-                - "*"
+                - "https://main.d197lvv1o18hb3.amplifyapp.com"
+                - "http://localhost:8080"
+                - "http://localhost:5173"
+                - "http://localhost:3000"
               AllowedHeaders:
                 - "*"
               AllowedMethods:
@@ -106,9 +138,24 @@ resources:
           BlockPublicPolicy: false
           IgnorePublicAcls: false
           RestrictPublicBuckets: false
+        VersioningConfiguration:
+          Status: Enabled
+
   Outputs:
     S3BucketName:
       Value:
         Ref: S3BucketUploads
       Export:
         Name: ${self:service}-${self:provider.stage}-S3BucketName
+
+    ApiUrl:
+      Value:
+        Fn::Join:
+          - ""
+          - - "https://"
+            - Ref: HttpApi
+            - ".execute-api."
+            - Ref: AWS::Region
+            - ".amazonaws.com"
+      Export:
+        Name: ${self:service}-${self:provider.stage}-ApiUrl

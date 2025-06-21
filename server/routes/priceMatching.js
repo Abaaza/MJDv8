@@ -5,7 +5,7 @@ import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import { PriceMatchingService } from '../services/PriceMatchingService.js'
 import { ExcelExportService } from '../services/ExcelExportService.js'
-const S3Service = require('../services/S3Service')
+import S3Service from '../services/S3Service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)

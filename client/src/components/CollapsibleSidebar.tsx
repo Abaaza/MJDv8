@@ -21,7 +21,7 @@ const navigation = [
   { name: "Clients", href: "/clients", icon: Users },
   { name: "Projects", href: "/projects", icon: FolderOpen },
   { name: "Price List", href: "/price-list", icon: DollarSign },
-  { name: "Price Matching", href: "/matching-jobs", icon: Zap },
+  { name: "Price Matching", href: "/price-match", icon: Zap },
 ];
 
 const NavLink = ({ to, icon: Icon, name, isCollapsed }) => {

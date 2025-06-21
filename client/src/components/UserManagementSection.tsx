@@ -89,17 +89,15 @@ export const UserManagementSection: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [userFilter, setUserFilter] = useState({ role: '', status: '' });
 
-  // Roles State
-  const [roles, setRoles] = useState<UserRole[]>([]);
-
-  // Audit Logs State
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  // Available roles - only admin and user
+  const availableRoles = [
+    { name: 'admin', description: 'Full system access' },
+    { name: 'user', description: 'Basic user access' }
+  ];
 
   useEffect(() => {
     fetchAccessRequests();
     fetchUsers();
-    fetchRoles();
-    fetchAuditLogs();
   }, []);
 
   const getAuthToken = async () => {
@@ -152,26 +150,6 @@ export const UserManagementSection: React.FC = () => {
       setUsers(data.users || []);
     } catch (error: any) {
       setError('Failed to fetch users: ' + error.message);
-    }
-  };
-
-  const fetchRoles = async () => {
-    try {
-      const data = await apiCall('/roles');
-      setRoles(data);
-    } catch (error: any) {
-      setError('Failed to fetch roles: ' + error.message);
-    }
-  };
-
-  const fetchAuditLogs = async () => {
-    try {
-      const data = await apiCall('/audit-logs?limit=20');
-      console.log('Audit logs response:', data);
-      setAuditLogs(data.logs || []);
-    } catch (error: any) {
-      console.error('Error fetching audit logs:', error);
-      setError('Failed to fetch audit logs: ' + error.message);
     }
   };
 
@@ -239,7 +217,6 @@ export const UserManagementSection: React.FC = () => {
 
       setSuccess('User role updated successfully!');
       await fetchUsers();
-      await fetchAuditLogs();
     } catch (error: any) {
       setError('Failed to update user role: ' + error.message);
     } finally {
@@ -259,7 +236,6 @@ export const UserManagementSection: React.FC = () => {
 
       setSuccess('User deactivated successfully!');
       await fetchUsers();
-      await fetchAuditLogs();
     } catch (error: any) {
       setError('Failed to deactivate user: ' + error.message);
     } finally {
@@ -286,9 +262,7 @@ export const UserManagementSection: React.FC = () => {
   const getRoleBadge = (role: string) => {
     const variants = {
       'admin': 'bg-purple-100 text-purple-800',
-      'manager': 'bg-blue-100 text-blue-800',
-      'user': 'bg-green-100 text-green-800',
-      'viewer': 'bg-gray-100 text-gray-800'
+      'user': 'bg-green-100 text-green-800'
     };
     
     return (
@@ -312,7 +286,7 @@ export const UserManagementSection: React.FC = () => {
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="requests" className="flex items-center space-x-2">
                 <UserPlus className="h-4 w-4" />
                 <span>Requests</span>
@@ -320,14 +294,6 @@ export const UserManagementSection: React.FC = () => {
               <TabsTrigger value="users" className="flex items-center space-x-2">
                 <Users className="h-4 w-4" />
                 <span>Users</span>
-              </TabsTrigger>
-              <TabsTrigger value="roles" className="flex items-center space-x-2">
-                <Settings className="h-4 w-4" />
-                <span>Roles</span>
-              </TabsTrigger>
-              <TabsTrigger value="audit" className="flex items-center space-x-2">
-                <Activity className="h-4 w-4" />
-                <span>Audit</span>
               </TabsTrigger>
             </TabsList>
 
@@ -357,7 +323,6 @@ export const UserManagementSection: React.FC = () => {
                             <div className="flex items-center space-x-3">
                               <h4 className="font-medium">{request.full_name}</h4>
                               {getStatusBadge(request.status)}
-                              {getRoleBadge(request.requested_role)}
                             </div>
                             <p className="text-sm text-muted-foreground">{request.email}</p>
                             {request.company && (
@@ -403,7 +368,7 @@ export const UserManagementSection: React.FC = () => {
                                           <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                          {roles.map((role) => (
+                                          {availableRoles.map((role) => (
                                             <SelectItem key={role.name} value={role.name}>
                                               {role.name}
                                             </SelectItem>
@@ -505,7 +470,7 @@ export const UserManagementSection: React.FC = () => {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {roles.map((role) => (
+                              {availableRoles.map((role) => (
                                 <SelectItem key={role.name} value={role.name}>
                                   {role.name}
                                 </SelectItem>
@@ -528,83 +493,6 @@ export const UserManagementSection: React.FC = () => {
                   ))}
                 </TableBody>
               </Table>
-            </TabsContent>
-
-            {/* Roles Tab */}
-            <TabsContent value="roles" className="space-y-4">
-              <h3 className="text-lg font-medium">System Roles</h3>
-              
-              <div className="grid gap-4 md:grid-cols-2">
-                {roles.map((role) => (
-                  <Card key={role.id}>
-                    <CardHeader>
-                      <CardTitle className="flex items-center justify-between">
-                        <span>{role.name}</span>
-                        {role.is_system_role && (
-                          <Badge variant="secondary">System</Badge>
-                        )}
-                      </CardTitle>
-                      <CardDescription>{role.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        <h4 className="font-medium">Permissions:</h4>
-                        <div className="space-y-1">
-                          {Object.entries(role.permissions).map(([resource, actions]) => (
-                            <div key={resource} className="text-sm">
-                              <span className="font-medium capitalize">{resource}:</span>
-                              <div className="ml-4 flex flex-wrap gap-1">
-                                {(actions as string[]).map((action) => (
-                                  <Badge key={action} variant="outline" className="text-xs">
-                                    {action}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </TabsContent>
-
-            {/* Audit Logs Tab */}
-            <TabsContent value="audit" className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Recent Activity</h3>
-                <Button onClick={fetchAuditLogs} variant="outline" size="sm">
-                  Refresh
-                </Button>
-              </div>
-
-              <div className="space-y-3">
-                {auditLogs.map((log) => (
-                  <Card key={log.id}>
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <Activity className="h-4 w-4 text-blue-500" />
-                            <span className="font-medium">{log.action.replace(/_/g, ' ')}</span>
-                          </div>
-                          
-                          {log.profiles && (
-                            <p className="text-sm text-muted-foreground">
-                              By: {log.profiles.name} ({log.profiles.role})
-                            </p>
-                          )}
-                        </div>
-                        
-                        <div className="text-right text-xs text-muted-foreground">
-                          {new Date(log.created_at).toLocaleString()}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
             </TabsContent>
           </Tabs>
 

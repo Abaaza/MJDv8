@@ -1,0 +1,54 @@
+# Simplified serverless.yml for deployment
+service: mjd-backend-simple
+
+frameworkVersion: "3"
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'prod'}
+
+  # Minimal environment variables
+  environment:
+    NODE_ENV: production
+    SUPABASE_URL: ${env:SUPABASE_URL}
+    SUPABASE_ANON_KEY: ${env:SUPABASE_ANON_KEY}
+    SUPABASE_SERVICE_ROLE_KEY: ${env:SUPABASE_SERVICE_ROLE_KEY}
+
+  # Minimal IAM permissions
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - logs:*
+      Resource: "*"
+
+  # Simple CORS
+  httpApi:
+    cors: true
+
+functions:
+  api:
+    handler: handler.handler
+    timeout: 30
+    memorySize: 1024
+    events:
+      - httpApi: "*"
+
+plugins:
+  - serverless-dotenv-plugin
+
+useDotenv: true
+
+package:
+  patterns:
+    - "!node_modules/**"
+    - "!.git/**"
+    - "!.env*"
+    - "!temp/**"
+    - "!output/**"
+    - "!*.log"
+    - "handler.js"
+    - "app.js"
+    - "routes/**"
+    - "services/**"

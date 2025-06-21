@@ -24,6 +24,10 @@ export default function Profile() {
   const [name, setName] = useState("")
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [selectedTheme, setSelectedTheme] = useState<Theme>(theme)
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
 
   useEffect(() => {
     if (user) {
@@ -131,6 +135,42 @@ export default function Profile() {
       case 'light': return 'Light'
       case 'dark': return 'Dark'
       default: return 'System'
+    }
+  }
+
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('New password must be at least 6 characters long')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match')
+      return
+    }
+
+    try {
+      setSaving(true)
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      })
+
+      if (error) {
+        console.error('Error changing password:', error)
+        toast.error('Failed to change password: ' + error.message)
+        return
+      }
+
+      toast.success('Password changed successfully!')
+      setShowChangePassword(false)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (error) {
+      console.error('Error changing password:', error)
+      toast.error('Failed to change password')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -242,6 +282,73 @@ export default function Profile() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Change Password */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Change Password</CardTitle>
+            <CardDescription>Update your account password</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!showChangePassword ? (
+              <Button 
+                variant="outline" 
+                onClick={() => setShowChangePassword(true)}
+              >
+                Change Password
+              </Button>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="new-password">New Password</Label>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Enter new password"
+                    minLength={6}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Password must be at least 6 characters long
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="confirm-password">Confirm New Password</Label>
+                  <Input
+                    id="confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    minLength={6}
+                  />
+                </div>
+
+                <div className="flex space-x-2">
+                  <Button 
+                    onClick={handleChangePassword}
+                    disabled={saving || !newPassword || !confirmPassword}
+                  >
+                    {saving ? 'Changing...' : 'Change Password'}
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => {
+                      setShowChangePassword(false)
+                      setCurrentPassword('')
+                      setNewPassword('')
+                      setConfirmPassword('')
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

@@ -29,7 +29,6 @@ export const AdminSettingsSection: React.FC = () => {
   const [formData, setFormData] = useState({
     company_name: '',
     currency: 'USD',
-    openai_api_key: '',
     cohere_api_key: '',
   });
 
@@ -43,7 +42,6 @@ export const AdminSettingsSection: React.FC = () => {
       setFormData({
         company_name: settings.company_name || '',
         currency: settings.currency || 'USD',
-        openai_api_key: settings.openai_api_key || '',
         cohere_api_key: settings.cohere_api_key || '',
       });
     }
@@ -80,44 +78,41 @@ export const AdminSettingsSection: React.FC = () => {
     }
   };
 
-  const removeApiKey = async (keyType: 'openai' | 'cohere') => {
-    setLoading(true);
-    setError('');
-    setSuccess('');
-
+  const removeApiKey = async (keyType: 'cohere') => {
+    setLoading(true)
+    setError('')
+    
     try {
-      const updateData = keyType === 'openai' 
-        ? { openai_api_key: null }
-        : { cohere_api_key: null };
+      const update = keyType === 'cohere' 
+        ? { cohere_api_key: null }
+        : {}
 
       const { error } = await supabase
         .from('app_settings')
-        .update(updateData)
-        .eq('id', 1);
+        .update(update)
+        .eq('id', 1)
 
-      if (error) throw error;
+      if (error) throw error
 
-      await fetchSettings();
-      setSuccess(`${keyType === 'openai' ? 'OpenAI' : 'Cohere'} API key removed successfully!`);
-      
-      // Clear the form field
-      if (keyType === 'openai') {
-        setFormData(prev => ({ ...prev, openai_api_key: '' }));
-      } else {
-        setFormData(prev => ({ ...prev, cohere_api_key: '' }));
+      // Update form data
+      if (keyType === 'cohere') {
+        setFormData(prev => ({ ...prev, cohere_api_key: '' }))
       }
-    } catch (error: any) {
-      setError(`Failed to remove ${keyType === 'openai' ? 'OpenAI' : 'Cohere'} API key: ` + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess('');
+      setSuccess(`${keyType === 'cohere' ? 'Cohere' : ''} API key removed successfully!`)
+      await fetchSettings()
+    } catch (error) {
+      setError('Failed to remove API key: ' + error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    setSuccess('')
 
     try {
       const { error } = await supabase
@@ -125,21 +120,20 @@ export const AdminSettingsSection: React.FC = () => {
         .update({
           company_name: formData.company_name,
           currency: formData.currency,
-          openai_api_key: formData.openai_api_key || null,
           cohere_api_key: formData.cohere_api_key || null,
         })
-        .eq('id', 1);
+        .eq('id', 1)
 
-      if (error) throw error;
+      if (error) throw error
 
-      await fetchSettings();
-      setSuccess('Settings updated successfully!');
-    } catch (error: any) {
-      setError('Failed to update settings: ' + error.message);
+      setSuccess('Settings updated successfully!')
+      await fetchSettings()
+    } catch (error) {
+      setError('Failed to update settings: ' + error.message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
     <div className="space-y-6">
@@ -200,46 +194,6 @@ export const AdminSettingsSection: React.FC = () => {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-6">
-              {/* OpenAI API Key */}
-              <div className="space-y-4 p-4 border rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="openai_api_key" className="text-base font-medium">OpenAI API Key</Label>
-                    <p className="text-sm text-muted-foreground">Required for AI-powered BOQ analysis and price matching</p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    {settings?.openai_api_key && (
-                      <Badge variant="default" className="bg-green-100 text-green-800">Active</Badge>
-                    )}
-                    {!settings?.openai_api_key && (
-                      <Badge variant="secondary">Not Set</Badge>
-                    )}
-                  </div>
-                </div>
-                <div className="flex space-x-2">
-                  <Input
-                    id="openai_api_key"
-                    type="password"
-                    value={formData.openai_api_key}
-                    onChange={(e) => setFormData({ ...formData, openai_api_key: e.target.value })}
-                    placeholder="sk-..."
-                    className="flex-1"
-                  />
-                  {settings?.openai_api_key && (
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="icon"
-                      onClick={() => removeApiKey('openai')}
-                      disabled={loading}
-                      title="Remove OpenAI API Key"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-
               {/* Cohere API Key */}
               <div className="space-y-4 p-4 border rounded-lg">
                 <div className="flex items-center justify-between">

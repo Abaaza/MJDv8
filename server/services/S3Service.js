@@ -1,5 +1,7 @@
-const AWS = require('aws-sdk');
-const { v4: uuidv4 } = require('uuid');
+import AWS from 'aws-sdk';
+import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
+import path from 'path';
 
 class S3Service {
   constructor() {
@@ -7,6 +9,23 @@ class S3Service {
       region: process.env.AWS_REGION || 'us-east-1'
     });
     this.bucketName = process.env.S3_BUCKET_NAME;
+    this.isLocalMode = process.env.NODE_ENV === 'development' && !this.bucketName;
+    
+    if (!this.bucketName) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('S3_BUCKET_NAME not set, using local file storage for development');
+        this.ensureLocalStorageDir();
+      } else {
+        console.error('S3_BUCKET_NAME environment variable is required for production');
+      }
+    }
+  }
+  
+  ensureLocalStorageDir() {
+    const localStorageDir = path.join(process.cwd(), 'temp', 's3-local');
+    if (!fs.existsSync(localStorageDir)) {
+      fs.mkdirSync(localStorageDir, { recursive: true });
+    }
   }
 
   /**
@@ -19,6 +38,28 @@ class S3Service {
    */
   async uploadFile(fileBuffer, fileName, jobId, fileType = 'input') {
     const key = `jobs/${jobId}/${fileType}/${uuidv4()}-${fileName}`;
+    
+    if (this.isLocalMode) {
+      // Local file storage for development
+      const localPath = path.join(process.cwd(), 'temp', 's3-local', key.replace(/\//g, '_'));
+      const localDir = path.dirname(localPath);
+      
+      if (!fs.existsSync(localDir)) {
+        fs.mkdirSync(localDir, { recursive: true });
+      }
+      
+      fs.writeFileSync(localPath, fileBuffer);
+      
+      return {
+        key: key,
+        url: `local://${localPath}`,
+        localPath: localPath
+      };
+    }
+    
+    if (!this.bucketName) {
+      throw new Error('S3 bucket name is not configured. Please set S3_BUCKET_NAME environment variable.');
+    }
     
     const params = {
       Bucket: this.bucketName,
@@ -46,6 +87,28 @@ class S3Service {
    * @returns {Promise<{Body: Buffer, ContentType: string, Metadata: object}>}
    */
   async downloadFile(key) {
+    if (this.isLocalMode) {
+      // Local file storage for development
+      const localPath = path.join(process.cwd(), 'temp', 's3-local', key.replace(/\//g, '_'));
+      
+      if (!fs.existsSync(localPath)) {
+        throw new Error(`File not found: ${key}`);
+      }
+      
+      const fileBuffer = fs.readFileSync(localPath);
+      const fileName = key.split('/').pop() || 'unknown';
+      
+      return {
+        Body: fileBuffer,
+        ContentType: this.getContentType(fileName),
+        Metadata: {}
+      };
+    }
+    
+    if (!this.bucketName) {
+      throw new Error('S3 bucket name is not configured. Please set S3_BUCKET_NAME environment variable.');
+    }
+    
     const params = {
       Bucket: this.bucketName,
       Key: key
@@ -158,4 +221,4 @@ class S3Service {
   }
 }
 
-module.exports = new S3Service(); 
+export default new S3Service(); 

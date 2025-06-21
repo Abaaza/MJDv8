@@ -150,7 +150,9 @@
                     "s3:PutObject",
                     "s3:GetObject",
                     "s3:DeleteObject",
-                    "s3:ListBucket"
+                    "s3:ListBucket",
+                    "s3:CreateBucket",
+                    "s3:GetBucketLocation"
                   ],
                   "Resource": [
                     "arn:aws:s3:::mjd-backend-4-prod-uploads",
@@ -184,20 +186,21 @@
           "S3Bucket": {
             "Ref": "ServerlessDeploymentBucket"
           },
-          "S3Key": "serverless/mjd-backend-4/prod/1750458903683-2025-06-20T22:35:03.683Z/mjd-backend-4.zip"
+          "S3Key": "serverless/mjd-backend-4/prod/1750465258479-2025-06-21T00:20:58.479Z/mjd-backend-4.zip"
         },
         "Handler": "handler.handler",
         "Runtime": "nodejs20.x",
         "FunctionName": "mjd-backend-4-prod-api",
         "MemorySize": 2048,
-        "Timeout": 900,
+        "Timeout": 30,
         "Environment": {
           "Variables": {
             "NODE_ENV": "production",
             "SUPABASE_URL": "https://yqsumodzyahvxywwfpnc.supabase.co",
             "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwMjU1NTAsImV4cCI6MjA2NTYwMTU1MH0.vfTx3_A7DMpcazSA_pbuYaiMuZvVssKn9JUQUb9qaS4",
             "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlxc3Vtb2R6eWFodnh5d3dmcG5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDAyNTU1MCwiZXhwIjoyMDY1NjAxNTUwfQ.eeLQH1KM6Ovs5FPPcfcuCR3ZbgnsuY2sTpZfC1qnz-Q",
-            "S3_BUCKET_NAME": "mjd-backend-4-prod-uploads"
+            "S3_BUCKET_NAME": "mjd-backend-4-prod-uploads",
+            "AWS_REGION": "us-east-1"
           }
         },
         "Role": {
@@ -211,21 +214,51 @@
         "ApiLogGroup"
       ]
     },
-    "ApiLambdaVersionB9prvBl8vh4wxy5yXqAZeZnZsCFryZ9lhI7frs2k4E": {
+    "ApiLambdaVersionUuH4z2mdWVq5wlRK18tcy1tVmJZwbEMoJSgfZtTk": {
       "Type": "AWS::Lambda::Version",
       "DeletionPolicy": "Retain",
       "Properties": {
         "FunctionName": {
           "Ref": "ApiLambdaFunction"
         },
-        "CodeSha256": "VIBqsxC3DjclSeEqCYGbm99uIxHL2/mY8APAcqhTDXA="
+        "CodeSha256": "slOt+96afaRhq2FfrYoBPBqad0h9fryx8JTooEsIbEA="
       }
     },
     "HttpApi": {
       "Type": "AWS::ApiGatewayV2::Api",
       "Properties": {
         "Name": "prod-mjd-backend-4",
-        "ProtocolType": "HTTP"
+        "ProtocolType": "HTTP",
+        "CorsConfiguration": {
+          "AllowCredentials": true,
+          "AllowHeaders": [
+            "Content-Type",
+            "Authorization",
+            "X-Amz-Date",
+            "X-Api-Key",
+            "X-Amz-Security-Token",
+            "X-Amz-User-Agent",
+            "X-Requested-With",
+            "Accept",
+            "Origin"
+          ],
+          "AllowMethods": [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+            "OPTIONS",
+            "HEAD"
+          ],
+          "AllowOrigins": [
+            "https://main.d197lvv1o18hb3.amplifyapp.com",
+            "http://localhost:8080",
+            "http://localhost:5173",
+            "http://localhost:3000"
+          ],
+          "MaxAge": 86400
+        }
       }
     },
     "HttpApiStage": {
@@ -345,7 +378,10 @@
           "CorsRules": [
             {
               "AllowedOrigins": [
-                "*"
+                "https://main.d197lvv1o18hb3.amplifyapp.com",
+                "http://localhost:8080",
+                "http://localhost:5173",
+                "http://localhost:3000"
               ],
               "AllowedHeaders": [
                 "*"
@@ -366,6 +402,9 @@
           "BlockPublicPolicy": false,
           "IgnorePublicAcls": false,
           "RestrictPublicBuckets": false
+        },
+        "VersioningConfiguration": {
+          "Status": "Enabled"
         }
       }
     }
@@ -382,7 +421,7 @@
     "ApiLambdaFunctionQualifiedArn": {
       "Description": "Current Lambda function version",
       "Value": {
-        "Ref": "ApiLambdaVersionB9prvBl8vh4wxy5yXqAZeZnZsCFryZ9lhI7frs2k4E"
+        "Ref": "ApiLambdaVersionUuH4z2mdWVq5wlRK18tcy1tVmJZwbEMoJSgfZtTk"
       },
       "Export": {
         "Name": "sls-mjd-backend-4-prod-ApiLambdaFunctionQualifiedArn"
@@ -428,6 +467,27 @@
       },
       "Export": {
         "Name": "mjd-backend-4-prod-S3BucketName"
+      }
+    },
+    "ApiUrl": {
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            {
+              "Ref": "HttpApi"
+            },
+            ".execute-api.",
+            {
+              "Ref": "AWS::Region"
+            },
+            ".amazonaws.com"
+          ]
+        ]
+      },
+      "Export": {
+        "Name": "mjd-backend-4-prod-ApiUrl"
       }
     }
   }
