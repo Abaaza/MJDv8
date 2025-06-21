@@ -8,7 +8,7 @@
       "maxDuration": 30
     },
     "api/process.js": {
-      "maxDuration": 300
+      "maxDuration": 60
     }
   },
   "rewrites": [
