@@ -13,6 +13,9 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "dependencies": {
+    "fs-extra": "^11.2.0"
+  },
   "devDependencies": {
     "concurrently": "^8.2.2"
   }
