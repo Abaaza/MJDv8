@@ -26,8 +26,12 @@ export class PriceMatchingService {
       process.env.SUPABASE_URL,
       supabaseKey
     )
+    
+    // Use /tmp for serverless, local output dir otherwise
+    this.outputDir = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME 
+        ? '/tmp' 
+        : path.join(__dirname, '..', 'output')
     this.tempDir = path.join(__dirname, '..', 'temp')
-    this.outputDir = path.join(__dirname, '..', 'output')
     this.pythonScriptPath = path.join(__dirname, 'cohereexcelparsing.py')
     this.pricelistPath = path.join(__dirname, '..', 'temp', 'pricelist.xlsx')
     

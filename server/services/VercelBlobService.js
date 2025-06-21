@@ -7,17 +7,29 @@ class VercelBlobService {
   constructor() {
     this.isLocalMode = !process.env.BLOB_READ_WRITE_TOKEN;
     
-    if (this.isLocalMode) {
+    if (this.isLocalMode && !process.env.VERCEL) {
       console.warn('BLOB_READ_WRITE_TOKEN not set, using local file storage for development');
       this.ensureLocalStorageDir();
     }
   }
   
   ensureLocalStorageDir() {
-    const localStorageDir = path.join(process.cwd(), 'temp', 'blob-local');
-    if (!fs.existsSync(localStorageDir)) {
-      fs.mkdirSync(localStorageDir, { recursive: true });
+    // Use /tmp in serverless, local dir otherwise
+    const baseDir = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME ? '/tmp' : process.cwd();
+    const localStorageDir = path.join(baseDir, 'temp', 'blob-local');
+    
+    try {
+      if (!fs.existsSync(localStorageDir)) {
+        fs.mkdirSync(localStorageDir, { recursive: true });
+      }
+    } catch (error) {
+      console.warn('Could not create local storage directory:', error.message);
     }
+  }
+
+  getLocalStorageDir() {
+    const baseDir = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME ? '/tmp' : process.cwd();
+    return path.join(baseDir, 'temp', 'blob-local');
   }
 
   /**
@@ -33,20 +45,31 @@ class VercelBlobService {
     
     if (this.isLocalMode) {
       // Local file storage for development
-      const localPath = path.join(process.cwd(), 'temp', 'blob-local', key.replace(/\//g, '_'));
+      const localStorageDir = this.getLocalStorageDir();
+      const localPath = path.join(localStorageDir, key.replace(/\//g, '_'));
       const localDir = path.dirname(localPath);
       
-      if (!fs.existsSync(localDir)) {
-        fs.mkdirSync(localDir, { recursive: true });
+      try {
+        if (!fs.existsSync(localDir)) {
+          fs.mkdirSync(localDir, { recursive: true });
+        }
+        
+        fs.writeFileSync(localPath, fileBuffer);
+        
+        return {
+          key: key,
+          url: `local://${localPath}`,
+          localPath: localPath
+        };
+      } catch (error) {
+        console.error('Local file write error:', error);
+        // In serverless without blob token, return a mock response
+        return {
+          key: key,
+          url: `mock://vercel-blob/${key}`,
+          mock: true
+        };
       }
-      
-      fs.writeFileSync(localPath, fileBuffer);
-      
-      return {
-        key: key,
-        url: `local://${localPath}`,
-        localPath: localPath
-      };
     }
     
     try {
@@ -74,7 +97,8 @@ class VercelBlobService {
   async downloadFile(key) {
     if (this.isLocalMode) {
       // Local file storage for development
-      const localPath = path.join(process.cwd(), 'temp', 'blob-local', key.replace(/\//g, '_'));
+      const localStorageDir = this.getLocalStorageDir();
+      const localPath = path.join(localStorageDir, key.replace(/\//g, '_'));
       
       if (!fs.existsSync(localPath)) {
         throw new Error(`File not found: ${key}`);
@@ -120,8 +144,12 @@ class VercelBlobService {
     if (this.isLocalMode) {
       // For local mode, url is actually a local path
       const localPath = url.replace('local://', '');
-      if (fs.existsSync(localPath)) {
-        fs.unlinkSync(localPath);
+      try {
+        if (fs.existsSync(localPath)) {
+          fs.unlinkSync(localPath);
+        }
+      } catch (error) {
+        console.warn('Could not delete local file:', error.message);
       }
       return;
     }
@@ -147,22 +175,24 @@ class VercelBlobService {
 
     if (this.isLocalMode) {
       // For local mode, scan the directory
-      const localDir = path.join(process.cwd(), 'temp', 'blob-local');
+      const localStorageDir = this.getLocalStorageDir();
       const files = [];
       
       try {
-        const allFiles = fs.readdirSync(localDir);
-        const prefixPattern = prefix.replace(/\//g, '_');
-        
-        allFiles.forEach(file => {
-          if (file.startsWith(prefixPattern)) {
-            files.push({
-              key: file.replace(/_/g, '/'),
-              url: `local://${path.join(localDir, file)}`,
-              size: fs.statSync(path.join(localDir, file)).size
-            });
-          }
-        });
+        if (fs.existsSync(localStorageDir)) {
+          const allFiles = fs.readdirSync(localStorageDir);
+          const prefixPattern = prefix.replace(/\//g, '_');
+          
+          allFiles.forEach(file => {
+            if (file.startsWith(prefixPattern)) {
+              files.push({
+                key: file.replace(/_/g, '/'),
+                url: `local://${path.join(localStorageDir, file)}`,
+                size: fs.statSync(path.join(localStorageDir, file)).size
+              });
+            }
+          });
+        }
       } catch (error) {
         console.error('Error listing local files:', error);
       }

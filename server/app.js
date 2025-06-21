@@ -1,9 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
-import multer from 'multer';
 import path from 'path';
-import fs from 'fs-extra';
 import { fileURLToPath } from 'url';
 import { priceMatchingRouter } from './routes/priceMatching.js';
 import userManagementRouter from './routes/userManagement.js';
@@ -13,49 +11,37 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// CORS Configuration
+// CORS Configuration - allow all origins in production since Vercel handles CORS
 const corsOptions = {
-  origin: [
+  origin: process.env.VERCEL ? true : [
     'https://main.d197lvv1o18hb3.amplifyapp.com',
     'http://localhost:8080',
     'http://localhost:5173',
     'http://localhost:3000'
   ],
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 
 // Middleware
 app.use(cors(corsOptions));
 
-// Add detailed request logging
+// Only use morgan in non-serverless environments
+if (!process.env.VERCEL) {
+  app.use(morgan('combined'));
+}
+
+// Request logging for debugging
 app.use((req, res, next) => {
-  console.log(`\n🔵 Incoming Request:`);
-  console.log(`   Time: ${new Date().toISOString()}`);
-  console.log(`   Method: ${req.method}`);
-  console.log(`   URL: ${req.url}`);
-  console.log(`   Origin: ${req.get('origin') || 'No origin header'}`);
-  console.log(`   Host: ${req.get('host')}`);
-  console.log(`   X-Forwarded-For: ${req.get('x-forwarded-for') || 'None'}`);
-  console.log(`   User-Agent: ${req.get('user-agent')}`);
-  
-  // Log ngrok-specific headers
-  const ngrokHeaders = Object.keys(req.headers).filter(h => h.includes('ngrok'));
-  if (ngrokHeaders.length > 0) {
-    console.log(`   Ngrok headers:`, ngrokHeaders.map(h => `${h}: ${req.headers[h]}`).join(', '));
+  if (process.env.NODE_ENV === 'development' || process.env.DEBUG) {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   }
-  
   next();
 });
 
-app.use(morgan('combined'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// Ensure temp directories exist
-const tempDir = path.join(__dirname, 'temp');
-const outputDir = path.join(__dirname, 'output');
-await fs.ensureDir(tempDir);
-await fs.ensureDir(outputDir);
 
 // Routes
 app.use('/price-matching', priceMatchingRouter);
@@ -63,15 +49,42 @@ app.use('/user-management', userManagementRouter);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    environment: process.env.VERCEL ? 'vercel' : 'local',
+    node_version: process.version
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'MJD Price Matching API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      priceMatching: '/price-matching/*',
+      userManagement: '/user-management/*'
+    }
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Not Found',
+    message: `Route ${req.method} ${req.url} not found`
+  });
 });
 
 // Error handling middleware
 app.use((error, req, res, next) => {
   console.error('Server Error:', error);
-  res.status(500).json({ 
-    error: 'Internal Server Error',
-    message: error.message 
+  res.status(error.status || 500).json({ 
+    error: error.name || 'Internal Server Error',
+    message: error.message || 'An unexpected error occurred',
+    ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
   });
 });
 

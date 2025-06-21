@@ -9,7 +9,10 @@ const __dirname = path.dirname(__filename)
 
 export class ExcelExportService {
   constructor() {
-    this.outputDir = path.join(__dirname, '..', 'output')
+    // Use /tmp for serverless, local output dir otherwise
+    this.outputDir = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME 
+      ? '/tmp' 
+      : path.join(__dirname, '..', 'output')
     this.tempDir = path.join(__dirname, '..', 'temp')
     
     // Ensure directories exist

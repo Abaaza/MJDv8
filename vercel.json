@@ -1,34 +1,29 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "client/dist"
-      }
-    },
-    {
-      "src": "server/handler.js",
-      "use": "@vercel/node"
+  "buildCommand": "npm run build",
+  "outputDirectory": "client/dist",
+  "framework": null,
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 30
     }
-  ],
-  "routes": [
+  },
+  "rewrites": [
     {
-      "src": "/price-matching/(.*)",
-      "dest": "/server/handler.js"
+      "source": "/price-matching/(.*)",
+      "destination": "/api"
     },
     {
-      "src": "/user-management/(.*)",
-      "dest": "/server/handler.js"
+      "source": "/user-management/(.*)", 
+      "destination": "/api"
     },
     {
-      "src": "/health",
-      "dest": "/server/handler.js"
+      "source": "/health",
+      "destination": "/api"
     },
     {
-      "src": "/(.*)",
-      "dest": "/client/dist/$1"
+      "source": "/(.*)",
+      "destination": "/$1"
     }
   ]
 } 
