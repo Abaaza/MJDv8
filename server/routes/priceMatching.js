@@ -450,6 +450,55 @@ router.get('/status/:jobId', async (req, res) => {
   }
 })
 
+// Cancel/stop a processing job
+router.post('/cancel/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params
+    
+    console.log(`🛑 Cancel requested for job: ${jobId}`)
+    
+    // Create service instance when needed (after dotenv is loaded)
+    const priceMatchingService = getPriceMatchingService()
+    
+    // Get current job status
+    const currentJob = await priceMatchingService.getJobStatus(jobId)
+    
+    if (!currentJob) {
+      console.log(`❌ Job ${jobId} not found`)
+      return res.status(404).json({ error: 'Job not found' })
+    }
+    
+    // Only allow cancelling jobs that are in progress
+    if (currentJob.status !== 'processing' && currentJob.status !== 'pending') {
+      console.log(`⚠️ Job ${jobId} is in ${currentJob.status} state, cannot cancel`)
+      return res.status(400).json({ 
+        error: `Cannot cancel job in ${currentJob.status} state`,
+        currentStatus: currentJob.status
+      })
+    }
+    
+    // Update job status to cancelled
+    await priceMatchingService.updateJobStatus(jobId, 'cancelled', 0, 'Job cancelled by user')
+    
+    console.log(`✅ Job ${jobId} cancelled successfully`)
+    
+    res.json({ 
+      success: true, 
+      message: 'Job cancelled successfully',
+      jobId: jobId,
+      previousStatus: currentJob.status
+    })
+
+  } catch (error) {
+    console.error(`❌ Cancel endpoint error for job ${req.params.jobId}:`, error)
+    res.status(500).json({ 
+      error: 'Failed to cancel job',
+      message: error.message,
+      jobId: req.params.jobId
+    })
+  }
+})
+
 // Export filtered match results - uses format-preserving version
 router.post('/export/:jobId', async (req, res) => {
   try {

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { ExcelUpload } from "./ExcelUpload"
 import { EditableMatchResultsTable } from "./EditableMatchResultsTable"
 import { ClientForm } from "./ClientForm"
-import { Download, Play, Zap, AlertCircle, CheckCircle, Edit, FileSpreadsheet, Plus, Trash2 } from "lucide-react"
+import { Download, Play, Zap, AlertCircle, CheckCircle, Edit, FileSpreadsheet, Plus, Trash2, Square } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
 import { useClients } from "@/hooks/useClients"
@@ -478,6 +478,53 @@ export function PriceMatching() {
     }
   }
 
+  const handleStopMatching = async () => {
+    if (!currentJob || !currentJob.id) {
+      toast.error('No active job to stop')
+      return
+    }
+
+    try {
+      const timestamp = new Date().toLocaleTimeString()
+      setLog(prev => [...prev, `[${timestamp}] Stopping job...`])
+      
+      const response = await fetch(apiEndpoint(`/price-matching/cancel/${currentJob.id}`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Cancel failed: ${errorData.message || errorData.error}`)
+      }
+
+      const cancelData = await response.json()
+      console.log('Job cancelled successfully:', cancelData)
+
+      // Update local state
+      setIsProcessing(false)
+      isProcessingRef.current = false
+      clearPollInterval()
+
+      // Update job state to show cancelled
+      setCurrentJob(prev => prev ? { ...prev, status: 'cancelled' } : null)
+
+      const timestamp2 = new Date().toLocaleTimeString()
+      setLog(prev => [...prev, `[${timestamp2}] ✋ Job stopped by user`])
+      
+      toast.success('Job stopped successfully')
+
+    } catch (error) {
+      console.error('Stop error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      const timestamp = new Date().toLocaleTimeString()
+      setLog(prev => [...prev, `[${timestamp}] Stop error: ${errorMessage}`])
+      toast.error(`Failed to stop job: ${errorMessage}`)
+    }
+  }
+
   const startPolling = (jobId: string) => {
     clearPollInterval()
     
@@ -539,6 +586,14 @@ export function PriceMatching() {
           clearPollInterval()
           
           toast.error(`Processing failed: ${errorDetails}`)
+        } else if (data.status === 'cancelled') {
+          const timestamp = new Date().toLocaleTimeString()
+          setLog(prev => [...prev, `[${timestamp}] ✋ Job was cancelled`])
+          setIsProcessing(false)
+          isProcessingRef.current = false
+          clearPollInterval()
+          
+          toast.info('Job was cancelled')
         }
       } catch (error) {
         console.error('Polling error:', error)
@@ -682,6 +737,7 @@ export function PriceMatching() {
       case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />
       case 'processing': return <Zap className="h-4 w-4 text-blue-500 animate-pulse" />
       case 'failed': return <AlertCircle className="h-4 w-4 text-red-500" />
+      case 'cancelled': return <Square className="h-4 w-4 text-orange-500" />
       default: return <AlertCircle className="h-4 w-4 text-gray-500" />
     }
   }
@@ -691,6 +747,7 @@ export function PriceMatching() {
       case 'completed': return 'default'
       case 'processing': return 'secondary'
       case 'failed': return 'destructive'
+      case 'cancelled': return 'outline'
       default: return 'outline'
     }
   }
@@ -768,11 +825,26 @@ export function PriceMatching() {
         </CardContent>
       </Card>
 
-      {isProcessing && currentJob && (
+      {(isProcessing || (currentJob && (currentJob.status === 'cancelled' || currentJob.status === 'failed'))) && currentJob && (
         <Card>
           <CardHeader>
-            <CardTitle>Processing Job</CardTitle>
-            <CardDescription>Job ID: {currentJob.id}</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Processing Job</CardTitle>
+                <CardDescription>Job ID: {currentJob.id}</CardDescription>
+              </div>
+              {(currentJob.status === 'processing' || currentJob.status === 'pending') && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleStopMatching}
+                  className="ml-4"
+                >
+                  <Square className="h-4 w-4 mr-2" />
+                  Stop Process
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">

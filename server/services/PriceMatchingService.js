@@ -266,34 +266,76 @@ export class PriceMatchingService {
     console.log('Loading price list from database...')
     
     let allPriceItems = []
-    let from = 0
-    const batchSize = 1000
+    const batchSize = 2000 // Increased batch size for better performance
     let hasMore = true
     
-    // Load price items in batches to overcome Supabase limit
+    // First, get total count for progress tracking
+    const { count, error: countError } = await this.supabase
+      .from('price_items')
+      .select('*', { count: 'exact', head: true })
+      .not('rate', 'is', null)
+      .not('description', 'is', null)
+    
+    if (countError) {
+      console.warn('Could not get count, proceeding with batch loading...')
+    } else {
+      console.log(`📊 Total price items to load: ${count}`)
+    }
+    
+    // Load multiple batches in parallel for better performance
+    const maxParallelBatches = 3
+    let currentOffset = 0
+    
     while (hasMore) {
-      const { data: batch, error } = await this.supabase
-        .from('price_items')
-        .select('id, description, rate, full_context, unit')
-        .not('rate', 'is', null)
-        .not('description', 'is', null)
-        .range(from, from + batchSize - 1)
+      // Create parallel batch requests
+      const batchPromises = []
+      const batchOffsets = []
       
-      if (error) {
-        console.error(`Error loading batch at offset ${from}:`, error)
-        throw new Error(`Failed to fetch price items: ${error.message}`)
+      for (let i = 0; i < maxParallelBatches && hasMore; i++) {
+        const offset = currentOffset + (i * batchSize)
+        batchOffsets.push(offset)
+        
+        const batchPromise = this.supabase
+          .from('price_items')
+          .select('id, description, rate, full_context, unit')
+          .not('rate', 'is', null)
+          .not('description', 'is', null)
+          .range(offset, offset + batchSize - 1)
+        
+        batchPromises.push(batchPromise)
       }
       
-      if (batch && batch.length > 0) {
-        allPriceItems = [...allPriceItems, ...batch]
-        from += batchSize
-        console.log(`Loaded batch: ${allPriceItems.length} items so far...`)
+      // Execute batches in parallel
+      const batchResults = await Promise.all(batchPromises)
+      
+      // Process results
+      let totalItemsInBatch = 0
+      for (let i = 0; i < batchResults.length; i++) {
+        const { data: batch, error } = batchResults[i]
         
-        // If we got less than batchSize, we've reached the end
-        if (batch.length < batchSize) {
+        if (error) {
+          console.error(`Error loading batch at offset ${batchOffsets[i]}:`, error)
+          throw new Error(`Failed to fetch price items: ${error.message}`)
+        }
+        
+        if (batch && batch.length > 0) {
+          allPriceItems = [...allPriceItems, ...batch]
+          totalItemsInBatch += batch.length
+          
+          // If we got less than batchSize, we've reached the end
+          if (batch.length < batchSize) {
+            hasMore = false
+          }
+        } else {
           hasMore = false
         }
-      } else {
+      }
+      
+      currentOffset += maxParallelBatches * batchSize
+      console.log(`📦 Loaded batch: ${allPriceItems.length} items so far (${totalItemsInBatch} in this batch)...`)
+      
+      // Break if no items were loaded in any batch
+      if (totalItemsInBatch === 0) {
         hasMore = false
       }
     }
