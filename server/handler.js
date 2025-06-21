@@ -1,6 +1,5 @@
 // src/handler.js
-import serverless from 'serverless-http';
 import app from './app.js';
 
-// Export handler
-export const handler = serverless(app);
+// Export the Express app as a Vercel serverless function
+export default app;

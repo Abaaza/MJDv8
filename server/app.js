@@ -26,6 +26,27 @@ const corsOptions = {
 
 // Middleware
 app.use(cors(corsOptions));
+
+// Add detailed request logging
+app.use((req, res, next) => {
+  console.log(`\n🔵 Incoming Request:`);
+  console.log(`   Time: ${new Date().toISOString()}`);
+  console.log(`   Method: ${req.method}`);
+  console.log(`   URL: ${req.url}`);
+  console.log(`   Origin: ${req.get('origin') || 'No origin header'}`);
+  console.log(`   Host: ${req.get('host')}`);
+  console.log(`   X-Forwarded-For: ${req.get('x-forwarded-for') || 'None'}`);
+  console.log(`   User-Agent: ${req.get('user-agent')}`);
+  
+  // Log ngrok-specific headers
+  const ngrokHeaders = Object.keys(req.headers).filter(h => h.includes('ngrok'));
+  if (ngrokHeaders.length > 0) {
+    console.log(`   Ngrok headers:`, ngrokHeaders.map(h => `${h}: ${req.headers[h]}`).join(', '));
+  }
+  
+  next();
+});
+
 app.use(morgan('combined'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));

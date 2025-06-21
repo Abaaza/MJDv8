@@ -5,19 +5,25 @@ import path from 'path';
 
 class S3Service {
   constructor() {
-    this.s3 = new AWS.S3({
-      region: process.env.AWS_REGION || 'us-east-1'
-    });
-    this.bucketName = process.env.S3_BUCKET_NAME;
-    this.isLocalMode = process.env.NODE_ENV === 'development' && !this.bucketName;
+    // Check if we're in development mode first
+    this.isLocalMode = process.env.NODE_ENV === 'development' || !process.env.S3_BUCKET_NAME;
     
-    if (!this.bucketName) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('S3_BUCKET_NAME not set, using local file storage for development');
-        this.ensureLocalStorageDir();
-      } else {
+    if (!this.isLocalMode) {
+      // Only initialize S3 if we're not in local mode
+      this.s3 = new AWS.S3({
+        region: process.env.AWS_REGION || 'us-east-1',
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+      });
+      this.bucketName = process.env.S3_BUCKET_NAME;
+      
+      if (!this.bucketName) {
         console.error('S3_BUCKET_NAME environment variable is required for production');
+        throw new Error('S3_BUCKET_NAME environment variable is required for production');
       }
+    } else {
+      console.warn('Running in local mode - files will be stored locally in temp/s3-local');
+      this.ensureLocalStorageDir();
     }
   }
   
@@ -211,6 +217,11 @@ class S3Service {
    * @returns {Promise<boolean>}
    */
   async checkBucketAccess() {
+    if (this.isLocalMode) {
+      console.log('Running in local mode - S3 bucket check skipped');
+      return true;
+    }
+    
     try {
       await this.s3.headBucket({ Bucket: this.bucketName }).promise();
       return true;

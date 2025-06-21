@@ -204,20 +204,91 @@ async function deployLambda(roleArn) {
 
 async function main() {
   try {
-    // Step 1: Create deployment package
-    await createZipFile();
+    // Step 1: Install production dependencies
+    console.log('📦 Installing production dependencies...');
+    try {
+      execSync('npm install --production', { stdio: 'inherit' });
+      console.log('✅ Dependencies installed\n');
+    } catch (error) {
+      console.error('❌ Failed to install dependencies:', error.message);
+      process.exit(1);
+    }
     
-    // Step 2: Create IAM role
+    // Step 2: Create deployment package
+    console.log('📁 Creating deployment package...');
+    try {
+      // Remove old zip if exists
+      if (fs.existsSync('../lambda-function.zip')) {
+        fs.unlinkSync('../lambda-function.zip');
+      }
+      
+      // Create new zip (excluding unnecessary files)
+      const excludeFiles = [
+        'node_modules/.cache/*',
+        '*.log',
+        'temp/*',
+        'output/*',
+        '.env*',
+        'deploy-manual.js',
+        'test-*.js'
+      ];
+      
+      const excludeArgs = excludeFiles.map(pattern => `-x "${pattern}"`).join(' ');
+      execSync(`zip -r ../lambda-function.zip . ${excludeArgs}`, { stdio: 'inherit' });
+      
+      console.log('✅ Deployment package created: lambda-function.zip\n');
+    } catch (error) {
+      console.error('❌ Failed to create deployment package:', error.message);
+      process.exit(1);
+    }
+    
+    // Step 3: Instructions for AWS Console
+    console.log('📋 Next Steps:');
+    console.log('==============');
+    console.log('1. Go to AWS Lambda Console: https://console.aws.amazon.com/lambda/');
+    console.log('2. Click "Create function"');
+    console.log('3. Choose "Author from scratch"');
+    console.log('4. Configure:');
+    console.log('   - Function name: mjd-backend');
+    console.log('   - Runtime: Node.js 20.x');
+    console.log('   - Architecture: x86_64');
+    console.log('5. Upload the lambda-function.zip file');
+    console.log('6. Set handler to: lambda-handler.handler');
+    console.log('7. Set timeout to: 15 minutes');
+    console.log('8. Set memory to: 2048 MB');
+    console.log('9. Add environment variables:');
+    console.log('   - SUPABASE_URL: https://yqsumodzyahvxywwfpnc.supabase.co');
+    console.log('   - SUPABASE_ANON_KEY: (your anon key)');
+    console.log('   - SUPABASE_SERVICE_ROLE_KEY: (your service role key)');
+    console.log('   - NODE_ENV: production');
+    console.log('\n10. Create API Gateway:');
+    console.log('    - Go to API Gateway Console');
+    console.log('    - Create HTTP API');
+    console.log('    - Add Lambda integration');
+    console.log('    - Configure CORS for your Amplify domain');
+    console.log('\n✅ Deployment package ready!');
+    console.log('📦 File location: ../lambda-function.zip');
+    
+    // Get file size
+    const stats = fs.statSync('../lambda-function.zip');
+    const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
+    console.log(`📊 Package size: ${fileSizeInMB} MB`);
+    
+    if (fileSizeInMB > 50) {
+      console.log('⚠️  Warning: Package is quite large. Consider removing unnecessary files.');
+    }
+    
+    // Step 4: Create IAM role
     const roleArn = await createIAMRole();
     
     // Wait for role to propagate
     console.log('⏳ Waiting for IAM role to propagate...');
     await new Promise(resolve => setTimeout(resolve, 10000));
     
-    // Step 3: Create S3 bucket
+    // Step 5: Create S3 bucket
     await createS3Bucket();
     
-    // Step 4: Deploy Lambda
+    // Step 6: Deploy Lambda
     const functionArn = await deployLambda(roleArn);
     
     console.log('\n🎉 Deployment completed successfully!');
