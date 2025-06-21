@@ -146,24 +146,78 @@ export default React.memo(function Auth() {
     }
 
     try {
+      // First, try to sign in
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email,
+        email: email.toLowerCase(),
         password: password,
       });
 
       if (error) {
+        // Check if error is due to email not confirmed
+        if (error.message.includes('Email not confirmed') || 
+            error.message.includes('email_not_confirmed') ||
+            error.message.includes('Email link is invalid')) {
+          // Check if user has an approved access request
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('status')
+            .eq('email', email.toLowerCase())
+            .single();
+
+          if (profile && profile.status === 'active') {
+            // User is approved but email not confirmed - this is our expected state
+            // Try to bypass by using a different approach
+            setError('Your account is pending activation. Please wait for admin approval or contact support.');
+          } else {
+            setError('Your account is pending admin approval. Please wait for an administrator to approve your access request.');
+          }
+          return;
+        }
+
+        if (error.message.includes('Invalid login credentials')) {
+          // Check if this is because the user exists but hasn't been approved
+          const { data: accessRequest } = await supabase
+            .from('access_requests')
+            .select('status')
+            .eq('email', email.toLowerCase())
+            .single();
+
+          if (accessRequest) {
+            if (accessRequest.status === 'pending') {
+              setError('Your access request is still pending admin approval.');
+              return;
+            } else if (accessRequest.status === 'rejected') {
+              setError('Your access request was rejected. Please contact an administrator.');
+              return;
+            }
+          }
+        }
+
         if (error.message.includes('rate limit') || error.status === 429) {
           handleRateLimitError('sign in');
           return;
         }
+        
         throw error;
       }
 
       if (data.user) {
+        // Check if user profile is active
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('status, role')
+          .eq('id', data.user.id)
+          .single();
+
+        if (!profile || profile.status !== 'active') {
+          await supabase.auth.signOut();
+          setError('Your account is not active. Please wait for admin approval.');
+          return;
+        }
+
         setSuccess('Successfully signed in!');
       }
     } catch (error: any) {
-      // Silent error handling - no console logging
       if (error.message?.includes('rate limit') || error.status === 429) {
         handleRateLimitError('sign in');
       } else {
@@ -193,99 +247,54 @@ export default React.memo(function Auth() {
     }
 
     try {
-      // Clean up any existing auth state first
-      cleanupAuthState();
-
-      // Check if access request already exists (more efficient check)
-      const { data: existingRequest, error: checkError } = await supabase
-        .from('access_requests')
-        .select('status')
-        .eq('email', email.toLowerCase())
-        .maybeSingle(); // Use maybeSingle instead of single to avoid errors
-
-      if (existingRequest) {
-        if (existingRequest.status === 'pending') {
-          setError('An access request for this email is already pending approval.');
-        } else if (existingRequest.status === 'rejected') {
-          setError('Your access request was previously rejected. Please contact an administrator.');
-        } else if (existingRequest.status === 'approved') {
-          setError('An account with this email already exists. Try signing in instead.');
+      // First, create the Supabase auth account
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: email.toLowerCase(),
+        password,
+        options: {
+          emailRedirectTo: undefined, // Don't send confirmation email
+          data: {
+            full_name: name,
+            company: company || null
+          }
         }
-        setAuthLoading(false);
-        return;
+      });
+
+      // Even if there's an error about email confirmation, continue with access request
+      if (authError && !authError.message.includes('email') && !authError.message.includes('confirm')) {
+        throw authError;
       }
 
-      // Create access request first (this is always allowed)
-      const { error: requestError } = await supabase
-        .from('access_requests')
-        .insert({
+      // Submit access request to backend API
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/user-management/access-request`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
           email: email.toLowerCase(),
           full_name: name,
           company: company || null,
           phone: phone || null,
           message: message || null,
           requested_role: 'user'
-        });
+        }),
+      });
 
-      if (requestError) {
-        // Handle duplicate request error gracefully
-        if (requestError.code === '23505') { // Unique violation
-          setError('An access request for this email already exists.');
+      const data = await response.json();
+
+      if (!response.ok) {
+        // If access request fails but auth account was created, that's still okay
+        if (data.error && data.error.includes('already pending')) {
+          setSuccess('Your account has been created. An access request is already pending admin approval.');
         } else {
-          throw requestError;
+          throw new Error(data.error || 'Failed to submit access request');
         }
-        setAuthLoading(false);
-        return;
-      }
-
-      // Create the user account (this may hit rate limits)
-      try {
-        const { data, error } = await supabase.auth.signUp({
-          email: email.toLowerCase(),
-          password,
-          options: {
-            data: {
-              name: name,
-              status: 'pending'
-            },
-            emailRedirectTo: undefined // Skip confirmation email completely
-          }
-        });
-
-        if (error) {
-          // Handle rate limiting gracefully
-          if (error.message.includes('rate limit') || error.message.includes('429')) {
-            // Access request was created successfully, auth account creation was rate limited
-            setSuccess('Access request submitted! Due to high traffic, your account will be created when an admin approves your request.');
-            setShowAccessRequestForm(false);
-            // Clear form
-            setEmail('');
-            setPassword('');
-            setName('');
-            setCompany('');
-            setPhone('');
-            setMessage('');
-            setAuthLoading(false);
-            return;
-          }
-          // Handle email sending errors by ignoring them
-          if (error.message.toLowerCase().includes('email') && error.message.toLowerCase().includes('limit')) {
-            // Email limit reached, but account was likely created - continue silently
-          } else {
-            throw error;
-          }
-        }
-
+      } else {
         // Success - show admin approval message
-        setSuccess('Access request submitted! An administrator will review your request and notify you once approved.');
-        
-      } catch (authError: any) {
-        // If auth signup fails but access request was created, that's okay
-        setSuccess('Access request submitted! Your account will be created when an admin approves your request.');
+        setSuccess('Account created successfully! An administrator will review your access request. Once approved, you can sign in with your email and password.');
       }
-
-      setShowAccessRequestForm(false);
-
+      
       // Clear form
       setEmail('');
       setPassword('');
@@ -295,12 +304,7 @@ export default React.memo(function Auth() {
       setMessage('');
       
     } catch (error: any) {
-      // Silent error handling - no console logging
-      if (error.message?.includes('rate limit') || error.status === 429) {
-        handleRateLimitError('sign up');
-      } else {
-        setError(getErrorMessage(error.message) || 'Failed to create account. Please try again.');
-      }
+      setError(error.message || 'Failed to create account. Please try again.');
     } finally {
       setAuthLoading(false);
     }
@@ -476,7 +480,7 @@ export default React.memo(function Auth() {
           {(error || authError) && (
             <Alert className="mt-4" variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error || authError.message}</AlertDescription>
+              <AlertDescription>{error || authError}</AlertDescription>
             </Alert>
           )}
           {success && (

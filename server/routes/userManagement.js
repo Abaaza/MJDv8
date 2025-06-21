@@ -150,30 +150,16 @@ router.post('/access-requests/:id/approve', requireAdmin, async (req, res) => {
     const existingAuthUser = existingUser?.users?.find(u => u.email === request.email)
     
     let userId;
-    let needsPasswordReset = false;
     
     if (existingAuthUser) {
-      // User already has auth account - just activate them (preserves original password)
+      // User already has auth account - just activate their profile
       userId = existingAuthUser.id
-      needsPasswordReset = false; // User keeps their original password ✅
     } else {
-      // User doesn't have auth account (likely due to rate limiting during signup)
-      // Create one and they'll need to set password
-      const { data: newAuthData, error: authError } = await supabase.auth.admin.createUser({
-        email: request.email,
-        email_confirm: true, // Automatically confirm email since we're skipping verification
-        user_metadata: {
-          full_name: request.full_name,
-          company: request.company
-        }
+      // User doesn't have auth account - they need to sign up first
+      return res.status(400).json({ 
+        error: 'User has not created an account yet. They need to sign up first before approval.',
+        instructions: 'Ask the user to complete the signup process, then try approving again.'
       })
-      
-      if (authError) {
-        return res.status(500).json({ error: 'Failed to create user account' })
-      }
-      
-      userId = newAuthData.user.id
-      needsPasswordReset = true; // New account needs password
     }
     
     // Check if profile already exists
@@ -253,40 +239,10 @@ router.post('/access-requests/:id/approve', requireAdmin, async (req, res) => {
         }
       }])
     
-    // Generate password reset link if user was just created
-    let resetLink = null;
-    if (needsPasswordReset) {
-      try {
-        const { data: resetData, error: resetError } = await supabase.auth.admin.generateLink({
-          type: 'recovery',
-          email: request.email,
-          options: {
-            redirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth?reset=true`
-          }
-        })
-        
-        if (!resetError && resetData.properties?.action_link) {
-          resetLink = resetData.properties.action_link;
-          // Password reset link generated silently
-        }
-      } catch (resetErr) {
-        // Warning: Could not generate password reset link - silent handling
-      }
-    }
-
-    const responseMessage = needsPasswordReset 
-      ? 'Access request approved successfully. User needs to set their password using the reset link.'
-      : 'Access request approved successfully. User can now login with their original password.';
-
     res.json({
-      message: responseMessage,
+      message: 'Access request approved successfully. User can now login with their existing password.',
       user_id: userId,
-      email: request.email,
-      needs_password_reset: needsPasswordReset,
-      password_reset_link: resetLink,
-      instructions: needsPasswordReset 
-        ? 'Send the password reset link to the user to complete their account setup'
-        : 'User can login immediately with their existing password'
+      email: request.email
     })
     
   } catch (error) {
