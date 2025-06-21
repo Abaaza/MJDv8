@@ -62,8 +62,9 @@ router.post('/process', upload.single('file'), async (req, res) => {
 
     console.log(`File uploaded to storage: ${storageResult.key}`)
 
-    // Save to temp directory for processing (serverless functions have limited temp space)
-    const tempDir = '/tmp'
+    // Save to temp directory for processing - handle Windows vs Linux paths
+    const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
+    await fs.ensureDir(tempDir) // Ensure directory exists
     const tempFilePath = path.join(tempDir, `job-${jobId}-${req.file.originalname}`)
     await fs.writeFile(tempFilePath, req.file.buffer)
 
@@ -158,8 +159,9 @@ router.post('/process-base64', async (req, res) => {
 
     console.log(`File uploaded to storage: ${storageResult.key}`)
 
-    // Save to temp directory for processing (use /tmp in serverless)
-    const tempDir = '/tmp'
+    // Save to temp directory for processing - handle Windows vs Linux paths
+    const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
+    await fs.ensureDir(tempDir) // Ensure directory exists
     const tempFilePath = path.join(tempDir, `job-${jobId}-${fileName}`)
     await fs.writeFile(tempFilePath, buffer)
 
@@ -242,8 +244,8 @@ async function findOutputFile(jobId) {
     }
   }
   
-  // Fallback: search in temp directory (serverless)
-  const tempDir = '/tmp'
+  // Fallback: search in temp directory
+  const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
   try {
     const files = await fs.readdir(tempDir)
     const matchingFiles = files.filter(f => f.includes(jobId))
@@ -309,13 +311,14 @@ router.get('/download/:jobId', async (req, res) => {
     
       // If it's not an absolute path, assume it's in the temp directory
       if (!path.isAbsolute(filePath)) {
-        filePath = path.join('/tmp', path.basename(filePath))
+        const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
+        filePath = path.join(tempDir, path.basename(filePath))
       }
     } else {
       console.log(`[DOWNLOAD DEBUG] No output_file_path in database, searching temp directory`)
       
-      // Fallback: Search for file in temp directory
-      const tempDir = '/tmp'
+              // Fallback: Search for file in temp directory
+        const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
       try {
         const files = await fs.readdir(tempDir)
         
