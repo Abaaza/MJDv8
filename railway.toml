@@ -1,0 +1,11 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd server && npm install"
+watchPatterns = ["server/**"]
+
+[deploy]
+startCommand = "cd server && npm start"
+restartPolicyType = "always"
+
+[env]
+NODE_ENV = "production" 
