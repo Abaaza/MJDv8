@@ -2,6 +2,7 @@
   "name": "mjdv8",
   "version": "1.0.0",
   "description": "MJD Price Matching Application",
+  "type": "module",
   "scripts": {
     "install": "cd client && npm install && cd ../server && npm install",
     "build": "cd client && npm run build",
