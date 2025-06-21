@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "description": "MJD Price Matching Application",
   "scripts": {
-    "install": "cd server && npm install",
-    "start": "cd server && npm start",
-    "build": "cd server && npm install"
+    "install": "cd client && npm install && cd ../server && npm install",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -1,0 +1,44 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "client/dist"
+      }
+    },
+    {
+      "src": "server/handler.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/price-matching/(.*)",
+      "dest": "/server/handler.js"
+    },
+    {
+      "src": "/user-management/(.*)",
+      "dest": "/server/handler.js"
+    },
+    {
+      "src": "/health",
+      "dest": "/server/handler.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/client/dist/$1"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "functions": {
+    "server/handler.js": {
+      "maxDuration": 30
+    }
+  },
+  "installCommand": "npm install && cd client && npm install && cd ../server && npm install",
+  "buildCommand": "cd client && npm run build"
+} 
