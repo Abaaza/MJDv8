@@ -147,7 +147,6 @@ class EnhancedPricelistMatcherApp:
         folder = filedialog.askdirectory(title="Select Output Folder")
         if folder:
             self.output_folder.set(folder)
-
     def log(self, msg):
         """Enhanced logging with timestamp"""
         timestamp = datetime.now().strftime("%H:%M:%S")

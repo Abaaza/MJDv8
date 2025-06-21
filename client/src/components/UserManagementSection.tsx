@@ -113,30 +113,34 @@ export const UserManagementSection: React.FC = () => {
   };
 
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
-    const token = await getAuthToken();
-    
-    const response = await fetch(apiEndpoint(`/user-management${endpoint}`), {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        ...options.headers,
-      },
-    });
+    try {
+      const token = await getAuthToken();
+      
+      const response = await fetch(apiEndpoint(`/user-management${endpoint}`), {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          ...options.headers,
+        },
+      });
 
-    if (!response.ok) {
-      let errorMessage = 'API call failed';
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorMessage;
-      } catch (e) {
-        // If response is not JSON (like HTML error page), use status text
-        errorMessage = `${response.status} ${response.statusText}`;
+      if (!response.ok) {
+        let errorMessage = 'API call failed';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // If response is not JSON (like HTML error page), use status text
+          errorMessage = `${response.status} ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
-      throw new Error(errorMessage);
-    }
 
-    return await response.json();
+      return await response.json();
+    } catch (error) {
+      throw error;
+    }
   };
 
   const fetchAccessRequests = async () => {

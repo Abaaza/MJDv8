@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useTheme } from '@/components/theme-provider';
@@ -52,11 +52,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { setTheme } = useTheme();
+  const setThemeRef = useRef(setTheme);
 
-  const fetchProfile = async (userId: string): Promise<Profile | null> => {
+  // Update the ref when setTheme changes
+  useEffect(() => {
+    setThemeRef.current = setTheme;
+  }, [setTheme]);
+
+  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
     try {
-      console.log('Fetching profile for user:', userId);
-      
+      // Silent profile fetching - no console logging
       const { data, error } = await supabase
         .from('profiles')
         .select('id, name, role, theme, email_notifications, push_notifications, created_at, updated_at, status')
@@ -64,11 +69,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
       if (error) {
-        console.error('Error fetching profile:', error);
+        // Silent error handling - no console logging
         
         // If profile doesn't exist, create one
         if (error.code === 'PGRST116') {
-          console.log('Profile not found, creating new profile...');
+          // Profile not found, creating new profile silently
           const { data: newProfile, error: createError } = await supabase
             .from('profiles')
             .insert([
@@ -85,12 +90,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .single();
 
           if (createError) {
-            console.error('Error creating profile:', createError);
+            // Silent error handling - no console logging
             setError('Failed to create user profile');
             return null;
           }
 
-          console.log('Profile created successfully:', newProfile);
+          // Profile created successfully - no logging
           return newProfile;
         }
         
@@ -98,12 +103,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return null;
       }
 
-      console.log('Profile fetched successfully:', data);
+      // Profile fetched successfully - no logging
       setError(null);
       
-      // Apply theme immediately
+      // Apply theme immediately using the ref
       if (data.theme) {
-        setTheme(data.theme as 'light' | 'dark' | 'system');
+        setThemeRef.current(data.theme as 'light' | 'dark' | 'system');
       }
 
       // Check if user is active
@@ -116,20 +121,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: data.status || 'active'
       };
     } catch (error) {
-      console.error('Unexpected error fetching profile:', error);
+      // Silent error handling - no console logging
       setError('Unexpected error occurred');
       return null;
     }
-  };
+  }, [user]);
 
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     if (user) {
       const profileData = await fetchProfile(user.id);
       setProfile(profileData);
     }
-  };
+  }, [user, fetchProfile]);
 
-  const cleanupAuthState = () => {
+  const cleanupAuthState = useCallback(() => {
     try {
       localStorage.removeItem('supabase.auth.token');
       Object.keys(localStorage).forEach((key) => {
@@ -138,9 +143,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
     } catch (error) {
-      console.error('Error cleaning up auth state:', error);
+      // Silent error handling - no console logging
     }
-  };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -148,8 +153,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth state changed:', event, session?.user?.email);
-        
+        // Silent auth state changes - no console logging
         if (!mounted) return;
 
         setSession(session);
@@ -178,7 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error) {
-          console.error('Session check error:', error);
+          // Silent error handling - no console logging
           setError('Session validation failed');
           setLoading(false);
           return;
@@ -196,7 +200,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         setLoading(false);
       } catch (error) {
-        console.error('Unexpected session check error:', error);
+        // Silent error handling - no console logging
         if (mounted) {
           setError('Failed to validate session');
           setLoading(false);
@@ -210,11 +214,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [setTheme]);
+  }, []); // Remove setTheme dependency
 
   const signOut = async () => {
     try {
-      console.log('Signing out user...');
+      // Signing out user silently
       
       // Clean up local storage first
       cleanupAuthState();
@@ -223,8 +227,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { error } = await supabase.auth.signOut({ scope: 'global' });
       
       if (error) {
-        console.error('Sign out error:', error);
-        // Don't throw error, still redirect
+        // Silent error handling - still redirect on sign out error
       }
       
       // Reset state
@@ -236,8 +239,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Force redirect
       window.location.href = '/auth';
     } catch (error) {
-      console.error('Unexpected sign out error:', error);
-      // Force redirect even on error
+      // Silent error handling - force redirect even on error
       window.location.href = '/auth';
     }
   };

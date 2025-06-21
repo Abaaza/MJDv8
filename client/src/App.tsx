@@ -6,21 +6,30 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import Auth from "@/pages/Auth";
-import Index from "@/pages/Index";
-import Clients from "@/pages/Clients";
-import Projects from "@/pages/Projects";
-import PriceList from "@/pages/PriceList";
-import MatchingJobs from "@/pages/MatchingJobs";
-import Profile from "@/pages/Profile";
-import Settings from "@/pages/Settings";
-import NotFound from "@/pages/NotFound";
+import React, { Suspense, lazy } from 'react';
 import "./App.css";
 import { useState, useEffect } from "react";
 
 // Force Amplify rebuild for ngrok API URL - Build #2 (2025-06-21)
 
 const queryClient = new QueryClient();
+
+const Auth = lazy(() => import('./pages/Auth'));
+const Index = lazy(() => import('./pages/Index'));
+const Clients = lazy(() => import('./pages/Clients'));
+const Projects = lazy(() => import('./pages/Projects'));
+const PriceList = lazy(() => import('./pages/PriceList'));
+const MatchingJobs = lazy(() => import('./pages/MatchingJobs'));
+const Profile = lazy(() => import('./pages/Profile'));
+const Settings = lazy(() => import('./pages/Settings'));
+const NotFound = lazy(() => import('./pages/NotFound'));
+
+// Lazy load images
+const LazyImage = ({ src, alt, ...props }) => (
+  <Suspense fallback={<div>Loading image...</div>}>
+    <img src={src} alt={alt} loading="lazy" {...props} />
+  </Suspense>
+);
 
 function AppContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -38,7 +47,7 @@ function AppContent() {
   return (
     <div className={isAuthPage ? '' : "min-h-screen flex w-full"}>
       <Routes>
-        <Route path="/auth" element={<Auth />} />
+        <Route path="/auth" element={<Suspense fallback={<div>Loading...</div>}><Auth /></Suspense>} />
         <Route
           path="/*"
           element={
@@ -52,15 +61,15 @@ function AppContent() {
                 }`}>
                   <div>
                     <Routes>
-                      <Route path="/" element={<Index />} />
-                      <Route path="/clients" element={<Clients />} />
-                      <Route path="/projects" element={<Projects />} />
-                      <Route path="/price-list" element={<PriceList />} />
-                      <Route path="/price-match" element={<MatchingJobs />} />
-                      <Route path="/matching-jobs" element={<MatchingJobs />} />
-                      <Route path="/profile" element={<Profile />} />
-                      <Route path="/settings" element={<Settings />} />
-                      <Route path="*" element={<NotFound />} />
+                      <Route path="/" element={<Suspense fallback={<div>Loading...</div>}><Index /></Suspense>} />
+                      <Route path="/clients" element={<Suspense fallback={<div>Loading...</div>}><Clients /></Suspense>} />
+                      <Route path="/projects" element={<Suspense fallback={<div>Loading...</div>}><Projects /></Suspense>} />
+                      <Route path="/price-list" element={<Suspense fallback={<div>Loading...</div>}><PriceList /></Suspense>} />
+                      <Route path="/price-match" element={<Suspense fallback={<div>Loading...</div>}><MatchingJobs /></Suspense>} />
+                      <Route path="/matching-jobs" element={<Suspense fallback={<div>Loading...</div>}><MatchingJobs /></Suspense>} />
+                      <Route path="/profile" element={<Suspense fallback={<div>Loading...</div>}><Profile /></Suspense>} />
+                      <Route path="/settings" element={<Suspense fallback={<div>Loading...</div>}><Settings /></Suspense>} />
+                      <Route path="*" element={<Suspense fallback={<div>Loading...</div>}><NotFound /></Suspense>} />
                     </Routes>
                   </div>
                 </main>
@@ -79,7 +88,12 @@ function App() {
       <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
         <TooltipProvider>
           <AuthProvider>
-            <Router>
+            <Router
+              future={{
+                v7_startTransition: true,
+                v7_relativeSplatPath: true,
+              }}
+            >
               <AppContent />
               <Toaster />
             </Router>

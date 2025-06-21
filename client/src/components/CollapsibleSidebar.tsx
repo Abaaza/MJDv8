@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -61,7 +61,7 @@ interface CollapsibleSidebarProps {
   onCollapseChange?: (isCollapsed: boolean) => void;
 }
 
-export function CollapsibleSidebar({
+export const CollapsibleSidebar = React.memo(function CollapsibleSidebar({
   onCollapseChange,
 }: CollapsibleSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -142,4 +142,4 @@ export function CollapsibleSidebar({
       </div>
     </div>
   );
-}
+});

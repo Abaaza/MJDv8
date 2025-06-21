@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { supabase } from '@/integrations/supabase/client';
 import { Building2, AlertCircle, Clock } from 'lucide-react';
 
-export default function Auth() {
+export default React.memo(function Auth() {
   const { user, loading, error: authError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,12 +39,31 @@ export default function Auth() {
   }
 
   const cleanupAuthState = () => {
-    localStorage.removeItem('supabase.auth.token');
-    Object.keys(localStorage).forEach((key) => {
-      if (key.startsWith('supabase.auth.') || key.includes('sb-')) {
-        localStorage.removeItem(key);
-      }
-    });
+    try {
+      // Clear all Supabase auth tokens and state
+      localStorage.removeItem('supabase.auth.token');
+      localStorage.removeItem('sb-yqsumodzyahvxywwfpnc-auth-token');
+      
+      // Clear all auth-related localStorage items
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('supabase.auth.') || 
+            key.includes('sb-yqsumodzyahvxywwfpnc') || 
+            key.includes('sb-')) {
+          localStorage.removeItem(key);
+        }
+      });
+      
+      // Clear session storage too
+      Object.keys(sessionStorage).forEach((key) => {
+        if (key.startsWith('supabase.auth.') || 
+            key.includes('sb-yqsumodzyahvxywwfpnc') || 
+            key.includes('sb-')) {
+          sessionStorage.removeItem(key);
+        }
+      });
+    } catch (error) {
+      // Silent cleanup - ignore errors
+    }
   };
 
   const getErrorMessage = (errorCode: string) => {
@@ -57,10 +76,6 @@ export default function Auth() {
         errorLower.includes('invalid email or password') ||
         errorLower.includes('invalid credentials')) {
       return 'Invalid email or password. Please check your credentials and try again.';
-    }
-    
-    if (errorLower.includes('email not confirmed')) {
-      return 'Please check your email and confirm your account first.';
     }
     
     if (errorLower.includes('user not found') || 
@@ -110,14 +125,11 @@ export default function Auth() {
   };
 
   const handleRateLimitError = (operation: string) => {
-    const currentTime = new Date().toLocaleTimeString();
-    const waitTime = Math.ceil(Math.random() * 30) + 15; // Random wait between 15-45 minutes
+    const waitTime = 5; // Reduced from 15-45 minutes to 5 minutes
     
     setError(
-      `⚠️ Too many ${operation} attempts.\n\n` +
-      `Please wait ${waitTime} minutes and try again.\n\n` +
-      `You can try again after ${new Date(Date.now() + waitTime * 60000).toLocaleTimeString()}\n\n` +
-      `Current time: ${currentTime}`
+      `⚠️ Too many ${operation} attempts. Please wait ${waitTime} minutes and try again.\n\n` +
+      `Rate limiting helps protect the system. Please be patient.`
     );
   };
 
@@ -151,8 +163,7 @@ export default function Auth() {
         setSuccess('Successfully signed in!');
       }
     } catch (error: any) {
-      console.error('Sign in error:', error);
-      
+      // Silent error handling - no console logging
       if (error.message?.includes('rate limit') || error.status === 429) {
         handleRateLimitError('sign in');
       } else {
@@ -182,32 +193,33 @@ export default function Auth() {
     }
 
     try {
+      // Clean up any existing auth state first
       cleanupAuthState();
 
-      // Check if access request already exists
+      // Check if access request already exists (more efficient check)
       const { data: existingRequest, error: checkError } = await supabase
         .from('access_requests')
         .select('status')
-        .eq('email', email)
-        .single();
+        .eq('email', email.toLowerCase())
+        .maybeSingle(); // Use maybeSingle instead of single to avoid errors
 
       if (existingRequest) {
         if (existingRequest.status === 'pending') {
           setError('An access request for this email is already pending approval.');
         } else if (existingRequest.status === 'rejected') {
           setError('Your access request was previously rejected. Please contact an administrator.');
-        } else {
-          setError('An account with this email already exists.');
+        } else if (existingRequest.status === 'approved') {
+          setError('An account with this email already exists. Try signing in instead.');
         }
         setAuthLoading(false);
         return;
       }
 
-      // Create access request
+      // Create access request first (this is always allowed)
       const { error: requestError } = await supabase
         .from('access_requests')
         .insert({
-          email,
+          email: email.toLowerCase(),
           full_name: name,
           company: company || null,
           phone: phone || null,
@@ -215,38 +227,63 @@ export default function Auth() {
           requested_role: 'user'
         });
 
-      if (requestError) throw requestError;
-
-      // Create the user account but it will be inactive until approved
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name: name,
-            status: 'pending'
-          },
-          emailRedirectTo: undefined // Don't send confirmation email
-        }
-      });
-
-      if (error) {
-        // Handle specific rate limiting errors
-        if (error.message.includes('rate limit') || error.message.includes('429')) {
-          handleRateLimitError('sign up');
-          return;
-        }
-        // Handle email sending errors by ignoring them
-        if (error.message.toLowerCase().includes('email') && error.message.toLowerCase().includes('limit')) {
-          // Email limit reached, but account was likely created - continue
-          console.log('Email limit reached, but continuing with signup');
+      if (requestError) {
+        // Handle duplicate request error gracefully
+        if (requestError.code === '23505') { // Unique violation
+          setError('An access request for this email already exists.');
         } else {
-          throw error;
+          throw requestError;
         }
+        setAuthLoading(false);
+        return;
       }
 
-      // Success - show admin approval message
-      setSuccess('Access request submitted! An administrator will review your request and notify you once approved.');
+      // Create the user account (this may hit rate limits)
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.toLowerCase(),
+          password,
+          options: {
+            data: {
+              name: name,
+              status: 'pending'
+            },
+            emailRedirectTo: undefined // Skip confirmation email completely
+          }
+        });
+
+        if (error) {
+          // Handle rate limiting gracefully
+          if (error.message.includes('rate limit') || error.message.includes('429')) {
+            // Access request was created successfully, auth account creation was rate limited
+            setSuccess('Access request submitted! Due to high traffic, your account will be created when an admin approves your request.');
+            setShowAccessRequestForm(false);
+            // Clear form
+            setEmail('');
+            setPassword('');
+            setName('');
+            setCompany('');
+            setPhone('');
+            setMessage('');
+            setAuthLoading(false);
+            return;
+          }
+          // Handle email sending errors by ignoring them
+          if (error.message.toLowerCase().includes('email') && error.message.toLowerCase().includes('limit')) {
+            // Email limit reached, but account was likely created - continue silently
+          } else {
+            throw error;
+          }
+        }
+
+        // Success - show admin approval message
+        setSuccess('Access request submitted! An administrator will review your request and notify you once approved.');
+        
+      } catch (authError: any) {
+        // If auth signup fails but access request was created, that's okay
+        setSuccess('Access request submitted! Your account will be created when an admin approves your request.');
+      }
+
       setShowAccessRequestForm(false);
 
       // Clear form
@@ -256,9 +293,9 @@ export default function Auth() {
       setCompany('');
       setPhone('');
       setMessage('');
-    } catch (error: any) {
-      console.error('Sign up error:', error);
       
+    } catch (error: any) {
+      // Silent error handling - no console logging
       if (error.message?.includes('rate limit') || error.status === 429) {
         handleRateLimitError('sign up');
       } else {
@@ -496,4 +533,4 @@ export default function Auth() {
       </Dialog>
     </div>
   );
-}
+});

@@ -48,8 +48,7 @@ export function PriceMatching() {
   const [currentJob, setCurrentJob] = useState<MatchingJob | null>(null)
   const [log, setLog] = useState<string[]>([])
   const [matchResults, setMatchResults] = useState<MatchResult[]>([])
-  // Always use Cohere for matching
-  const matchingMethod = 'cohere' as const
+  // Always use Cohere AI for matching
   
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const isProcessingRef = useRef(false)
@@ -449,7 +448,7 @@ export function PriceMatching() {
           jobId: jobData.id,
           fileName: selectedFile.name,
           fileData: base64File,
-          matchingMethod: matchingMethod
+          matchingMethod: 'cohere'
         })
       })
 
@@ -528,7 +527,7 @@ export function PriceMatching() {
           if (data.matched_items > 0) {
             toast.success(`Processing completed! Matched ${data.matched_items} items with ${successRate}% success rate.`)
           } else {
-            toast.info(`Processing completed. Using local matcher might give better results.`)
+            toast.info(`Processing completed with AI matching.`)
           }
           
         } else if (data.status === 'failed') {
@@ -593,7 +592,8 @@ export function PriceMatching() {
         quantity: result.quantity || 0,
         unit: result.price_items?.unit || '',
         total_amount: (result.quantity || 0) * (result.matched_rate || 0),
-        matched_price_item_id: result.matched_price_item_id
+        matched_price_item_id: result.matched_price_item_id,
+        section_header: result.section_header || null
       })) || []
 
       console.log('Transformed results:', resultsWithUnits.length)
@@ -707,11 +707,11 @@ export function PriceMatching() {
         <CardContent className="grid gap-6">
           <div className="grid md:grid-cols-2 gap-6">
             <div className="grid gap-2">
-              <Label htmlFor="project-name">Project Name</Label>
-              <Input id="project-name" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="e.g., Summerfield Residential" disabled={isProcessing} />
+              <Label htmlFor="project-name" className="text-left">Project Name</Label>
+              <Input id="project-name" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="e.g., Summerfield Residential" disabled={isProcessing} className="text-left" />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="client-input">Client</Label>
+              <Label htmlFor="client-input" className="text-left">Client</Label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Input
@@ -722,6 +722,7 @@ export function PriceMatching() {
                     disabled={isProcessing}
                     onFocus={() => setShowClientSuggestions(true)}
                     onBlur={() => setTimeout(() => setShowClientSuggestions(false), 200)}
+                    className="text-left"
                   />
                   {showClientSuggestions && filteredClients.length > 0 && (
                     <div className="absolute z-10 w-full mt-1 bg-card border rounded-md shadow-lg max-h-60 overflow-auto">
@@ -742,9 +743,27 @@ export function PriceMatching() {
             <Label>BoQ File</Label>
             <ExcelUpload onFileSelect={handleFileSelect} disabled={isProcessing} />
           </div>
+          <div className="grid gap-2">
+            <Label>Matching Method</Label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="radio" 
+                  name="matchingMethod" 
+                  value="cohere" 
+                  checked={true}
+                  disabled={isProcessing}
+                  className="text-primary"
+                />
+                <span className="text-sm">
+                  <strong>Cohere AI</strong> - Advanced AI matching (high accuracy)
+                </span>
+              </label>
+            </div>
+          </div>
           <Button onClick={handleStartMatching} disabled={!selectedFile || !projectName.trim() || !clientNameInput.trim() || isProcessing} size="lg">
             <Play className="h-5 w-5 mr-2" />
-            {isProcessing ? 'Processing...' : 'Start Matching'}
+            {isProcessing ? 'Processing...' : 'Start AI Matching'}
           </Button>
         </CardContent>
       </Card>

@@ -148,6 +148,7 @@ export type Database = {
           preprocessed_description: string
           quantity: number | null
           row_number: number
+          section_header: string | null
           sheet_name: string
           similarity_score: number | null
         }
@@ -164,6 +165,7 @@ export type Database = {
           preprocessed_description: string
           quantity?: number | null
           row_number: number
+          section_header?: string | null
           sheet_name: string
           similarity_score?: number | null
         }
@@ -180,6 +182,7 @@ export type Database = {
           preprocessed_description?: string
           quantity?: number | null
           row_number?: number
+          section_header?: string | null
           sheet_name?: string
           similarity_score?: number | null
         }

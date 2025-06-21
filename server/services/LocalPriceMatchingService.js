@@ -235,7 +235,7 @@ export class LocalPriceMatchingService {
     const keywords = []
     
     // Extract measurements
-    const measurements = description.match(/\b\d+(?:\.\d+)?\s*(?:mm|cm|m|inch|in|ft|feet|yard|yd|m2|m3|sqm|cum)\b/gi) || []
+    const measurements = description.match(/\b\d+(?:\.\d+)?\s*(?:mm|cm|m|inch|ft|feet|yard|yd|m2|m3|sqm|cum)\b/gi) || []
     keywords.push(...measurements.map(m => m.toLowerCase()))
     
     // Extract material specifications (e.g., "20mm thick", "grade 43")
@@ -640,80 +640,74 @@ export class LocalPriceMatchingService {
   }
 
   /**
-   * Generate output Excel file with matches
+   * Generate output Excel file with matches using format preservation
    */
   async generateOutputExcel(matches, jobId, originalFileName) {
     try {
-      const outputPath = path.join(this.outputDir, `processed-${jobId}-${originalFileName}`)
+      // Import required services
+      const { ExcelExportService } = await import('./ExcelExportService.js')
+      const { createClient } = await import('@supabase/supabase-js')
       
-      const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Results')
+      const exportService = new ExcelExportService()
       
-      // Define headers
-      const headers = [
-        'original_description',
-        'matched_description',
-        'matched_rate',
-        'similarity_score',
-        'quantity',
-        'unit',
-        'total_amount',
-        'matched_price_item_id',
-        'row_number',
-        'sheet_name',
-        'match_method',
-        'section_header'
-      ]
+      // Get Supabase client (same way as in CohereMatchingService)
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+      const supabase = createClient(process.env.SUPABASE_URL, supabaseKey)
       
-      // Add headers with formatting
-      const headerRow = worksheet.addRow(headers)
-      headerRow.eachCell((cell, colNumber) => {
-        cell.font = { bold: true }
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'CCE5FF' }
-        }
-      })
+      // Get the original input file path from the job
+      const { data: jobData } = await supabase
+        .from('ai_matching_jobs')
+        .select('original_file_path, input_file_blob_key')
+        .eq('id', jobId)
+        .single()
       
-      // Add data rows
-      matches.forEach(match => {
-        worksheet.addRow([
-          match.original_description,
-          match.matched_description,
-          match.matched_rate,
-          match.similarity_score,
-          match.quantity,
-          match.unit,
-          match.total_amount,
-          match.matched_price_item_id,
-          match.row_number,
-          match.sheet_name,
-          match.match_method,
-          match.section_header
-        ])
-      })
+      let originalFilePath = null
       
-      // Auto-fit columns
-      worksheet.columns.forEach(column => {
-        let maxLength = 0
-        column.eachCell({ includeEmpty: false }, (cell) => {
-          const columnLength = cell.value ? cell.value.toString().length : 10
-          if (columnLength > maxLength) {
-            maxLength = columnLength
+      // Try to get the original file
+      if (jobData?.original_file_path && await fs.pathExists(jobData.original_file_path)) {
+        originalFilePath = jobData.original_file_path
+        console.log(`✅ [LOCAL] Found original file at: ${originalFilePath}`)
+      } else if (jobData?.input_file_blob_key) {
+        // Try to download from blob storage
+        try {
+          const VercelBlobService = (await import('./VercelBlobService.js')).default
+          const blobData = await VercelBlobService.downloadFile(jobData.input_file_blob_key)
+          
+          // Save to temp directory
+          const tempDir = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), 'temp')
+          if (!await fs.pathExists(tempDir)) {
+            await fs.ensureDir(tempDir)
           }
-        })
-        column.width = Math.min(maxLength + 2, 50)
-      })
+          
+          originalFilePath = path.join(tempDir, `local-original-${jobId}-${originalFileName}`)
+          await fs.writeFile(originalFilePath, blobData.Body)
+          console.log(`✅ [LOCAL] Downloaded original file from blob to: ${originalFilePath}`)
+        } catch (blobError) {
+          console.error('[LOCAL] Failed to download from blob:', blobError)
+        }
+      }
       
-      // Save workbook
-      await workbook.xlsx.writeFile(outputPath)
-      
-      console.log(`💾 Generated output file: ${outputPath}`)
-      return outputPath
-      
+      // Use ExcelExportService with original format if available
+      if (originalFilePath && await fs.pathExists(originalFilePath)) {
+        console.log(`📄 [LOCAL] Using ExcelExportService with original format preservation`)
+        const outputPath = await exportService.exportWithOriginalFormat(
+          originalFilePath,
+          matches,
+          jobId,
+          originalFileName
+        )
+        return outputPath
+      } else {
+        console.log(`📄 [LOCAL] Using basic Excel export (original file not available)`)
+        const outputPath = await exportService.exportToExcel(
+          matches,
+          jobId,
+          originalFileName
+        )
+        return outputPath
+      }
     } catch (error) {
-      console.error(`❌ Error generating output Excel:`, error)
+      console.error('❌ [LOCAL] Error generating output Excel:', error)
       throw error
     }
   }

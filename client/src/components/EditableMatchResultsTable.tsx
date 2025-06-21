@@ -189,6 +189,7 @@ export function EditableMatchResultsTable({
   }
 
   const handleMatchModeChange = async (resultId: string, mode: 'ai' | 'local' | 'manual') => {
+    console.log(`🔄 [MATCH MODE] Changing mode for ${resultId} to: ${mode}`)
     setMatchModes(prev => ({ ...prev, [resultId]: mode }))
     
     if (mode === 'ai') {
@@ -205,6 +206,7 @@ export function EditableMatchResultsTable({
         setLoadingStates(prev => ({ ...prev, [resultId]: true }))
         toast.info('Running local matching...')
         try {
+          console.log(`🔍 [LOCAL MATCH] Starting local match for: "${result.original_description}"`)
           const response = await fetch(apiEndpoint('/price-matching/match-item-local'), {
             method: 'POST',
             headers: {
@@ -215,19 +217,32 @@ export function EditableMatchResultsTable({
               threshold: 0.5
             })
           })
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+          }
+          
           const data = await response.json()
+          console.log(`📊 [LOCAL MATCH] Response:`, data)
+          
           if (data.success && data.match) {
-            const matchData = { ...data.match, similarity_score: data.match.similarity_score / 100 }
+            const matchData = { 
+              ...data.match, 
+              similarity_score: data.match.similarity_score / 100 // Convert percentage to decimal
+            }
+            console.log(`✅ [LOCAL MATCH] Storing local match:`, matchData)
             setLocalMatches(prev => ({ ...prev, [resultId]: matchData }))
             onUpdateResult(resultId, matchData)
             toast.success('Local match found!')
           } else {
-            toast.error('No local match found')
-            setMatchModes(prev => ({ ...prev, [resultId]: 'ai' }))
+            console.log(`❌ [LOCAL MATCH] No match found:`, data.error)
+            toast.error(data.error || 'No local match found')
+            // Don't revert to AI - keep the local mode selected
           }
         } catch (error) {
-          toast.error('Local matching failed')
-          setMatchModes(prev => ({ ...prev, [resultId]: 'ai' }))
+          console.error('❌ [LOCAL MATCH] Error:', error)
+          toast.error(`Local matching failed: ${error.message}`)
+          // Don't revert to AI - keep the local mode selected
         } finally {
           setLoadingStates(prev => ({ ...prev, [resultId]: false }))
         }
@@ -250,6 +265,7 @@ export function EditableMatchResultsTable({
       onUpdateResult(selectedResultId, manualMatchData)
       setOriginalAIMatches(prev => ({ ...prev, [selectedResultId]: { ...prev[selectedResultId], ...manualMatchData } }))
       setMatchModes(prev => ({ ...prev, [selectedResultId]: 'manual' }))
+      toast.success('Manual selection applied!')
     }
     setIsModalOpen(false)
     setSelectedResultId(null)
@@ -333,7 +349,16 @@ export function EditableMatchResultsTable({
                         <div className="flex items-center space-x-2"><RadioGroupItem value="local" id={`local-${result.id}`} /><Label htmlFor={`local-${result.id}`}>Local</Label></div>
                         <div className="flex items-center space-x-2"><RadioGroupItem value="manual" id={`manual-${result.id}`} /><Label htmlFor={`manual-${result.id}`}>Manual</Label></div>
                       </RadioGroup>
-                      {currentMode !== 'manual' ? (
+                      {currentMode === 'manual' && displayData.matched_description ? (
+                        <div className="p-2 border rounded-md bg-blue-500/10 border-blue-500/20">
+                          <p className="text-sm font-medium">{displayData.matched_description}</p>
+                          <p className="text-xs text-muted-foreground">Rate: {getCurrencySymbol(currency)}{formatNumber(displayData.matched_rate || 0)} per {displayData.unit || 'unit'}</p>
+                          <p className="text-xs text-muted-foreground">Manual Selection</p>
+                          <Button variant="outline" size="sm" onClick={() => { setSelectedResultId(result.id); setIsModalOpen(true); }} className="mt-1"><Search className="h-4 w-4 mr-2" />Change Selection</Button>
+                        </div>
+                      ) : currentMode === 'manual' ? (
+                        <Button variant="outline" size="sm" onClick={() => { setSelectedResultId(result.id); setIsModalOpen(true); }} className="mt-2"><Search className="h-4 w-4 mr-2" />Search Price List</Button>
+                      ) : (
                         <div className={`p-2 border rounded-md ${currentMode === 'ai' ? 'bg-primary/10 border-primary/20' : 'bg-green-500/10 border-green-500/20'}`}>
                           {loadingStates[result.id] ? (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /><span>Matching...</span></div>
@@ -345,8 +370,6 @@ export function EditableMatchResultsTable({
                             </>
                           )}
                         </div>
-                      ) : (
-                        <Button variant="outline" size="sm" onClick={() => { setSelectedResultId(result.id); setIsModalOpen(true); }} className="mt-2"><Search className="h-4 w-4 mr-2" />Search Price List</Button>
                       )}
                     </TableCell>
                     <TableCell><Input type="number" value={result.quantity || ''} onChange={(e) => handleFieldChange(result.id, 'quantity', parseFloat(e.target.value) || 0)} className="w-20" /></TableCell>

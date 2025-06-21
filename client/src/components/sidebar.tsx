@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/AuthContext";
@@ -13,7 +13,7 @@ const navigation = [
   { name: "Price Matcher", href: "/price-match", icon: Zap },
 ];
 
-export function Sidebar() {
+export const Sidebar = React.memo(function Sidebar() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const { signOut, profile, isAdmin } = useAuth();
@@ -113,4 +113,4 @@ export function Sidebar() {
       </div>
     </>
   );
-}
+});

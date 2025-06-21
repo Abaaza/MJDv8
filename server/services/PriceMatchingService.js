@@ -6,7 +6,7 @@ import ExcelJS from 'exceljs'
 import XLSX from 'xlsx'
 import { createClient } from '@supabase/supabase-js'
 import { ExcelParsingService } from './ExcelParsingService.js'
-import { LocalPriceMatchingService } from './LocalPriceMatchingService.js'
+// LocalPriceMatchingService removed - using Cohere AI only
 import { CohereMatchingService } from './CohereMatchingService.js'
 import { ExcelExportService } from './ExcelExportService.js'
 
@@ -35,9 +35,8 @@ export class PriceMatchingService {
     this.pythonScriptPath = path.join(__dirname, 'cohereexcelparsing.py')
     this.pricelistPath = path.join(__dirname, '..', 'temp', 'pricelist.xlsx')
     
-    // Initialize new services
+    // Initialize services - using Cohere AI only
     this.excelParser = new ExcelParsingService()
-    this.localMatcher = new LocalPriceMatchingService()
     this.cohereMatcher = new CohereMatchingService()
   }
 
@@ -54,12 +53,12 @@ export class PriceMatchingService {
       
       // Update job status to processing - show initial progress at 10%
       console.log(`📊 Updating job status to processing...`)
-      await this.updateJobStatus(jobId, 'processing', 10, 'Starting file analysis...') // Start at 10%
+      await this.updateJobStatus(jobId, 'processing', 5, 'Starting file analysis...') // Start at 10%
       console.log(`✅ Job status updated to processing`)
 
       // Step 1: Extract items from Excel - show progress at 20%
       console.log(`📊 Extracting items from Excel file...`)
-      await this.updateJobStatus(jobId, 'processing', 20, 'Parsing Excel file...')
+      await this.updateJobStatus(jobId, 'processing', 10, 'Parsing Excel file...')
       
       // Store the original input file path and blob key in the job record
       console.log(`[PRICE MATCHING DEBUG] Storing original input file path: ${inputFilePath}`)
@@ -94,14 +93,14 @@ export class PriceMatchingService {
       console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
       
       // Update progress to 30% after parsing
-      await this.updateJobStatus(jobId, 'processing', 30, `Found ${extractedItems.length} items to match`, {
+      await this.updateJobStatus(jobId, 'processing', 20, `Found ${extractedItems.length} items to match`, {
         total_items: extractedItems.length,
         matched_items: 0
       })
       // Skip the parsing complete update - go straight to matching phase
       
       // Start progress updates only when matching begins - ensure total_items is set from the start
-      await this.updateJobStatus(jobId, 'processing', 30, `Starting to match ${extractedItems.length} items`, {
+      await this.updateJobStatus(jobId, 'processing', 20, `Starting to match ${extractedItems.length} items`, {
         total_items: extractedItems.length,
         matched_items: 0
       })
@@ -124,7 +123,7 @@ export class PriceMatchingService {
 
       // Step 2: Load price list from database
       console.log(`💰 Loading price list from database...`)
-      await this.updateJobStatus(jobId, 'processing', 40, 'Loading price database...')
+      await this.updateJobStatus(jobId, 'processing', 30, 'Loading price database...')
       const priceList = await this.loadPriceList()
       console.log(`✅ Loaded ${priceList.length} price items`)
       await this.updateJobStatus(jobId, 'processing', 45, `Preparing to match against ${priceList.length} price items`)
@@ -133,16 +132,16 @@ export class PriceMatchingService {
         throw new Error('No price items found in database')
       }
 
-      // Step 3: Match items using selected matching method
-      console.log(`🔍 Starting price matching using ${matchingMethod}...`)
+      // Step 3: Match items using Cohere AI matching
+      console.log(`🔍 Starting AI price matching...`)
       let matchingResult
       
-      if (matchingMethod === 'cohere') {
+      if (matchingMethod === 'cohere' || !matchingMethod) {
         matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, originalFileName)
-      } else if (matchingMethod === 'local') {
-        matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, this.updateJobStatus.bind(this))
       } else {
-        throw new Error(`Unknown matching method: ${matchingMethod}`)
+        // Always use Cohere for any other method
+        console.log(`⚠️ Warning: Unsupported matching method '${matchingMethod}', using Cohere AI instead`)
+        matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, originalFileName)
       }
       
       console.log(`[PRICE MATCHING DEBUG] Received matching result:`, {
@@ -153,7 +152,7 @@ export class PriceMatchingService {
         outputPath: matchingResult.outputPath
       })
       
-      console.log(`✅ ${matchingMethod} matching completed: ${matchingResult.totalMatched} matches found`)
+      console.log(`✅ AI matching completed: ${matchingResult.totalMatched} matches found`)
       console.log(`[PRICE MATCHING DEBUG] Output path: ${matchingResult.outputPath}`)
       await this.updateJobStatus(jobId, 'processing', 80, `Found ${matchingResult.totalMatched} matches`, {
         matched_items: matchingResult.totalMatched,
@@ -1010,14 +1009,21 @@ Possible causes:
   }
 
   /**
-   * Clean up temporary files after processing
+   * Clean up temporary files after processing - but preserve original input files for export
    */
   async cleanup(filePath) {
     try {
-      console.log(`🧹 Cleaning up temporary file: ${filePath}`)
+      console.log(`🧹 Checking file for cleanup: ${filePath}`)
       
       if (!filePath) {
         console.log('No file path provided for cleanup')
+        return
+      }
+
+      // Don't delete original input files - they're needed for export format preservation
+      const fileName = path.basename(filePath)
+      if (fileName.includes('job-') && !fileName.includes('output') && !fileName.includes('result')) {
+        console.log(`📄 Preserving original input file for export: ${filePath}`)
         return
       }
 

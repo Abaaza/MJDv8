@@ -188,7 +188,7 @@ router.post('/process-base64', async (req, res) => {
     // Update job with storage file information
     console.log('💾 [VERCEL DEBUG] Updating job with storage info...')
     const updateResult = await priceMatchingService.supabase
-      .from('matching_jobs')
+      .from('ai_matching_jobs')  // Fix table name
       .update({ 
         input_file_blob_key: storageResult.key,
         input_file_blob_url: storageResult.url 
@@ -245,7 +245,7 @@ router.post('/process-base64', async (req, res) => {
             
             // Update job with output storage information
             await priceMatchingService.supabase
-              .from('matching_jobs')
+              .from('ai_matching_jobs')  // Fix table name
               .update({ 
                 output_file_blob_key: outputStorageResult.key,
                 output_file_blob_url: outputStorageResult.url 
@@ -516,62 +516,116 @@ router.post('/export/:jobId', async (req, res) => {
     let outputPath = null
     let originalFilePath = null
     
-    // Try to get the original file from different sources
+    // Enhanced logic to get the original file from multiple sources with detailed logging
+    console.log(`🔍 Looking for original file for job: ${jobId}`)
+    console.log(`📋 Job status info:`, {
+      input_file_blob_key: jobStatus.input_file_blob_key ? 'exists' : 'missing',
+      original_file_path: jobStatus.original_file_path ? 'exists' : 'missing', 
+      original_filename: jobStatus.original_filename
+    })
     
     // 1. Check if we have the input file in Vercel Blob
     if (jobStatus.input_file_blob_key) {
-      console.log(`📥 Downloading original file from Blob: ${jobStatus.input_file_blob_key}`)
+      console.log(`📥 Attempting to download original file from Blob: ${jobStatus.input_file_blob_key}`)
       try {
         const originalFileData = await VercelBlobService.downloadFile(jobStatus.input_file_blob_key)
         
         // Save to temp directory
         const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
         await fs.ensureDir(tempDir)
-        originalFilePath = path.join(tempDir, `original-${jobId}-${jobStatus.original_filename}`)
+        originalFilePath = path.join(tempDir, `export-original-${jobId}-${jobStatus.original_filename}`)
         await fs.writeFile(originalFilePath, originalFileData.Body)
         
-        console.log(`✅ Original file saved to: ${originalFilePath}`)
+        console.log(`✅ Original file downloaded from blob and saved to: ${originalFilePath}`)
+        console.log(`📊 File size: ${originalFileData.Body.length} bytes`)
       } catch (blobError) {
         console.error('❌ Failed to download original file from blob:', blobError)
+        console.error('   Blob key:', jobStatus.input_file_blob_key)
+        console.error('   Error message:', blobError.message)
       }
+    } else {
+      console.log(`⚠️ No input_file_blob_key found in job status`)
     }
     
-    // 2. Fallback: Check if original file exists locally
+    // 2. Fallback: Check if original file exists locally  
     if (!originalFilePath && jobStatus.original_file_path) {
+      console.log(`📁 Checking local path: ${jobStatus.original_file_path}`)
       const localPath = jobStatus.original_file_path
       if (await fs.pathExists(localPath)) {
         originalFilePath = localPath
         console.log(`✅ Found original file locally: ${originalFilePath}`)
+      } else {
+        console.log(`⚠️ Local path doesn't exist: ${localPath}`)
       }
     }
     
-    // 3. Fallback: Search temp directory for input file
+    // 3. Fallback: Search temp directory for input file (enhanced search)
     if (!originalFilePath) {
+      console.log(`🔍 Searching temp directory for original file...`)
       const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
       try {
         const files = await fs.readdir(tempDir)
-        const inputFile = files.find(f => f.includes(`job-${jobId}-`) && f.includes(jobStatus.original_filename))
+        console.log(`📁 Files in temp directory: ${files.length}`)
+        
+        // Look for the exact job file first
+        let inputFile = files.find(f => f.includes(`job-${jobId}-`) && f.includes(jobStatus.original_filename))
+        
+        // If not found, try broader search
+        if (!inputFile) {
+          inputFile = files.find(f => f.includes(`job-${jobId}-`))
+        }
+        
+        // If still not found, try even broader search
+        if (!inputFile) {
+          inputFile = files.find(f => f.includes(jobId))
+        }
         
         if (inputFile) {
           originalFilePath = path.join(tempDir, inputFile)
-          console.log(`✅ Found input file in temp: ${originalFilePath}`)
+          console.log(`✅ Found input file in temp directory: ${originalFilePath}`)
+          
+          // Verify the file exists and is readable
+          const stats = await fs.stat(originalFilePath)
+          console.log(`📊 File size: ${stats.size} bytes, modified: ${stats.mtime}`)
+        } else {
+          console.log(`❌ No matching files found in temp directory`)
+          console.log(`   Available files:`, files.slice(0, 10)) // Show first 10 files
         }
       } catch (err) {
-        console.error('Error searching temp directory:', err)
+        console.error('❌ Error searching temp directory:', err)
       }
     }
+    
+    console.log(`🔍 Final original file path: ${originalFilePath || 'NOT FOUND'}`)
     
     // Export with preserved formatting if original file is available
     if (originalFilePath && await fs.pathExists(originalFilePath)) {
       console.log(`📄 Creating Excel export with preserved formatting...`)
-      outputPath = await exportService.exportWithOriginalFormat(
-        originalFilePath,
-        resultsToExport,
-        jobId,
-        jobStatus.original_filename
-      )
+      console.log(`   Using original file: ${originalFilePath}`)
+      console.log(`   Processing ${resultsToExport.length} results`)
+      
+      try {
+        outputPath = await exportService.exportWithOriginalFormat(
+          originalFilePath,
+          resultsToExport,
+          jobId,
+          jobStatus.original_filename
+        )
+        console.log(`✅ Format-preserved Excel export completed: ${outputPath}`)
+      } catch (formatError) {
+        console.error('❌ Error in format-preserved export, falling back to basic export:', formatError)
+        outputPath = await exportService.exportToExcel(
+          resultsToExport,
+          jobId,
+          jobStatus.original_filename || 'export'
+        )
+      }
     } else {
       console.log(`📄 Creating basic Excel export (original file not available)...`)
+      console.log(`   Reason: originalFilePath = ${originalFilePath || 'null'}`)
+      if (originalFilePath) {
+        console.log(`   File exists check: ${await fs.pathExists(originalFilePath)}`)
+      }
       outputPath = await exportService.exportToExcel(
         resultsToExport,
         jobId,
@@ -603,6 +657,111 @@ router.post('/export/:jobId', async (req, res) => {
     res.status(500).json({ 
       error: 'Export failed',
       message: error.message 
+    })
+  }
+})
+
+// Local matching endpoint for individual items - using sophisticated LocalPriceMatchingService
+router.post('/match-item-local', async (req, res) => {
+  try {
+    const { description, threshold = 0.5 } = req.body
+    
+    if (!description || typeof description !== 'string') {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Description is required and must be a string' 
+      })
+    }
+
+    console.log(`🔍 [SOPHISTICATED] Local matching request for: "${description}"`)
+    
+    // Import the sophisticated LocalPriceMatchingService
+    const { LocalPriceMatchingService } = await import('../services/LocalPriceMatchingService.js')
+    const localMatcher = new LocalPriceMatchingService()
+    
+    // Get service instance for database access
+    const priceMatchingService = getPriceMatchingService()
+    
+    // Load all price items for local matching
+    const { data: priceItems, error: priceError } = await priceMatchingService.supabase
+      .from('price_items')
+      .select('id, description, rate, unit')
+      .order('description')
+    
+    if (priceError) {
+      console.error('Error loading price items:', priceError)
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to load price items for matching'
+      })
+    }
+    
+    if (!priceItems || priceItems.length === 0) {
+      return res.json({
+        success: false,
+        error: 'No price items available for matching'
+      })
+    }
+    
+    console.log(`📊 [SOPHISTICATED] Loaded ${priceItems.length} price items for sophisticated local matching`)
+    
+    // Use the sophisticated LocalPriceMatchingService to find the best match
+    // Create a mock item for the sophisticated matcher
+    const mockItem = {
+      description: description,
+      row_number: 1,
+      sheet_name: 'Individual Match',
+      quantity: 1
+    }
+    
+    // Preprocess the description using the sophisticated service
+    const processedItem = localMatcher.preprocessDescription(description)
+    const itemTokens = localMatcher.tokenizeDescription(description)
+    const itemKeywords = localMatcher.extractKeywords(description)
+    
+    // Preprocess price list using the sophisticated service
+    const processedPriceList = priceItems.map(item => ({
+      ...item,
+      processed_description: localMatcher.preprocessDescription(item.description),
+      tokens: localMatcher.tokenizeDescription(item.description),
+      keywords: localMatcher.extractKeywords(item.description)
+    }))
+    
+    console.log(`🧠 [SOPHISTICATED] Using advanced NLP algorithms...`)
+    
+    // Use the sophisticated findBestMatch method
+    const match = localMatcher.findBestMatch(processedItem, processedPriceList, itemTokens, itemKeywords)
+    
+    if (match && match.item) {
+      const matchResult = {
+        matched_description: match.item.description,
+        matched_rate: match.item.rate,
+        unit: match.item.unit,
+        matched_price_item_id: match.item.id,
+        similarity_score: Math.round(match.confidence * 100) // Convert to percentage
+      }
+      
+      console.log(`✅ [SOPHISTICATED] Match found with ${matchResult.similarity_score}% confidence using method: ${match.method}`)
+      console.log(`🎯 [SOPHISTICATED] Match: "${matchResult.matched_description.substring(0, 50)}..."`)
+      
+      res.json({
+        success: true,
+        match: matchResult
+      })
+    } else {
+      // This should never happen with the sophisticated service, but just in case
+      console.log(`❌ [SOPHISTICATED] Critical error: No match returned from sophisticated service`)
+      res.json({
+        success: false,
+        error: 'Sophisticated matching service failed to return a match'
+      })
+    }
+    
+  } catch (error) {
+    console.error('Sophisticated local matching error:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message
     })
   }
 })
