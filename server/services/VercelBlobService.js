@@ -91,21 +91,21 @@ class VercelBlobService {
 
   /**
    * Download a file from Vercel Blob
-   * @param {string} key - Blob object key
+   * @param {string} keyOrUrl - Blob object key or URL
    * @returns {Promise<{Body: Buffer, ContentType: string}>}
    */
-  async downloadFile(key) {
+  async downloadFile(keyOrUrl) {
     if (this.isLocalMode) {
       // Local file storage for development
       const localStorageDir = this.getLocalStorageDir();
-      const localPath = path.join(localStorageDir, key.replace(/\//g, '_'));
+      const localPath = path.join(localStorageDir, keyOrUrl.replace(/\//g, '_'));
       
       if (!fs.existsSync(localPath)) {
-        throw new Error(`File not found: ${key}`);
+        throw new Error(`File not found: ${keyOrUrl}`);
       }
       
       const fileBuffer = fs.readFileSync(localPath);
-      const fileName = key.split('/').pop() || 'unknown';
+      const fileName = keyOrUrl.split('/').pop() || 'unknown';
       
       return {
         Body: fileBuffer,
@@ -114,16 +114,35 @@ class VercelBlobService {
     }
     
     try {
-      // For Vercel Blob, we need to fetch the file using the URL
-      // First, we need to get the blob info to get the URL
-      const response = await fetch(`https://blob.vercel-storage.com/${key}`);
+      let downloadUrl;
+      
+      // Check if this is already a URL or a key
+      if (keyOrUrl.startsWith('http')) {
+        // It's already a URL, use it directly
+        downloadUrl = keyOrUrl;
+      } else {
+        // It's a key, we need to get the blob info first
+        // For Vercel Blob, we can use the list API to get the URL
+        const { blobs } = await list({ prefix: keyOrUrl });
+        const blob = blobs.find(b => b.pathname === keyOrUrl);
+        
+        if (!blob) {
+          throw new Error(`Blob not found: ${keyOrUrl}`);
+        }
+        
+        downloadUrl = blob.url;
+      }
+      
+      console.log(`🔗 [VERCEL BLOB] Downloading from URL: ${downloadUrl}`);
+      
+      const response = await fetch(downloadUrl);
       
       if (!response.ok) {
-        throw new Error(`Blob not found: ${key}`);
+        throw new Error(`Failed to fetch blob: ${response.status} ${response.statusText}`);
       }
       
       const buffer = await response.arrayBuffer();
-      const fileName = key.split('/').pop() || 'unknown';
+      const fileName = keyOrUrl.split('/').pop() || 'unknown';
       
       return {
         Body: Buffer.from(buffer),
