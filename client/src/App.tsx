@@ -16,7 +16,9 @@ import Profile from "@/pages/Profile";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
 import "./App.css";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+// Force Amplify rebuild for ngrok API URL - Build #2 (2025-06-21)
 
 const queryClient = new QueryClient();
 
@@ -24,6 +26,14 @@ function AppContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const location = useLocation();
   const isAuthPage = location.pathname === '/auth';
+
+  // Debug logging for API URL
+  useEffect(() => {
+    console.log('=== API Configuration Debug ===');
+    console.log('VITE_API_URL env var:', import.meta.env.VITE_API_URL);
+    console.log('All env vars:', import.meta.env);
+    console.log('==============================');
+  }, []);
 
   return (
     <div className={isAuthPage ? '' : "min-h-screen flex w-full"}>
