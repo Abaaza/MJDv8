@@ -2,108 +2,61 @@
 
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import S3Service from './services/S3Service.js';
 
 // Load environment variables
 dotenv.config();
 
-console.log('🔍 Environment Configuration Check\n');
+console.log('🔍 Environment Check Starting...\n');
 
 // Check Node.js version
-console.log(`📋 Node.js Version: ${process.version}`);
-console.log(`📋 Environment: ${process.env.NODE_ENV || 'not set'}\n`);
+console.log('📦 Node.js Version:', process.version);
+console.log('🏃 Environment:', process.env.NODE_ENV || 'development');
+console.log('🌐 Platform:', process.platform);
 
-// Check required environment variables
-const requiredVars = [
-  'SUPABASE_URL',
-  'SUPABASE_ANON_KEY',
-  'SUPABASE_SERVICE_ROLE_KEY'
-];
+// Check Supabase configuration
+console.log('\n🗄️ Supabase Configuration:');
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const optionalVars = [
-  'S3_BUCKET_NAME',
-  'AWS_REGION',
-  'PORT'
-];
-
-console.log('✅ Required Environment Variables:');
-requiredVars.forEach(varName => {
-  const value = process.env[varName];
-  const status = value ? '✅' : '❌';
-  const displayValue = value ? (value.length > 50 ? `${value.substring(0, 20)}...` : value) : 'NOT SET';
-  console.log(`   ${status} ${varName}: ${displayValue}`);
-});
-
-console.log('\n📝 Optional Environment Variables:');
-optionalVars.forEach(varName => {
-  const value = process.env[varName];
-  const status = value ? '✅' : '⚠️';
-  const displayValue = value || 'NOT SET';
-  console.log(`   ${status} ${varName}: ${displayValue}`);
-});
+console.log('URL:', supabaseUrl ? '✅ Set' : '❌ Missing');
+console.log('Anon Key:', supabaseAnonKey ? '✅ Set' : '❌ Missing');
+console.log('Service Key:', supabaseServiceKey ? '✅ Set' : '❌ Missing');
 
 // Test Supabase connection
-console.log('\n🔗 Testing Supabase Connection...');
-try {
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
-  
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('count(*)')
-    .limit(1);
-  
-  if (error) {
-    console.log('❌ Supabase connection failed:', error.message);
-  } else {
-    console.log('✅ Supabase connection successful');
-  }
-} catch (err) {
-  console.log('❌ Supabase connection error:', err.message);
-}
-
-// Test S3 Service configuration
-console.log('\n📦 Testing S3 Service Configuration...');
-try {
-  const isLocalMode = process.env.NODE_ENV === 'development' && !process.env.S3_BUCKET_NAME;
-  
-  if (isLocalMode) {
-    console.log('⚠️  S3 Service will use local file storage (development mode)');
-  } else if (process.env.S3_BUCKET_NAME) {
-    console.log(`✅ S3 Service configured with bucket: ${process.env.S3_BUCKET_NAME}`);
+if (supabaseUrl && supabaseAnonKey) {
+  try {
+    console.log('\n🔗 Testing Supabase Connection...');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
     
-    // Test S3 bucket access
-    const hasAccess = await S3Service.checkBucketAccess();
-    if (hasAccess) {
-      console.log('✅ S3 bucket access verified');
+    // Test connection with a simple query
+    const { data, error } = await supabase
+      .from('price_items')
+      .select('count(*)')
+      .limit(1);
+    
+    if (error) {
+      console.log('❌ Supabase Connection Failed:', error.message);
     } else {
-      console.log('❌ S3 bucket access failed - check AWS credentials and bucket permissions');
+      console.log('✅ Supabase Connection Successful');
     }
-  } else {
-    console.log('❌ S3 Service not configured - set S3_BUCKET_NAME for production');
-  }
-} catch (err) {
-  console.log('❌ S3 Service error:', err.message);
-}
-
-console.log('\n🎯 Summary:');
-const hasRequiredVars = requiredVars.every(varName => process.env[varName]);
-if (hasRequiredVars) {
-  console.log('✅ Basic configuration is complete');
-  console.log('   You can start the server with: npm start');
-  
-  if (process.env.NODE_ENV === 'development' && !process.env.S3_BUCKET_NAME) {
-    console.log('ℹ️  Note: Using local file storage for development (S3_BUCKET_NAME not set)');
+  } catch (error) {
+    console.log('❌ Supabase Connection Error:', error.message);
   }
 } else {
-  console.log('❌ Missing required environment variables');
-  console.log('   Please check your .env file and add the missing variables');
+  console.log('⚠️ Skipping Supabase test - missing configuration');
 }
 
-console.log('\n💡 Tips:');
-console.log('   - Copy .env.example to .env and fill in your values');
-console.log('   - For production, ensure S3_BUCKET_NAME is set');
-console.log('   - Check AWS credentials if S3 access fails');
-console.log('   - Run this script anytime to verify your setup\n'); 
+// Check Vercel Blob configuration
+console.log('\n📦 Vercel Blob Configuration:');
+const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
+console.log('Blob Token:', blobToken ? '✅ Set' : '❌ Missing (will use local storage)');
+
+// Check other environment variables
+console.log('\n🔧 Other Configuration:');
+console.log('PORT:', process.env.PORT || '3001 (default)');
+console.log('VERCEL:', process.env.VERCEL ? '✅ Running on Vercel' : '❌ Not on Vercel');
+
+console.log('\n✅ Environment check completed!');
+
+export default true; 

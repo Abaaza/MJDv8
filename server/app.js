@@ -5,7 +5,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs-extra';
 import { fileURLToPath } from 'url';
-import { priceMatchingRouter } from './routes/priceMatching-vercel.js';
+import { priceMatchingRouter } from './routes/priceMatching.js';
 import userManagementRouter from './routes/userManagement.js';
 
 const __filename = fileURLToPath(import.meta.url);
