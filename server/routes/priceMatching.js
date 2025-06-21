@@ -450,6 +450,163 @@ router.get('/status/:jobId', async (req, res) => {
   }
 })
 
+// Export filtered match results - uses format-preserving version
+router.post('/export/:jobId', async (req, res) => {
+  try {
+    const { jobId } = req.params
+    const { matchResults } = req.body
+    
+    console.log(`📊 Export requested for job: ${jobId}`)
+    console.log(`📊 Match results received:`, {
+      hasMatchResults: !!matchResults,
+      isArray: Array.isArray(matchResults),
+      length: matchResults?.length || 0
+    })
+    
+    if (!matchResults || !Array.isArray(matchResults)) {
+      return res.status(400).json({ error: 'Match results are required and must be an array' })
+    }
+
+    // Create service instances
+    const priceMatchingService = getPriceMatchingService()
+    const exportService = new ExcelExportService()
+    
+    // Get job details to find original file
+    const jobStatus = await priceMatchingService.getJobStatus(jobId)
+    
+    if (!jobStatus) {
+      return res.status(404).json({ error: 'Job not found' })
+    }
+    
+    // If no match results provided, try to load from database
+    let resultsToExport = matchResults
+    if (matchResults.length === 0) {
+      console.log(`⚠️ No match results provided, attempting to load from database...`)
+      
+      // Try to load results from database
+      const { data: dbResults, error: dbError } = await priceMatchingService.supabase
+        .from('match_results')
+        .select('*')
+        .eq('job_id', jobId)
+        .order('row_number')
+      
+      if (!dbError && dbResults && dbResults.length > 0) {
+        console.log(`✅ Loaded ${dbResults.length} results from database`)
+        resultsToExport = dbResults.map(result => ({
+          id: result.id,
+          original_description: result.original_description,
+          matched_description: result.matched_description || '',
+          matched_rate: result.matched_rate || 0,
+          similarity_score: result.similarity_score || 0,
+          row_number: result.row_number,
+          sheet_name: result.sheet_name,
+          quantity: result.quantity || 0,
+          unit: result.unit || '',
+          total_amount: (result.quantity || 0) * (result.matched_rate || 0),
+          matched_price_item_id: result.matched_price_item_id,
+          match_method: result.match_method || 'cohere'
+        }))
+      } else {
+        console.log(`⚠️ No results found in database either`)
+      }
+    }
+    
+    console.log(`📊 Export will process ${resultsToExport.length} results`)
+    
+    let outputPath = null
+    let originalFilePath = null
+    
+    // Try to get the original file from different sources
+    
+    // 1. Check if we have the input file in Vercel Blob
+    if (jobStatus.input_file_s3_key) {
+      console.log(`📥 Downloading original file from Blob: ${jobStatus.input_file_s3_key}`)
+      try {
+        const originalFileData = await VercelBlobService.downloadFile(jobStatus.input_file_s3_key)
+        
+        // Save to temp directory
+        const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
+        await fs.ensureDir(tempDir)
+        originalFilePath = path.join(tempDir, `original-${jobId}-${jobStatus.original_filename}`)
+        await fs.writeFile(originalFilePath, originalFileData.Body)
+        
+        console.log(`✅ Original file saved to: ${originalFilePath}`)
+      } catch (blobError) {
+        console.error('❌ Failed to download original file from blob:', blobError)
+      }
+    }
+    
+    // 2. Fallback: Check if original file exists locally
+    if (!originalFilePath && jobStatus.original_file_path) {
+      const localPath = jobStatus.original_file_path
+      if (await fs.pathExists(localPath)) {
+        originalFilePath = localPath
+        console.log(`✅ Found original file locally: ${originalFilePath}`)
+      }
+    }
+    
+    // 3. Fallback: Search temp directory for input file
+    if (!originalFilePath) {
+      const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
+      try {
+        const files = await fs.readdir(tempDir)
+        const inputFile = files.find(f => f.includes(`job-${jobId}-`) && f.includes(jobStatus.original_filename))
+        
+        if (inputFile) {
+          originalFilePath = path.join(tempDir, inputFile)
+          console.log(`✅ Found input file in temp: ${originalFilePath}`)
+        }
+      } catch (err) {
+        console.error('Error searching temp directory:', err)
+      }
+    }
+    
+    // Export with preserved formatting if original file is available
+    if (originalFilePath && await fs.pathExists(originalFilePath)) {
+      console.log(`📄 Creating Excel export with preserved formatting...`)
+      outputPath = await exportService.exportWithOriginalFormat(
+        originalFilePath,
+        resultsToExport,
+        jobId,
+        jobStatus.original_filename
+      )
+    } else {
+      console.log(`📄 Creating basic Excel export (original file not available)...`)
+      outputPath = await exportService.exportToExcel(
+        resultsToExport,
+        jobId,
+        jobStatus.original_filename || 'export'
+      )
+    }
+
+    if (!outputPath || !await fs.pathExists(outputPath)) {
+      throw new Error('Failed to create export file')
+    }
+
+    console.log(`✅ Export file created: ${outputPath}`)
+    
+    // Send the file
+    const fileName = path.basename(outputPath)
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    
+    const fileStream = fs.createReadStream(outputPath)
+    fileStream.pipe(res)
+    
+    // Clean up the export file after sending (optional)
+    fileStream.on('end', () => {
+      fs.unlink(outputPath).catch(err => console.error('Error cleaning up export file:', err))
+    })
+
+  } catch (error) {
+    console.error('Export error:', error)
+    res.status(500).json({ 
+      error: 'Export failed',
+      message: error.message 
+    })
+  }
+})
+
 // Test endpoint to check admin settings access
 router.get('/test-admin-settings', async (req, res) => {
   try {
