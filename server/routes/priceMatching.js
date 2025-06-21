@@ -5,11 +5,10 @@ import fs from 'fs-extra'
 import { fileURLToPath } from 'url'
 import { PriceMatchingService } from '../services/PriceMatchingService.js'
 import { ExcelExportService } from '../services/ExcelExportService.js'
-import S3Service from '../services/S3Service.js'
 import VercelBlobService from '../services/VercelBlobService.js'
 
-// Use Vercel Blob in production, S3 for local development
-const StorageService = process.env.VERCEL ? VercelBlobService : S3Service
+// Use Vercel Blob for all storage
+const StorageService = VercelBlobService
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -153,15 +152,15 @@ router.post('/process-base64', async (req, res) => {
     // Convert base64 to buffer
     const buffer = Buffer.from(fileData, 'base64')
     
-    // Upload to S3
-    const s3Result = await S3Service.uploadFile(
+    // Upload to Vercel Blob
+    const storageResult = await StorageService.uploadFile(
       buffer,
       fileName,
       jobId,
       'input'
     )
 
-    console.log(`File uploaded to S3: ${s3Result.key}`)
+    console.log(`File uploaded to storage: ${storageResult.key}`)
 
     // Save to temp directory for processing
     const tempDir = path.join(__dirname, '..', 'temp')

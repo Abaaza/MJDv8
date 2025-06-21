@@ -1,40 +1,65 @@
 version: 1
-frontend:
-  phases:
-    preBuild:
-      commands:
-        # Install root dependencies
-        - npm ci
-        # Navigate to client directory
-        - cd client
-        # Clean install client dependencies
-        - npm ci
-        # Force install platform-specific rollup binary
-        - npm install @rollup/rollup-linux-x64-gnu --force
-        # Force install platform-specific SWC binary
-        - npm install @swc/core-linux-x64-gnu --force
-    build:
-      commands:
-        # Already in client directory from preBuild
-        - npm run build
-  artifacts:
-    baseDirectory: client/dist
-    files:
-      - "**/*"
-  cache:
-    paths:
-      - node_modules/**/*
-      - client/node_modules/**/*
-  customHeaders:
-    - pattern: "**/*"
-      headers:
-        - key: "Strict-Transport-Security"
-          value: "max-age=31536000; includeSubDomains"
-        - key: "X-Content-Type-Options"
-          value: "nosniff"
-        - key: "X-Frame-Options"
-          value: "DENY"
-        - key: "X-XSS-Protection"
-          value: "1; mode=block"
-        - key: "Referrer-Policy"
-          value: "strict-origin-when-cross-origin"
+applications:
+  - appRoot: client
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            # Install root dependencies
+            - npm ci
+            # Navigate to client directory
+            - cd client
+            # Clean install client dependencies
+            - npm ci
+            # Force install platform-specific rollup binary
+            - npm install @rollup/rollup-linux-x64-gnu --force
+            # Force install platform-specific SWC binary
+            - npm install @swc/core-linux-x64-gnu --force
+        build:
+          commands:
+            # Already in client directory from preBuild
+            - npm run build
+      artifacts:
+        baseDirectory: dist
+        files:
+          - "**/*"
+      cache:
+        paths:
+          - node_modules/**/*
+          - client/node_modules/**/*
+      customHeaders:
+        - pattern: "**/*"
+          headers:
+            - key: "Strict-Transport-Security"
+              value: "max-age=31536000; includeSubDomains"
+            - key: "X-Content-Type-Options"
+              value: "nosniff"
+            - key: "X-Frame-Options"
+              value: "DENY"
+            - key: "X-XSS-Protection"
+              value: "1; mode=block"
+            - key: "Referrer-Policy"
+              value: "strict-origin-when-cross-origin"
+    # Backend configuration for serverless deployment
+    backend:
+      phases:
+        preBuild:
+          commands:
+            - cd ../server
+            - npm ci
+            - npm install -g serverless
+        build:
+          commands:
+            - cd ../server
+            - |
+              echo "SUPABASE_URL=$SUPABASE_URL" >> .env
+              echo "SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+              echo "SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY" >> .env
+            - serverless deploy --stage prod --region us-east-1
+            - |
+              API_URL=$(serverless info --stage prod --verbose | grep "ANY -" | awk '{print $3}')
+              echo "API_URL=$API_URL" >> ../client/.env.production
+      artifacts:
+        baseDirectory: ../server
+        files:
+          - "**/*"
