@@ -26,7 +26,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { apiEndpoint } from '@/config/api'
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 
 interface AccessRequest {
   id: string;
@@ -114,17 +114,8 @@ export const UserManagementSection: React.FC = () => {
 
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
     const token = await getAuthToken();
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
     
-    // Debug logging
-    console.log('UserManagement API Call:', {
-      endpoint,
-      apiUrl,
-      fullUrl: `${apiUrl}/user-management${endpoint}`,
-      envVar: import.meta.env.VITE_API_URL
-    });
-    
-    const response = await fetch(`${apiUrl}/user-management${endpoint}`, {
+    const response = await fetch(apiEndpoint(`/user-management${endpoint}`), {
       ...options,
       headers: {
         'Content-Type': 'application/json',
