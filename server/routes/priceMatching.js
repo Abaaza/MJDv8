@@ -75,8 +75,8 @@ router.post('/process', upload.single('file'), async (req, res) => {
     await priceMatchingService.supabase
       .from('matching_jobs')
       .update({ 
-        input_file_s3_key: storageResult.key,
-        input_file_s3_url: storageResult.url 
+        input_file_blob_key: storageResult.key,
+        input_file_blob_url: storageResult.url 
       })
       .eq('id', jobId)
 
@@ -101,8 +101,8 @@ router.post('/process', upload.single('file'), async (req, res) => {
           await priceMatchingService.supabase
             .from('matching_jobs')
             .update({ 
-              output_file_s3_key: outputStorageResult.key,
-              output_file_s3_url: outputStorageResult.url 
+              output_file_blob_key: outputStorageResult.key,
+              output_file_blob_url: outputStorageResult.url 
             })
             .eq('id', jobId)
         }
@@ -190,8 +190,8 @@ router.post('/process-base64', async (req, res) => {
     const updateResult = await priceMatchingService.supabase
       .from('matching_jobs')
       .update({ 
-        input_file_s3_key: storageResult.key,
-        input_file_s3_url: storageResult.url 
+        input_file_blob_key: storageResult.key,
+        input_file_blob_url: storageResult.url 
       })
       .eq('id', jobId)
     
@@ -247,8 +247,8 @@ router.post('/process-base64', async (req, res) => {
             await priceMatchingService.supabase
               .from('matching_jobs')
               .update({ 
-                output_file_s3_key: outputStorageResult.key,
-                output_file_s3_url: outputStorageResult.url 
+                output_file_blob_key: outputStorageResult.key,
+                output_file_blob_url: outputStorageResult.url 
               })
               .eq('id', jobId)
             console.log(`✅ [LOCAL DEBUG] Output uploaded to storage for job ${jobId}`)
@@ -332,7 +332,7 @@ router.get('/download/:jobId', async (req, res) => {
       exists: !!jobStatus,
       status: jobStatus?.status,
       output_file_path: jobStatus?.output_file_path,
-      output_file_s3_key: jobStatus?.output_file_s3_key
+      output_file_blob_key: jobStatus?.output_file_blob_key
     })
     
     if (!jobStatus) {
@@ -341,10 +341,10 @@ router.get('/download/:jobId', async (req, res) => {
     }
     
     // First try to download from Vercel Blob if available
-    if (jobStatus.output_file_s3_key) {
-      console.log(`[DOWNLOAD DEBUG] Downloading from Blob: ${jobStatus.output_file_s3_key}`)
+    if (jobStatus.output_file_blob_key) {
+      console.log(`[DOWNLOAD DEBUG] Downloading from Blob: ${jobStatus.output_file_blob_key}`)
       try {
-        const blobFile = await VercelBlobService.downloadFile(jobStatus.output_file_s3_key)
+        const blobFile = await VercelBlobService.downloadFile(jobStatus.output_file_blob_key)
         const fileName = `matched-${jobId}.xlsx`
         
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`)
@@ -519,10 +519,10 @@ router.post('/export/:jobId', async (req, res) => {
     // Try to get the original file from different sources
     
     // 1. Check if we have the input file in Vercel Blob
-    if (jobStatus.input_file_s3_key) {
-      console.log(`📥 Downloading original file from Blob: ${jobStatus.input_file_s3_key}`)
+    if (jobStatus.input_file_blob_key) {
+      console.log(`📥 Downloading original file from Blob: ${jobStatus.input_file_blob_key}`)
       try {
-        const originalFileData = await VercelBlobService.downloadFile(jobStatus.input_file_s3_key)
+        const originalFileData = await VercelBlobService.downloadFile(jobStatus.input_file_blob_key)
         
         // Save to temp directory
         const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')

@@ -507,4 +507,120 @@ export class ExcelExportService {
       throw error
     }
   }
+
+  /**
+   * Basic export to Excel (fallback method)
+   */
+  async exportToExcel(matchResults, jobId, originalFileName = 'export.xlsx') {
+    try {
+      console.log(`📤 Basic Excel export for ${matchResults?.length || 0} results`)
+      
+      // Validate matchResults
+      if (!matchResults || !Array.isArray(matchResults)) {
+        console.error('❌ Invalid matchResults provided to exportToExcel')
+        throw new Error('Match results must be a valid array')
+      }
+      
+      const outputPath = path.join(this.outputDir, `basic-export-${jobId}-${originalFileName}`)
+      
+      const workbook = new ExcelJS.Workbook()
+      const worksheet = workbook.addWorksheet('Match Results')
+      
+      // Define headers
+      const headers = [
+        'Sheet Name',
+        'Row Number',
+        'Original Description',
+        'Matched Description', 
+        'Quantity',
+        'Matched Rate',
+        'Unit',
+        'Total Amount',
+        'Confidence %',
+        'Match Method'
+      ]
+      
+      // Add headers with formatting
+      const headerRow = worksheet.addRow(headers)
+      headerRow.eachCell((cell, colNumber) => {
+        cell.font = { bold: true, color: { argb: 'FFFFFF' } }
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: '2E7D32' }
+        }
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        }
+        cell.alignment = { horizontal: 'center', vertical: 'middle' }
+      })
+      
+      // Add data rows
+      if (matchResults && matchResults.length > 0) {
+        matchResults.forEach(match => {
+          const row = worksheet.addRow([
+            match.sheet_name || '',
+            match.row_number || '',
+            match.original_description || '',
+            match.matched_description || '',
+            match.quantity || '',
+            match.matched_rate || '',
+            match.unit || '',
+            match.total_amount || '',
+            Math.round((match.similarity_score || 0) * 100) + '%',
+            match.match_method || ''
+          ])
+          
+          // Add borders to data rows
+          row.eachCell((cell) => {
+            cell.border = {
+              top: { style: 'thin' },
+              left: { style: 'thin' },
+              bottom: { style: 'thin' },
+              right: { style: 'thin' }
+            }
+          })
+        })
+      }
+      
+      // Auto-fit columns
+      worksheet.columns.forEach(column => {
+        let maxLength = 0
+        column.eachCell({ includeEmpty: false }, (cell) => {
+          const columnLength = cell.value ? cell.value.toString().length : 10
+          if (columnLength > maxLength) {
+            maxLength = columnLength
+          }
+        })
+        column.width = Math.min(maxLength + 2, 50)
+      })
+      
+      // Add summary at the bottom
+      const summaryRowIndex = matchResults.length + 3
+      worksheet.getCell(`A${summaryRowIndex}`).value = 'SUMMARY'
+      worksheet.getCell(`A${summaryRowIndex}`).font = { bold: true, size: 14 }
+      
+      worksheet.getCell(`A${summaryRowIndex + 1}`).value = `Total Items: ${matchResults.length}`
+      worksheet.getCell(`A${summaryRowIndex + 2}`).value = `Total Amount: ${matchResults.reduce((sum, match) => sum + (match.total_amount || 0), 0).toLocaleString()}`
+      
+      // Calculate average confidence safely
+      const avgConfidence = matchResults.length > 0 
+        ? Math.round(matchResults.reduce((sum, match) => sum + (match.similarity_score || 0), 0) / matchResults.length * 100)
+        : 0
+      worksheet.getCell(`A${summaryRowIndex + 3}`).value = `Average Confidence: ${avgConfidence}%`
+      
+      // Save workbook
+      await workbook.xlsx.writeFile(outputPath)
+      
+      console.log(`✅ Basic export completed: ${outputPath}`)
+      return outputPath
+      
+    } catch (error) {
+      console.error(`❌ Error in exportToExcel:`, error)
+      throw error
+    }
+  }
 } 
