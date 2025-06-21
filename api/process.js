@@ -35,15 +35,15 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    if (!job.input_file_s3_key) {
+    if (!job.input_file_blob_key) {
       console.error(`❌ [PROCESS] No input file for job: ${jobId}`);
       return res.status(400).json({ error: 'No input file found' });
     }
 
-    console.log(`📥 [PROCESS] Downloading file from storage: ${job.input_file_s3_key}`);
+    console.log(`📥 [PROCESS] Downloading file from storage: ${job.input_file_blob_key}`);
 
     // Download file from Vercel Blob
-    const fileData = await VercelBlobService.downloadFile(job.input_file_s3_key);
+    const fileData = await VercelBlobService.downloadFile(job.input_file_blob_key);
     
     // Save to temp file
     const tempFilePath = path.join('/tmp', `job-${jobId}-${job.original_filename}`);
@@ -76,8 +76,8 @@ export default async function handler(req, res) {
       await priceMatchingService.supabase
         .from('matching_jobs')
         .update({ 
-          output_file_s3_key: outputStorageResult.key,
-          output_file_s3_url: outputStorageResult.url 
+          output_file_blob_key: outputStorageResult.key,
+          output_file_blob_url: outputStorageResult.url 
         })
         .eq('id', jobId);
       
