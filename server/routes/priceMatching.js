@@ -101,8 +101,8 @@ router.post('/process', upload.single('file'), async (req, res) => {
           await priceMatchingService.supabase
             .from('matching_jobs')
             .update({ 
-              output_file_blob_key: outputStorageResult.key,
-              output_file_blob_url: outputStorageResult.url 
+              output_file_s3_key: outputStorageResult.key,
+              output_file_s3_url: outputStorageResult.url 
             })
             .eq('id', jobId)
         }
