@@ -30,15 +30,5 @@
       "src": "/(.*)",
       "dest": "/client/dist/$1"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  },
-  "functions": {
-    "server/handler.js": {
-      "maxDuration": 30
-    }
-  },
-  "installCommand": "npm install && cd client && npm install && cd ../server && npm install",
-  "buildCommand": "cd client && npm run build"
+  ]
 } 
