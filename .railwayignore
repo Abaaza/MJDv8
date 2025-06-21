@@ -1,0 +1,6 @@
+client/supabase/functions/
+*.ts
+deno.json
+deno.lock
+client/
+!server/ 
