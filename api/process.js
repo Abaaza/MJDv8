@@ -23,9 +23,9 @@ export default async function handler(req, res) {
     // Create service instance
     const priceMatchingService = new PriceMatchingService();
 
-    // Get job details
+    // Get job details - use correct table name
     const { data: job, error: jobError } = await priceMatchingService.supabase
-      .from('matching_jobs')
+      .from('ai_matching_jobs')  // Correct table name
       .select('*')
       .eq('id', jobId)
       .single();
@@ -42,6 +42,9 @@ export default async function handler(req, res) {
 
     console.log(`📥 [PROCESS] Downloading file from storage: ${job.input_file_blob_key}`);
 
+    // Update job status to show we're starting
+    await priceMatchingService.updateJobStatus(jobId, 'processing', 5, 'Downloading file...');
+
     // Download file from Vercel Blob
     const fileData = await VercelBlobService.downloadFile(job.input_file_blob_key);
     
@@ -51,13 +54,16 @@ export default async function handler(req, res) {
     
     console.log(`✅ [PROCESS] File saved to: ${tempFilePath}`);
 
+    // Update status before processing
+    await priceMatchingService.updateJobStatus(jobId, 'processing', 10, 'Starting analysis...');
+
     // Process the file
     console.log(`🚀 [PROCESS] Starting price matching...`);
     const outputPath = await priceMatchingService.processFile(
       jobId, 
       tempFilePath, 
       job.original_filename, 
-      'cohere'
+      job.matching_method || 'cohere'  // Use the method from the job
     );
 
     // Upload output to Vercel Blob if it exists
@@ -74,7 +80,7 @@ export default async function handler(req, res) {
       
       // Update job with output storage information
       await priceMatchingService.supabase
-        .from('matching_jobs')
+        .from('ai_matching_jobs')  // Correct table name
         .update({ 
           output_file_blob_key: outputStorageResult.key,
           output_file_blob_url: outputStorageResult.url 

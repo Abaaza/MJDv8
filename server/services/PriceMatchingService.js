@@ -52,29 +52,52 @@ export class PriceMatchingService {
       }
       console.log(`✅ Input file verified: ${inputFilePath}`)
       
-      // Update job status to processing - but don't show progress until matching starts
+      // Update job status to processing - show initial progress at 10%
       console.log(`📊 Updating job status to processing...`)
-      await this.updateJobStatus(jobId, 'processing', 0) // No progress shown during parsing
+      await this.updateJobStatus(jobId, 'processing', 10, 'Starting file analysis...') // Start at 10%
       console.log(`✅ Job status updated to processing`)
 
-      // Step 1: Extract items from Excel (silent parsing - no progress updates)
+      // Step 1: Extract items from Excel - show progress at 20%
       console.log(`📊 Extracting items from Excel file...`)
+      await this.updateJobStatus(jobId, 'processing', 20, 'Parsing Excel file...')
       
-      // Store the original input file path in the job record
+      // Store the original input file path and blob key in the job record
       console.log(`[PRICE MATCHING DEBUG] Storing original input file path: ${inputFilePath}`)
+      
+      // Also store the blob key if available for better reliability
+      const { data: jobData } = await this.supabase
+        .from('ai_matching_jobs')
+        .select('input_file_blob_key')
+        .eq('id', jobId)
+        .single()
+      
+      const updateData = {
+        original_file_path: inputFilePath
+      }
+      
+      if (jobData?.input_file_blob_key) {
+        updateData.input_file_blob_key = jobData.input_file_blob_key
+      }
+      
       const { error: pathUpdateError } = await this.supabase
         .from('ai_matching_jobs')
-        .update({
-          original_file_path: inputFilePath
-        })
+        .update(updateData)
         .eq('id', jobId)
       
       if (pathUpdateError) {
         console.error('[PRICE MATCHING DEBUG] Error storing original file path:', pathUpdateError)
+      } else {
+        console.log('[PRICE MATCHING DEBUG] Successfully stored original file path and blob key')
       }
       
       const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
       console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
+      
+      // Update progress to 30% after parsing
+      await this.updateJobStatus(jobId, 'processing', 30, `Found ${extractedItems.length} items to match`, {
+        total_items: extractedItems.length,
+        matched_items: 0
+      })
       // Skip the parsing complete update - go straight to matching phase
       
       // Start progress updates only when matching begins - ensure total_items is set from the start
@@ -101,9 +124,10 @@ export class PriceMatchingService {
 
       // Step 2: Load price list from database
       console.log(`💰 Loading price list from database...`)
+      await this.updateJobStatus(jobId, 'processing', 40, 'Loading price database...')
       const priceList = await this.loadPriceList()
       console.log(`✅ Loaded ${priceList.length} price items`)
-      await this.updateJobStatus(jobId, 'processing', 50, `Preparing to match against ${priceList.length} price items`)
+      await this.updateJobStatus(jobId, 'processing', 45, `Preparing to match against ${priceList.length} price items`)
 
       if (priceList.length === 0) {
         throw new Error('No price items found in database')

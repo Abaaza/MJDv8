@@ -73,7 +73,7 @@ export class LocalPriceMatchingService {
       }
       
       console.log(`🧪 [LOCAL MATCH DEBUG] Testing updateJobStatus function...`)
-      const testResult = await updateJobStatus(jobId, 'processing', 35, 'Local matching initialized - testing progress updates', {
+      const testResult = await updateJobStatus(jobId, 'processing', 45, 'Local matching initialized', {
         total_items: items.length,
         matched_items: 0
       })
@@ -106,7 +106,7 @@ export class LocalPriceMatchingService {
         
         // Update progress more frequently for better user experience
         if (i % 5 === 0 || i === items.length - 1) {
-          const progress = 40 + Math.round((i / items.length) * 40)
+          const progress = 50 + Math.round((i / items.length) * 30)  // Progress from 50% to 80%
           console.log(`🔄 [LOCAL MATCH DEBUG] About to call updateJobStatus for item ${i + 1}/${items.length}`)
           console.log(`🔄 [LOCAL MATCH DEBUG] Progress: ${progress}%, Matched: ${matchedCount}`)
           

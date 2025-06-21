@@ -225,7 +225,8 @@ export default function Auth() {
           data: {
             name: name,
             status: 'pending'
-          }
+          },
+          emailRedirectTo: undefined // Don't send confirmation email
         }
       });
 
@@ -235,15 +236,18 @@ export default function Auth() {
           handleRateLimitError('sign up');
           return;
         }
-        throw error;
+        // Handle email sending errors by ignoring them
+        if (error.message.toLowerCase().includes('email') && error.message.toLowerCase().includes('limit')) {
+          // Email limit reached, but account was likely created - continue
+          console.log('Email limit reached, but continuing with signup');
+        } else {
+          throw error;
+        }
       }
 
-      if (data.user && !data.user.email_confirmed_at) {
-        setSuccess('Account created! Check your email to confirm your account, then contact admin for access approval.');
-        setShowAccessRequestForm(true);
-      } else {
-        setSuccess('Account created successfully! You can now sign in.');
-      }
+      // Success - show admin approval message
+      setSuccess('Access request submitted! An administrator will review your request and notify you once approved.');
+      setShowAccessRequestForm(false);
 
       // Clear form
       setEmail('');

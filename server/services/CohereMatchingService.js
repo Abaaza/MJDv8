@@ -473,46 +473,66 @@ export class CohereMatchingService {
    * Generate output Excel file
    */
   async generateOutputExcel(matches, jobId, originalFileName) {
-    const outputDir = path.join(process.cwd(), 'output')
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true })
+    try {
+      // Import ExcelExportService
+      const { ExcelExportService } = await import('./ExcelExportService.js')
+      const exportService = new ExcelExportService()
+      
+      // Get the original input file path from the job
+      const { data: jobData } = await this.supabase
+        .from('ai_matching_jobs')
+        .select('original_file_path, input_file_blob_key')
+        .eq('id', jobId)
+        .single()
+      
+      let originalFilePath = null
+      
+      // Try to get the original file
+      if (jobData?.original_file_path && fs.existsSync(jobData.original_file_path)) {
+        originalFilePath = jobData.original_file_path
+        console.log(`✅ Found original file at: ${originalFilePath}`)
+      } else if (jobData?.input_file_blob_key) {
+        // Try to download from blob storage
+        try {
+          const VercelBlobService = (await import('./VercelBlobService.js')).default
+          const blobData = await VercelBlobService.downloadFile(jobData.input_file_blob_key)
+          
+          // Save to temp directory
+          const tempDir = process.env.VERCEL ? '/tmp' : path.join(process.cwd(), 'temp')
+          if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true })
+          }
+          
+          originalFilePath = path.join(tempDir, `original-${jobId}-${originalFileName}`)
+          await fs.promises.writeFile(originalFilePath, blobData.Body)
+          console.log(`✅ Downloaded original file from blob to: ${originalFilePath}`)
+        } catch (blobError) {
+          console.error('Failed to download from blob:', blobError)
+        }
+      }
+      
+      // Use ExcelExportService with original format if available
+      if (originalFilePath && fs.existsSync(originalFilePath)) {
+        console.log(`📄 Using ExcelExportService with original format preservation`)
+        const outputPath = await exportService.exportWithOriginalFormat(
+          originalFilePath,
+          matches,
+          jobId,
+          originalFileName
+        )
+        return outputPath
+      } else {
+        console.log(`📄 Using basic Excel export (original file not available)`)
+        const outputPath = await exportService.exportToExcel(
+          matches,
+          jobId,
+          originalFileName
+        )
+        return outputPath
+      }
+    } catch (error) {
+      console.error('Error generating output Excel:', error)
+      throw error
     }
-
-    const baseName = path.basename(originalFileName, path.extname(originalFileName))
-    const outputFileName = `cohere-ai-results-${jobId}-${baseName}_Results.xlsx`
-    const outputPath = path.join(outputDir, outputFileName)
-
-    // Import XLSX dynamically
-    const XLSX = await import('xlsx')
-    
-    // Create workbook with matches
-    const wsData = [
-      ['Original Description', 'Quantity', 'Unit', 'Matched Description', 'Matched Rate', 'Matched Unit', 'Total Amount', 'Confidence %', 'Reasoning']
-    ]
-
-    matches.forEach(match => {
-      wsData.push([
-        match.original_description,
-        match.quantity,
-        match.unit,
-        match.matched_description || 'No match',
-        match.matched_rate || 0,
-        match.matched_unit || '',
-        match.total_amount || 0,
-        Math.round((match.confidence || 0) * 100),
-        match.reasoning || ''
-      ])
-    })
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'AI Matched Results')
-    
-    XLSX.writeFile(wb, outputPath)
-    
-    console.log(`[COHERE DEBUG] Excel file written to: ${outputPath}`)
-    console.log(`[COHERE DEBUG] File exists: ${fs.existsSync(outputPath)}`)
-    
-    return outputPath
   }
 } 
