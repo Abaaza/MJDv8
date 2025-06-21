@@ -391,4 +391,52 @@ router.get('/status/:jobId', async (req, res) => {
   }
 })
 
+// Test endpoint to check admin settings access
+router.get('/test-admin-settings', async (req, res) => {
+  try {
+    console.log('Testing admin settings access...')
+    
+    const priceMatchingService = getPriceMatchingService()
+    
+    // Test Supabase connection
+    const { data: testData, error: testError } = await priceMatchingService.supabase
+      .from('app_settings')
+      .select('cohere_api_key')
+      .limit(1)
+      .single()
+    
+    if (testError) {
+      console.error('Admin settings error:', testError)
+      return res.json({
+        success: false,
+        error: testError.message,
+        details: testError
+      })
+    }
+    
+    const hasApiKey = !!testData?.cohere_api_key
+    const apiKeyLength = testData?.cohere_api_key?.length || 0
+    
+    console.log('Admin settings test result:', {
+      hasApiKey,
+      apiKeyLength
+    })
+    
+    res.json({
+      success: true,
+      hasApiKey,
+      apiKeyLength,
+      message: hasApiKey ? 'Cohere API key found in admin settings' : 'No Cohere API key in admin settings'
+    })
+    
+  } catch (error) {
+    console.error('Test admin settings error:', error)
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    })
+  }
+})
+
 export { router as priceMatchingRouter } 

@@ -23,7 +23,7 @@ export function Sidebar() {
       <div className="flex h-14 items-center border-b border-sidebar-border px-4 flex-shrink-0 bg-sidebar-background">
         <Link to="/" className="flex items-center space-x-2">
           <Building2 className="h-6 w-6 text-sidebar-foreground" />
-          <span className="font-bold text-sidebar-foreground">ConstructCRM</span>
+          <span className="font-bold text-sidebar-foreground">MJD Engineering</span>
         </Link>
       </div>
       <nav className="flex-1 space-y-1 px-4 py-4 overflow-y-auto bg-sidebar-background">

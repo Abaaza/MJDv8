@@ -62,12 +62,12 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
   currency VARCHAR(10) DEFAULT 'USD' NOT NULL,
   cohere_api_key TEXT,
   openai_api_key TEXT,
-  company_name VARCHAR(255) DEFAULT 'ConstructCRM',
+  company_name VARCHAR(255) DEFAULT 'MJD Engineering',
   updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
 -- Insert default settings row
-INSERT INTO public.app_settings (id, currency, company_name) VALUES (1, 'USD', 'ConstructCRM')
+INSERT INTO public.app_settings (id, currency, company_name) VALUES (1, 'USD', 'MJD Engineering')
 ON CONFLICT (id) DO UPDATE SET
 currency = EXCLUDED.currency,
 company_name = EXCLUDED.company_name;

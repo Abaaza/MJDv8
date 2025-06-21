@@ -170,12 +170,12 @@ export default function Settings() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" defaultValue="contact@constructcrm.com" />
+                    <Input id="email" type="email" defaultValue="contact@MJD Engineering.com" />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="website">Website</Label>
-                  <Input id="website" defaultValue="https://constructcrm.com" />
+                  <Input id="website" defaultValue="https://MJD Engineering.com" />
                 </div>
                 <Button type="submit" disabled={loading}>
                   {loading ? 'Saving...' : 'Save Company Settings'}

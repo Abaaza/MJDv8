@@ -88,7 +88,7 @@ export function CollapsibleSidebar({
           <Link to="/" className="flex items-center space-x-2">
             <Building2 className="h-6 w-6 text-sidebar-foreground" />
             <span className="font-bold text-sidebar-foreground text-lg">
-              ConstructCRM
+              MJD Engineering
             </span>
           </Link>
         )}
