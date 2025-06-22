@@ -50,7 +50,6 @@ export default function Projects() {
       const { data, error } = await supabase
         .from('ai_matching_jobs')
         .select('*')
-        .eq('user_id', user?.id)
         .order('created_at', { ascending: false })
 
       if (error) {
