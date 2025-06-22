@@ -7,8 +7,9 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Textarea } from '@/components/ui/textarea';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { apiEndpoint } from '@/config/api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Remove hardcoded API_URL - we'll use apiEndpoint helper instead
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -41,7 +42,7 @@ export default function Auth() {
     setMessage('');
 
     try {
-      const response = await fetch(`${API_URL}/auth/login`, {
+      const response = await fetch(apiEndpoint('/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginData),
@@ -77,7 +78,7 @@ export default function Auth() {
     setMessage('');
 
     try {
-      const response = await fetch(`${API_URL}/auth/register`, {
+      const response = await fetch(apiEndpoint('/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(registerData),

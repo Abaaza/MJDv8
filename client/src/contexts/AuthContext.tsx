@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useTheme } from '@/components/theme-provider';
+import { apiEndpoint } from '@/config/api';
 
 interface User {
   _id: string;
@@ -45,7 +46,7 @@ export const useAuth = () => {
   return context;
 };
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Remove hardcoded API_URL - we'll use apiEndpoint helper instead
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -79,7 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         headers.Authorization = `Bearer ${token}`;
       }
 
-      return fetch(`${API_URL}${url}`, {
+      return fetch(apiEndpoint(url), {
         ...options,
         headers,
       });
@@ -93,7 +94,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (refreshToken) {
         try {
-          const refreshResponse = await fetch(`${API_URL}/auth/refresh`, {
+          const refreshResponse = await fetch(apiEndpoint('/auth/refresh'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refreshToken }),

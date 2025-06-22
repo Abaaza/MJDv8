@@ -24,6 +24,10 @@
       "destination": "/api"
     },
     {
+      "source": "/auth/(.*)", 
+      "destination": "/api"
+    },
+    {
       "source": "/health",
       "destination": "/api"
     },
