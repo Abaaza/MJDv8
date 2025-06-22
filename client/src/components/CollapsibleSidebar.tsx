@@ -65,7 +65,7 @@ export const CollapsibleSidebar = React.memo(function CollapsibleSidebar({
   onCollapseChange,
 }: CollapsibleSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { signOut, profile, isAdmin } = useAuth();
+  const { signOut, user, isAdmin } = useAuth();
 
   const toggleSidebar = () => {
     const newCollapsedState = !isCollapsed;
@@ -125,7 +125,7 @@ export const CollapsibleSidebar = React.memo(function CollapsibleSidebar({
         {!isCollapsed && (
           <div className="pt-2 border-t border-sidebar-border">
             <div className="px-3 py-2 text-xs text-sidebar-foreground opacity-75">
-              {profile?.name || "User"} ({profile?.role})
+              {user?.name || "User"} ({user?.role})
             </div>
           </div>
         )}

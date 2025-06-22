@@ -495,11 +495,11 @@ router.post('/cancel/:jobId', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' })
     }
     
-    // Only allow cancelling jobs that are in progress
+    // Only allow stopping jobs that are in progress
     if (currentJob.status !== 'processing' && currentJob.status !== 'pending') {
-      console.log(`⚠️ Job ${jobId} is in ${currentJob.status} state, cannot cancel`)
+      console.log(`⚠️ Job ${jobId} is in ${currentJob.status} state, cannot stop`)
       return res.status(400).json({ 
-        error: `Cannot cancel job in ${currentJob.status} state`,
+        error: `Cannot stop job in ${currentJob.status} state`,
         currentStatus: currentJob.status
       })
     }
@@ -508,14 +508,25 @@ router.post('/cancel/:jobId', async (req, res) => {
     cancelledJobs.add(jobId)
     
     // Update job status to stopped
-    await priceMatchingService.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+    console.log(`🛑 Updating job ${jobId} status to 'stopped'...`)
+    const updateSuccess = await priceMatchingService.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+    
+    if (updateSuccess) {
+      console.log(`✅ Job ${jobId} status successfully updated to 'stopped'`)
+      
+      // Double-check by reading the status back
+      const updatedJob = await priceMatchingService.getJobStatus(jobId)
+      console.log(`🔍 Verification: Job ${jobId} current status in database: '${updatedJob?.status}'`)
+    } else {
+      console.error(`❌ Failed to update job ${jobId} status to 'stopped'`)
+    }
     
     console.log(`✅ Job ${jobId} stopped successfully`)
     console.log(`🛑 Added job ${jobId} to cancellation tracker`)
     
     res.json({ 
       success: true, 
-      message: 'Job cancelled successfully',
+      message: 'Job stopped successfully',
       jobId: jobId,
       previousStatus: currentJob.status
     })

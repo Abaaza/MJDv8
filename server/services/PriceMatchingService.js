@@ -291,7 +291,7 @@ export class PriceMatchingService {
     console.log('Loading price list from database...')
     
     let allPriceItems = []
-    const batchSize = 2000 // Increased batch size for better performance
+    const batchSize = 1000 // Increased batch size for better performance
     let hasMore = true
     
     // First, get total count for progress tracking

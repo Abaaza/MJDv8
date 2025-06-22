@@ -136,9 +136,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(userData);
         setError(null);
         
-        // Apply theme
-        if (userData.preferences?.theme) {
-          setTheme(userData.preferences.theme as 'light' | 'dark' | 'system');
+        // Apply theme safely
+        try {
+          if (userData.preferences?.theme) {
+            setTheme(userData.preferences.theme as 'light' | 'dark' | 'system');
+          }
+        } catch (error) {
+          console.warn('Failed to update theme:', error);
+          // Continue without breaking authentication
         }
         
         return userData;

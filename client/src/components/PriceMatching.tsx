@@ -514,6 +514,8 @@ export function PriceMatching() {
       const timestamp2 = new Date().toLocaleTimeString()
       setLog(prev => [...prev, `[${timestamp2}] ✋ Job stopped by user`])
       
+      console.log(`🔍 [STOP DEBUG] Job ${currentJob.id} stopped, current status in state:`, currentJob?.status)
+      
       toast.success('Job stopped successfully')
 
     } catch (error) {
@@ -541,6 +543,11 @@ export function PriceMatching() {
           return
         }
 
+        console.log(`🔍 [POLLING DEBUG] Job ${jobId} polling result:`, { 
+          status: data.status, 
+          progress: data.progress,
+          updated_at: data.updated_at 
+        })
         setCurrentJob(data)
 
         if (data.status === 'processing') {

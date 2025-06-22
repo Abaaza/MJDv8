@@ -16,7 +16,7 @@ const navigation = [
 export const Sidebar = React.memo(function Sidebar() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
-  const { signOut, profile, isAdmin } = useAuth();
+  const { signOut, user, isAdmin } = useAuth();
 
   const SidebarContent = () => (
     <div className="flex h-full flex-col bg-sidebar-background">
@@ -75,7 +75,7 @@ export const Sidebar = React.memo(function Sidebar() {
         )}
         <div className="pt-2 border-t border-sidebar-border">
           <div className="px-3 py-2 text-xs text-sidebar-foreground opacity-75">
-            {profile?.name || 'User'} ({profile?.role})
+            {user?.name || 'User'} ({user?.role})
           </div>
           <Button
             variant="ghost"

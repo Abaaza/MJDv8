@@ -43,6 +43,15 @@ export default function Projects() {
     fetchJobs()
   }, [user])
 
+  // Auto-refresh jobs every 3 seconds to stay in sync with processing status
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchJobs()
+    }, 3000) // Refresh every 3 seconds
+
+    return () => clearInterval(interval)
+  }, [])
+
   const fetchJobs = async () => {
     try {
       const { data, error } = await supabase
@@ -55,6 +64,7 @@ export default function Projects() {
         return
       }
 
+      console.log('📊 Fetched jobs:', data?.map(job => ({ id: job.id, status: job.status, project_name: job.project_name })))
       setJobs(data || [])
     } catch (error) {
       console.error('Error fetching jobs:', error)

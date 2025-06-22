@@ -1,5 +1,5 @@
-
 import { createContext, useContext, useEffect, useState } from "react"
+import { apiEndpoint } from "@/config/api"
 
 type Theme = "dark" | "light" | "system"
 
@@ -49,11 +49,50 @@ export function ThemeProvider({
     root.classList.add(theme)
   }, [theme])
 
+  // Function to save theme to user profile
+  const saveThemeToProfile = async (newTheme: Theme) => {
+    try {
+      const accessToken = localStorage.getItem('accessToken')
+      
+      if (!accessToken) {
+        return
+      }
+
+      const response = await fetch(apiEndpoint('/auth/me'), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: JSON.stringify({
+          preferences: {
+            theme: newTheme
+          }
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        console.warn('Failed to save theme to profile:', data.message)
+      }
+    } catch (error) {
+      console.warn('Error saving theme to profile:', error)
+      // Don't throw error - just log it so theme still works locally
+    }
+  }
+
   const value = {
     theme,
-    setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme)
-      setTheme(theme)
+    setTheme: (newTheme: Theme) => {
+      // Save to localStorage immediately
+      localStorage.setItem(storageKey, newTheme)
+      setTheme(newTheme)
+      
+      // Save to user profile (async, non-blocking)
+      saveThemeToProfile(newTheme).catch(error => {
+        console.warn('Failed to save theme to profile:', error)
+      })
     },
   }
 
