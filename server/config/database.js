@@ -5,82 +5,52 @@ dotenv.config();
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/mjd-auth';
 
-// MongoDB connection options optimized for serverless
+// Simplified MongoDB connection options for serverless (similar to working API functions)
 const options = {
-  // Connection management
-  maxPoolSize: 5, // Maintain up to 5 socket connections for serverless
-  serverSelectionTimeoutMS: 10000, // Increased timeout for serverless cold starts
-  socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
-  bufferCommands: true, // Enable buffering for better serverless compatibility
-  bufferMaxEntries: 0, // Disable buffer size limit
-  
-  // Replica set / sharding
-  retryWrites: true,
-  w: 'majority',
-  
-  // Connection retry options
-  maxIdleTimeMS: 30000, // Close connections after 30 seconds of inactivity
-  connectTimeoutMS: 10000, // Increased connection timeout
+  maxPoolSize: 1, // Single connection for serverless
+  serverSelectionTimeoutMS: 10000,
+  connectTimeoutMS: 10000,
+  bufferCommands: false, // Disable buffering to match API function behavior
+  bufferMaxEntries: 0,
 };
 
 // Connection state management
 let isConnected = false;
 
 export const connectDB = async () => {
-  if (isConnected) {
+  if (isConnected && mongoose.connection.readyState === 1) {
     console.log('📦 Using existing MongoDB connection');
     return mongoose.connection;
   }
 
   try {
     console.log('🔌 Connecting to MongoDB...');
+    console.log('🔍 MongoDB URI exists:', !!MONGODB_URI);
     
     // Set mongoose options
     mongoose.set('strictQuery', true);
     
-    // Connect to MongoDB
+    // Simple connection without event listeners for serverless
     const connection = await mongoose.connect(MONGODB_URI, options);
     
     isConnected = true;
     console.log(`✅ MongoDB connected: ${connection.connection.host}`);
     
-    // Connection event listeners
-    mongoose.connection.on('connected', () => {
-      console.log('📦 Mongoose connected to MongoDB');
-    });
-
+    // Simple error handler
     mongoose.connection.on('error', (err) => {
       console.error('❌ Mongoose connection error:', err);
       isConnected = false;
     });
 
-    mongoose.connection.on('disconnected', () => {
-      console.log('📦 Mongoose disconnected from MongoDB');
-      isConnected = false;
-    });
-
-    // Graceful shutdown
-    process.on('SIGINT', async () => {
-      try {
-        await mongoose.connection.close();
-        console.log('📦 MongoDB connection closed through app termination');
-        process.exit(0);
-      } catch (error) {
-        console.error('❌ Error closing MongoDB connection:', error);
-        process.exit(1);
-      }
-    });
-
     return connection;
   } catch (error) {
     console.error('❌ MongoDB connection failed:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      code: error.code,
+      type: error.constructor.name
+    });
     isConnected = false;
-    
-    // Don't exit in serverless environments
-    if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
-      process.exit(1);
-    }
-    
     throw error;
   }
 };
