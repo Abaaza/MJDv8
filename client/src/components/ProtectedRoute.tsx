@@ -12,7 +12,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children, 
   adminOnly = false 
 }) => {
-  const { user, profile, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   if (loading) {
     return (
@@ -22,11 +22,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
-  if (!user || !profile) {
+  if (!user) {
     return <Navigate to="/auth" replace />;
   }
 
-  if (adminOnly && profile.role !== 'admin') {
+  if (adminOnly && user.role !== 'admin') {
     return <Navigate to="/" replace />;
   }
 

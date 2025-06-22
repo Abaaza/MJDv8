@@ -12,10 +12,10 @@ import { nanoid } from 'nanoid';
 
 const router = express.Router();
 
-// Rate limiters
-const loginLimiter = createRateLimiter(15 * 60 * 1000, 5); // 5 attempts per 15 minutes
-const signupLimiter = createRateLimiter(60 * 60 * 1000, 3); // 3 signups per hour
-const resetLimiter = createRateLimiter(60 * 60 * 1000, 3); // 3 reset attempts per hour
+// Rate limiters removed for development
+// const loginLimiter = createRateLimiter(15 * 60 * 1000, 5); // 5 attempts per 15 minutes
+// const signupLimiter = createRateLimiter(60 * 60 * 1000, 3); // 3 signups per hour
+// const resetLimiter = createRateLimiter(60 * 60 * 1000, 3); // 3 reset attempts per hour
 
 // Helper function to create tokens and login response
 const createLoginResponse = async (user) => {
@@ -39,7 +39,7 @@ const createLoginResponse = async (user) => {
 };
 
 // 1. User Registration (Request Access)
-router.post('/register', signupLimiter, async (req, res) => {
+router.post('/register', async (req, res) => {
   try {
     const { email, password, name, company, phone, message } = req.body;
 
@@ -121,7 +121,7 @@ router.post('/register', signupLimiter, async (req, res) => {
 });
 
 // 2. User Login
-router.post('/login', loginLimiter, async (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -366,7 +366,7 @@ router.put('/change-password', authenticate, async (req, res) => {
 });
 
 // 9. Request password reset
-router.post('/forgot-password', resetLimiter, async (req, res) => {
+router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
 
