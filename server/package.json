@@ -19,7 +19,9 @@
     "logs": "npx serverless logs -f api -s prod --tail",
     "logs:dev": "npx serverless logs -f api -s dev --tail",
     "check-env": "node check-environment.js",
-    "test": "node test-supabase.js"
+    "test": "node test-supabase.js",
+    "create-admin": "node scripts/create-admin.js",
+    "setup": "npm run create-admin"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.3",

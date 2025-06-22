@@ -3,15 +3,19 @@ import cors from 'cors';
 import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { connectDB, checkDBHealth } from './config/database.js';
 import { priceMatchingRouter } from './routes/priceMatching.js';
-import userManagementRouter from './routes/userManagement.js';
+import authRouter from './routes/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// CORS Configuration - allow all origins in production since Vercel handles CORS
+// Connect to MongoDB
+connectDB().catch(console.error);
+
+// CORS Configuration
 const corsOptions = {
   origin: process.env.VERCEL ? true : [
     'https://main.d197lvv1o18hb3.amplifyapp.com',
@@ -44,28 +48,40 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Routes
+app.use('/auth', authRouter);
 app.use('/price-matching', priceMatchingRouter);
-app.use('/user-management', userManagementRouter);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    environment: process.env.VERCEL ? 'vercel' : 'local',
-    node_version: process.version
-  });
+// Health check with database status
+app.get('/health', async (req, res) => {
+  try {
+    const dbHealth = await checkDBHealth();
+    
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      environment: process.env.VERCEL ? 'vercel' : 'local',
+      node_version: process.version,
+      database: dbHealth
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'error',
+      timestamp: new Date().toISOString(),
+      database: { status: 'unhealthy', error: error.message }
+    });
+  }
 });
 
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'MJD Price Matching API',
-    version: '1.0.0',
+    message: 'MJD Authentication & Price Matching API',
+    version: '2.0.0',
+    authentication: 'MongoDB + JWT',
     endpoints: {
       health: '/health',
-      priceMatching: '/price-matching/*',
-      userManagement: '/user-management/*'
+      auth: '/auth/*',
+      priceMatching: '/price-matching/*'
     }
   });
 });

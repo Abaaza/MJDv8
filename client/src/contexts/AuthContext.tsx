@@ -1,24 +1,26 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { User, Session, AuthError } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useTheme } from '@/components/theme-provider';
 
-interface Profile {
-  id: string;
-  name: string | null;
+interface User {
+  _id: string;
+  email: string;
+  name: string;
   role: string;
-  theme: string;
-  email_notifications: boolean;
-  push_notifications: boolean;
-  created_at: string;
-  updated_at: string;
-  status?: string;
+  status: string;
+  company?: string;
+  phone?: string;
+  preferences: {
+    theme: string;
+    emailNotifications: boolean;
+    pushNotifications: boolean;
+  };
+  lastLogin?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
-  profile: Profile | null;
   loading: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -28,8 +30,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  session: null,
-  profile: null,
   loading: true,
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -45,211 +45,158 @@ export const useAuth = () => {
   return context;
 };
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { setTheme } = useTheme();
-  const setThemeRef = useRef(setTheme);
 
-  // Update the ref when setTheme changes
-  useEffect(() => {
-    setThemeRef.current = setTheme;
-  }, [setTheme]);
+  // Get stored tokens
+  const getAccessToken = () => localStorage.getItem('accessToken');
+  const getRefreshToken = () => localStorage.getItem('refreshToken');
+  const setTokens = (accessToken: string, refreshToken: string) => {
+    localStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+  };
+  const clearTokens = () => {
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+  };
 
-  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
-    try {
-      // Silent profile fetching - no console logging
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name, role, theme, email_notifications, push_notifications, created_at, updated_at, status')
-        .eq('id', userId)
-        .single();
+  // API request helper with automatic token refresh
+  const apiRequest = async (url: string, options: RequestInit = {}) => {
+    let accessToken = getAccessToken();
+    
+    const makeRequest = async (token: string | null) => {
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      };
+      
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
 
-      if (error) {
-        // Silent error handling - no console logging
-        
-        // If profile doesn't exist, create one
-        if (error.code === 'PGRST116') {
-          // Profile not found, creating new profile silently
-          const { data: newProfile, error: createError } = await supabase
-            .from('profiles')
-            .insert([
-              {
-                id: userId,
-                name: user?.user_metadata?.name || user?.email,
-                role: 'user',
-                theme: 'light',
-                email_notifications: true,
-                push_notifications: true,
-              }
-            ])
-            .select()
-            .single();
+      return fetch(`${API_URL}${url}`, {
+        ...options,
+        headers,
+      });
+    };
 
-          if (createError) {
-            // Silent error handling - no console logging
-            setError('Failed to create user profile');
-            return null;
+    let response = await makeRequest(accessToken);
+
+    // If token expired, try to refresh
+    if (response.status === 401 && accessToken) {
+      const refreshToken = getRefreshToken();
+      
+      if (refreshToken) {
+        try {
+          const refreshResponse = await fetch(`${API_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken }),
+          });
+
+          if (refreshResponse.ok) {
+            const { accessToken: newAccessToken } = await refreshResponse.json();
+            setTokens(newAccessToken, refreshToken);
+            
+            // Retry original request with new token
+            response = await makeRequest(newAccessToken);
+          } else {
+            // Refresh failed, clear tokens
+            clearTokens();
+            setUser(null);
           }
+        } catch (error) {
+          clearTokens();
+          setUser(null);
+        }
+      }
+    }
 
-          // Profile created successfully - no logging
-          return newProfile;
+    return response;
+  };
+
+  const fetchProfile = useCallback(async () => {
+    try {
+      const response = await apiRequest('/auth/me');
+      
+      if (response.ok) {
+        const data = await response.json();
+        const userData = data.user;
+        
+        setUser(userData);
+        setError(null);
+        
+        // Apply theme
+        if (userData.preferences?.theme) {
+          setTheme(userData.preferences.theme as 'light' | 'dark' | 'system');
         }
         
-        setError('Failed to fetch user profile');
+        return userData;
+      } else {
+        // If unauthorized, clear everything
+        if (response.status === 401) {
+          clearTokens();
+          setUser(null);
+        }
         return null;
       }
-
-      // Profile fetched successfully - no logging
-      setError(null);
-      
-      // Apply theme immediately using the ref
-      if (data.theme) {
-        setThemeRef.current(data.theme as 'light' | 'dark' | 'system');
-      }
-
-      // Check if user is active
-      if (data.status === 'pending') {
-        throw new Error('Your account is pending admin approval. Please wait for approval before signing in.');
-      }
-      
-      return {
-        ...data,
-        status: data.status || 'active'
-      };
     } catch (error) {
-      // Silent error handling - no console logging
-      setError('Unexpected error occurred');
+      console.error('Error fetching profile:', error);
+      setError('Failed to fetch user profile');
       return null;
     }
-  }, [user]);
+  }, [setTheme]);
 
   const refreshProfile = useCallback(async () => {
-    if (user) {
-      const profileData = await fetchProfile(user.id);
-      setProfile(profileData);
+    if (getAccessToken()) {
+      await fetchProfile();
     }
-  }, [user, fetchProfile]);
-
-  const cleanupAuthState = useCallback(() => {
-    try {
-      localStorage.removeItem('supabase.auth.token');
-      Object.keys(localStorage).forEach((key) => {
-        if (key.startsWith('supabase.auth.') || key.includes('sb-')) {
-          localStorage.removeItem(key);
-        }
-      });
-    } catch (error) {
-      // Silent error handling - no console logging
-    }
-  }, []);
+  }, [fetchProfile]);
 
   useEffect(() => {
-    let mounted = true;
-
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        // Silent auth state changes - no console logging
-        if (!mounted) return;
-
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          // Fetch profile with delay to ensure user is fully authenticated
-          setTimeout(async () => {
-            if (mounted) {
-              const profileData = await fetchProfile(session.user.id);
-              setProfile(profileData);
-              setLoading(false);
-            }
-          }, 100);
-        } else {
-          setProfile(null);
-          setError(null);
-          setLoading(false);
-        }
+    const initAuth = async () => {
+      const accessToken = getAccessToken();
+      
+      if (accessToken) {
+        await fetchProfile();
       }
-    );
-
-    // Check for existing session on mount
-    const checkSession = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          // Silent error handling - no console logging
-          setError('Session validation failed');
-          setLoading(false);
-          return;
-        }
-
-        if (!mounted) return;
-
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          const profileData = await fetchProfile(session.user.id);
-          setProfile(profileData);
-        }
-        
-        setLoading(false);
-      } catch (error) {
-        // Silent error handling - no console logging
-        if (mounted) {
-          setError('Failed to validate session');
-          setLoading(false);
-        }
-      }
+      
+      setLoading(false);
     };
 
-    checkSession();
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, []); // Remove setTheme dependency
+    initAuth();
+  }, [fetchProfile]);
 
   const signOut = async () => {
     try {
-      // Signing out user silently
+      const refreshToken = getRefreshToken();
       
-      // Clean up local storage first
-      cleanupAuthState();
-
-      // Sign out from Supabase
-      const { error } = await supabase.auth.signOut({ scope: 'global' });
-      
-      if (error) {
-        // Silent error handling - still redirect on sign out error
+      if (refreshToken) {
+        // Notify server about logout
+        await apiRequest('/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refreshToken }),
+        });
       }
-      
-      // Reset state
-      setUser(null);
-      setSession(null);
-      setProfile(null);
-      setError(null);
-      
-      // Force redirect
-      window.location.href = '/auth';
     } catch (error) {
-      // Silent error handling - force redirect even on error
-      window.location.href = '/auth';
+      console.error('Logout error:', error);
+    } finally {
+      // Clear local state regardless of server response
+      clearTokens();
+      setUser(null);
+      setError(null);
     }
   };
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = user?.role === 'admin';
 
   const value = {
     user,
-    session,
-    profile,
     loading,
     signOut,
     refreshProfile,
