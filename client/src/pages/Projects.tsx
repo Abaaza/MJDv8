@@ -45,7 +45,6 @@ export default function Projects() {
 
   const fetchJobs = async () => {
     try {
-      console.log('Fetching jobs...')
       const { data, error } = await supabase
         .from('ai_matching_jobs')
         .select('*')
@@ -56,7 +55,6 @@ export default function Projects() {
         return
       }
 
-      console.log('Jobs fetched:', data?.length || 0)
       setJobs(data || [])
     } catch (error) {
       console.error('Error fetching jobs:', error)

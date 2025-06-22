@@ -114,13 +114,13 @@ export const UserManagementSection: React.FC = () => {
 
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
     try {
-      const token = await getAuthToken();
+      const accessToken = localStorage.getItem('accessToken');
       
-      const response = await fetch(apiEndpoint(`/user-management${endpoint}`), {
+      const response = await fetch(apiEndpoint(`/auth/admin${endpoint}`), {
         ...options,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${accessToken}`,
           ...options.headers,
         },
       });
@@ -145,8 +145,8 @@ export const UserManagementSection: React.FC = () => {
 
   const fetchAccessRequests = async () => {
     try {
-      const data = await apiCall('/access-requests');
-      setAccessRequests(data);
+      const data = await apiCall('/pending');
+      setAccessRequests(data.users || []);
     } catch (error: any) {
       setError('Failed to fetch access requests: ' + error.message);
     }
@@ -169,7 +169,7 @@ export const UserManagementSection: React.FC = () => {
     setSuccess('');
 
     try {
-      await apiCall(`/access-requests/${requestId}/approve`, {
+      await apiCall(`/approve/${requestId}`, {
         method: 'POST',
         body: JSON.stringify({
           admin_notes: adminNotes,
