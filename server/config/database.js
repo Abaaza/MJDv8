@@ -11,7 +11,6 @@ const options = {
   serverSelectionTimeoutMS: 10000,
   connectTimeoutMS: 10000,
   bufferCommands: false, // Disable buffering to match API function behavior
-  bufferMaxEntries: 0,
 };
 
 // Connection state management
