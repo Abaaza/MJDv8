@@ -130,8 +130,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = await response.json();
         const userData = data.user;
         
-        // Add id field for Supabase compatibility - use generic shared user ID for all users
-        userData.id = 'shared-user-id';
+        // Add id field for Supabase compatibility - use your existing Supabase user ID for all operations
+        userData.id = 'b749cf77-02d6-4a74-b210-cce3d19f0910';
         
         setUser(userData);
         setError(null);

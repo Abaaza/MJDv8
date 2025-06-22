@@ -76,7 +76,7 @@ export function useClients() {
         .from('clients')
         .insert({
           ...clientData,
-          user_id: 'shared-user-id' // Use shared user ID for all clients
+          user_id: user.id // Use the user ID from context (which is the shared Supabase UUID)
         })
         .select()
         .single()
