@@ -124,8 +124,7 @@ const userMjdSchema = new mongoose.Schema({
   }
 });
 
-// Indexes for performance
-userMjdSchema.index({ email: 1 });
+// Indexes for performance (email index is automatic due to unique: true)
 userMjdSchema.index({ status: 1 });
 userMjdSchema.index({ role: 1 });
 userMjdSchema.index({ 'refreshTokens.token': 1 });
