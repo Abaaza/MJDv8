@@ -508,8 +508,8 @@ export function PriceMatching() {
       isProcessingRef.current = false
       clearPollInterval()
 
-      // Update job state to show cancelled
-      setCurrentJob(prev => prev ? { ...prev, status: 'cancelled' } : null)
+      // Update job state to show stopped
+      setCurrentJob(prev => prev ? { ...prev, status: 'stopped' } : null)
 
       const timestamp2 = new Date().toLocaleTimeString()
       setLog(prev => [...prev, `[${timestamp2}] ✋ Job stopped by user`])
@@ -586,14 +586,14 @@ export function PriceMatching() {
           clearPollInterval()
           
           toast.error(`Processing failed: ${errorDetails}`)
-        } else if (data.status === 'cancelled') {
+        } else if (data.status === 'cancelled' || data.status === 'stopped') {
           const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] ✋ Job was cancelled`])
+          setLog(prev => [...prev, `[${timestamp}] ✋ Job was ${data.status}`])
           setIsProcessing(false)
           isProcessingRef.current = false
           clearPollInterval()
           
-          toast.info('Job was cancelled')
+          toast.info(`Job was ${data.status}`)
         }
       } catch (error) {
         console.error('Polling error:', error)
@@ -825,7 +825,7 @@ export function PriceMatching() {
         </CardContent>
       </Card>
 
-      {(isProcessing || (currentJob && (currentJob.status === 'cancelled' || currentJob.status === 'failed'))) && currentJob && (
+      {(isProcessing || (currentJob && (currentJob.status === 'cancelled' || currentJob.status === 'stopped' || currentJob.status === 'failed'))) && currentJob && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">

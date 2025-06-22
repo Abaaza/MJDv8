@@ -29,28 +29,29 @@ import { apiEndpoint } from '@/config/api'
 import { toast } from 'sonner';
 
 interface AccessRequest {
-  id: string;
+  _id: string;
   email: string;
-  full_name: string;
+  name: string;
   company?: string;
   phone?: string;
-  message?: string;
-  requested_role: string;
+  accessRequest?: {
+    message?: string;
+    requestedRole: string;
+    adminNotes?: string;
+  };
   status: 'pending' | 'approved' | 'rejected';
-  admin_notes?: string;
-  created_at: string;
-  expires_at: string;
+  createdAt: string;
 }
 
 interface User {
-  id: string;
+  _id: string;
   name: string;
+  email: string;
   role: string;
   status: string;
-  last_login?: string;
-  failed_login_attempts: number;
-  two_factor_enabled: boolean;
-  created_at: string;
+  lastLogin?: string;
+  failedLoginAttempts: number;
+  createdAt: string;
 }
 
 interface UserRole {
@@ -172,8 +173,8 @@ export const UserManagementSection: React.FC = () => {
       await apiCall(`/approve/${requestId}`, {
         method: 'POST',
         body: JSON.stringify({
-          admin_notes: adminNotes,
-          user_role: approvalRole || selectedRequest.requested_role
+          adminNotes: adminNotes,
+          role: approvalRole || selectedRequest.accessRequest?.requestedRole || 'user'
         })
       });
 
@@ -196,9 +197,9 @@ export const UserManagementSection: React.FC = () => {
     setSuccess('');
 
     try {
-      await apiCall(`/access-requests/${requestId}/reject`, {
+      await apiCall(`/reject/${requestId}`, {
         method: 'POST',
-        body: JSON.stringify({ admin_notes: adminNotes })
+        body: JSON.stringify({ adminNotes: adminNotes })
       });
 
       setSuccess('Access request rejected.');
@@ -218,13 +219,8 @@ export const UserManagementSection: React.FC = () => {
     setSuccess('');
 
     try {
-      await apiCall(`/users/${userId}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ role: newRole })
-      });
-
-      setSuccess('User role updated successfully!');
-      await fetchUsers();
+      // For now, just show a message that this feature is not implemented
+      setError('User role update feature is not implemented yet');
     } catch (error: any) {
       setError('Failed to update user role: ' + error.message);
     } finally {
@@ -238,12 +234,8 @@ export const UserManagementSection: React.FC = () => {
     setSuccess('');
 
     try {
-      await apiCall(`/users/${userId}/deactivate`, {
-        method: 'PUT'
-      });
-
-      setSuccess('User deactivated successfully!');
-      await fetchUsers();
+      // For now, just show a message that this feature is not implemented
+      setError('User deactivation feature is not implemented yet');
     } catch (error: any) {
       setError('Failed to deactivate user: ' + error.message);
     } finally {
@@ -354,23 +346,23 @@ export const UserManagementSection: React.FC = () => {
               ) : (
                 <div className="space-y-4">
                   {accessRequests.map((request) => (
-                    <Card key={request.id}>
+                    <Card key={request._id}>
                       <CardContent className="p-6">
                         <div className="flex justify-between items-start">
                           <div className="space-y-2">
                             <div className="flex items-center space-x-3">
-                              <h4 className="font-medium">{request.full_name}</h4>
+                              <h4 className="font-medium">{request.name}</h4>
                               {getStatusBadge(request.status)}
                             </div>
                             <p className="text-sm text-muted-foreground">{request.email}</p>
                             {request.company && (
                               <p className="text-sm text-muted-foreground">Company: {request.company}</p>
                             )}
-                            {request.message && (
-                              <p className="text-sm bg-gray-50 p-3 rounded">{request.message}</p>
+                            {request.accessRequest?.message && (
+                              <p className="text-sm bg-gray-50 p-3 rounded">{request.accessRequest.message}</p>
                             )}
                             <p className="text-xs text-muted-foreground">
-                              Requested: {new Date(request.created_at).toLocaleDateString()}
+                              Requested: {new Date(request.createdAt).toLocaleDateString()}
                             </p>
                           </div>
 
@@ -383,7 +375,7 @@ export const UserManagementSection: React.FC = () => {
                                     variant="default"
                                     onClick={() => {
                                       setSelectedRequest(request);
-                                      setApprovalRole(request.requested_role);
+                                      setApprovalRole(request.accessRequest?.requestedRole || 'user');
                                     }}
                                   >
                                     <CheckCircle className="h-4 w-4 mr-2" />
@@ -394,7 +386,7 @@ export const UserManagementSection: React.FC = () => {
                                   <DialogHeader>
                                     <DialogTitle>Approve Access Request</DialogTitle>
                                     <DialogDescription>
-                                      Approve access for {request.full_name}
+                                      Approve access for {request.name}
                                     </DialogDescription>
                                   </DialogHeader>
                                   
@@ -429,13 +421,13 @@ export const UserManagementSection: React.FC = () => {
                                   <DialogFooter>
                                     <Button
                                       variant="destructive"
-                                      onClick={() => handleRejectRequest(request.id)}
+                                      onClick={() => handleRejectRequest(request._id)}
                                       disabled={loading}
                                     >
                                       Reject
                                     </Button>
                                     <Button
-                                      onClick={() => handleApproveRequest(request.id)}
+                                      onClick={() => handleApproveRequest(request._id)}
                                       disabled={loading}
                                     >
                                       Approve
@@ -447,7 +439,7 @@ export const UserManagementSection: React.FC = () => {
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() => handleRejectRequest(request.id)}
+                                onClick={() => handleRejectRequest(request._id)}
                                 disabled={loading}
                               >
                                 <XCircle className="h-4 w-4 mr-2" />
@@ -484,25 +476,25 @@ export const UserManagementSection: React.FC = () => {
                 </TableHeader>
                 <TableBody>
                   {users.map((user) => (
-                    <TableRow key={user.id}>
+                    <TableRow key={user._id}>
                       <TableCell>
                         <div>
                           <p className="font-medium">{user.name}</p>
-                          <p className="text-sm text-muted-foreground truncate">{user.id}</p>
+                          <p className="text-sm text-muted-foreground truncate">{user.email}</p>
                         </div>
                       </TableCell>
                       <TableCell>{getRoleBadge(user.role)}</TableCell>
                       <TableCell>{getStatusBadge(user.status)}</TableCell>
                       <TableCell>
                         <span className="text-sm">
-                          {user.last_login ? new Date(user.last_login).toLocaleDateString() : 'Never'}
+                          {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}
                         </span>
                       </TableCell>
                       <TableCell>
                         <div className="flex space-x-2">
                           <Select
                             value={user.role}
-                            onValueChange={(newRole) => handleUpdateUserRole(user.id, newRole)}
+                            onValueChange={(newRole) => handleUpdateUserRole(user._id, newRole)}
                           >
                             <SelectTrigger className="w-24">
                               <SelectValue />
@@ -520,7 +512,7 @@ export const UserManagementSection: React.FC = () => {
                             <Button
                               variant="destructive"
                               size="sm"
-                              onClick={() => handleDeactivateUser(user.id)}
+                              onClick={() => handleDeactivateUser(user._id)}
                             >
                               Deactivate
                             </Button>

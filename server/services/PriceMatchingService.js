@@ -45,6 +45,16 @@ export class PriceMatchingService {
       console.log(`🚀 STARTING PROCESSING: job ${jobId} with file: ${originalFileName}`)
       console.log(`📁 Input file path: ${inputFilePath}`)
       
+      // Import cancellation checker
+      const { isJobCancelled } = await import('../routes/priceMatching.js')
+      
+      // Check if job was cancelled before starting
+      if (isJobCancelled(jobId)) {
+        console.log(`🛑 Job ${jobId} was cancelled, stopping processing`)
+        await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+        return
+      }
+      
       // Verify input file exists
       if (!await fs.pathExists(inputFilePath)) {
         throw new Error(`Input file does not exist: ${inputFilePath}`)
@@ -92,6 +102,13 @@ export class PriceMatchingService {
       const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
       console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
       
+      // Check if job was cancelled after parsing
+      if (isJobCancelled(jobId)) {
+        console.log(`🛑 Job ${jobId} was cancelled after parsing, stopping processing`)
+        await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+        return
+      }
+      
       // Update progress to 30% after parsing
       await this.updateJobStatus(jobId, 'processing', 20, `Found ${extractedItems.length} items to match`, {
         total_items: extractedItems.length,
@@ -134,6 +151,14 @@ export class PriceMatchingService {
 
       // Step 3: Match items using Cohere AI matching
       console.log(`🔍 Starting AI price matching...`)
+      
+      // Check if job was cancelled before expensive matching operation
+      if (isJobCancelled(jobId)) {
+        console.log(`🛑 Job ${jobId} was cancelled before matching, stopping processing`)
+        await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+        return
+      }
+      
       let matchingResult
       
       if (matchingMethod === 'cohere' || !matchingMethod) {

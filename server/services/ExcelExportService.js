@@ -298,14 +298,16 @@ export class ExcelExportService {
         }
         
         // Copy column properties
-        originalWorksheet.columns.forEach((column, index) => {
-          if (column.width) {
-            newWorksheet.getColumn(index + 1).width = column.width
-          }
-          if (column.hidden) {
-            newWorksheet.getColumn(index + 1).hidden = column.hidden
-          }
-        })
+        if (originalWorksheet && originalWorksheet.columns) {
+          originalWorksheet.columns.forEach((column, index) => {
+            if (column.width) {
+              newWorksheet.getColumn(index + 1).width = column.width
+            }
+            if (column.hidden) {
+              newWorksheet.getColumn(index + 1).hidden = column.hidden
+            }
+          })
+        }
         
         // Set width for new columns
         newWorksheet.getColumn(maxColumn + 2).width = 45 // Matched Description
@@ -317,61 +319,67 @@ export class ExcelExportService {
           newWorksheet.getColumn(maxColumn + 5).width = 10 // Unit
           
           // Add rate and unit data for matches
-          originalWorksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-            const match = matchLookup.get(rowNumber)
-            if (match && rowNumber !== headerRowNum) {
-              const newRow = newWorksheet.getRow(rowNumber)
-              
-              const rateCell = newRow.getCell(maxColumn + 4)
-              rateCell.value = match.matched_rate || 0
-              rateCell.numFmt = '#,##0.00'
-              rateCell.style = {
-                fill: {
-                  type: 'pattern',
-                  pattern: 'solid',
-                  fgColor: { argb: 'FFEBEE' }
-                },
-                border: {
-                  top: { style: 'thin' },
-                  left: { style: 'thin' },
-                  bottom: { style: 'thin' },
-                  right: { style: 'thin' }
+          if (originalWorksheet && originalWorksheet.eachRow) {
+            originalWorksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+              const match = matchLookup.get(rowNumber)
+              if (match && rowNumber !== headerRowNum) {
+                const newRow = newWorksheet.getRow(rowNumber)
+                
+                const rateCell = newRow.getCell(maxColumn + 4)
+                rateCell.value = match.matched_rate || 0
+                rateCell.numFmt = '#,##0.00'
+                rateCell.style = {
+                  fill: {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFEBEE' }
+                  },
+                  border: {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                  }
+                }
+                
+                const unitCell = newRow.getCell(maxColumn + 5)
+                unitCell.value = match.unit || ''
+                unitCell.style = {
+                  fill: {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'F3E5F5' }
+                  },
+                  border: {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                  }
                 }
               }
-              
-              const unitCell = newRow.getCell(maxColumn + 5)
-              unitCell.value = match.unit || ''
-              unitCell.style = {
-                fill: {
-                  type: 'pattern',
-                  pattern: 'solid',
-                  fgColor: { argb: 'F3E5F5' }
-                },
-                border: {
-                  top: { style: 'thin' },
-                  left: { style: 'thin' },
-                  bottom: { style: 'thin' },
-                  right: { style: 'thin' }
-                }
-              }
-            }
-          })
+            })
+          }
         }
         
         // Copy merged cells
-        for (const mergeRange of originalWorksheet.model.merges) {
-          newWorksheet.mergeCells(mergeRange)
+        if (originalWorksheet && originalWorksheet.model && originalWorksheet.model.merges) {
+          for (const mergeRange of originalWorksheet.model.merges) {
+            newWorksheet.mergeCells(mergeRange)
+          }
         }
         
         // Copy images if any
-        if (originalWorksheet.getImages) {
+        if (originalWorksheet && originalWorksheet.getImages) {
           const images = originalWorksheet.getImages()
-          for (const image of images) {
-            const imageId = newWorkbook.addImage({
-              buffer: image.buffer,
-              extension: image.extension
-            })
-            newWorksheet.addImage(imageId, image.range)
+          if (images && images.length > 0) {
+            for (const image of images) {
+              const imageId = newWorkbook.addImage({
+                buffer: image.buffer,
+                extension: image.extension
+              })
+              newWorksheet.addImage(imageId, image.range)
+            }
           }
         }
       }

@@ -12,6 +12,9 @@ const __dirname = path.dirname(__filename)
 
 const router = express.Router()
 
+// Global job cancellation tracker
+const cancelledJobs = new Set()
+
 // Configure multer for file uploads
 const storage = multer.memoryStorage() // Use memory storage for Vercel Blob uploads
 
@@ -83,6 +86,12 @@ router.post('/process', upload.single('file'), async (req, res) => {
     // Start processing in background with proper error handling - DON'T AWAIT
     setImmediate(async () => {
       try {
+        // Check if job was cancelled before starting
+        if (cancelledJobs.has(jobId)) {
+          console.log(`🛑 Job ${jobId} was cancelled before processing started`)
+          return
+        }
+        
         await priceMatchingService.processFile(jobId, tempFilePath, req.file.originalname, matchingMethod)
         
         // After processing, upload output to Vercel Blob if it exists
@@ -106,15 +115,21 @@ router.post('/process', upload.single('file'), async (req, res) => {
             })
             .eq('id', jobId)
         }
-      } catch (error) {
-        console.error(`Background processing failed for job ${jobId}:`, error)
-        // Update job status to failed
-        try {
-          await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
-        } catch (updateError) {
-          console.error(`Failed to update job status for ${jobId}:`, updateError)
+        
+        // Clean up completed job from cancellation tracker
+        cancelledJobs.delete(jobId)
+              } catch (error) {
+          console.error(`Background processing failed for job ${jobId}:`, error)
+          // Update job status to failed
+          try {
+            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
+          } catch (updateError) {
+            console.error(`Failed to update job status for ${jobId}:`, updateError)
+          }
+          
+          // Clean up failed job from cancellation tracker
+          cancelledJobs.delete(jobId)
         }
-      }
     })
 
     res.json({ 
@@ -227,6 +242,12 @@ router.post('/process-base64', async (req, res) => {
       console.log('🚀 [LOCAL DEBUG] Starting local processing...')
       setImmediate(async () => {
         try {
+          // Check if job was cancelled before starting
+          if (cancelledJobs.has(jobId)) {
+            console.log(`🛑 [LOCAL DEBUG] Job ${jobId} was cancelled before processing started`)
+            return
+          }
+          
           console.log(`🔄 [LOCAL DEBUG] Background processing started for job ${jobId}`)
           await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
           console.log(`✅ [LOCAL DEBUG] Background processing completed for job ${jobId}`)
@@ -253,6 +274,9 @@ router.post('/process-base64', async (req, res) => {
               .eq('id', jobId)
             console.log(`✅ [LOCAL DEBUG] Output uploaded to storage for job ${jobId}`)
           }
+          
+          // Clean up completed job from cancellation tracker
+          cancelledJobs.delete(jobId)
         } catch (error) {
           console.error(`❌ [LOCAL DEBUG] Background processing failed for job ${jobId}:`, error)
           console.error(`❌ [LOCAL DEBUG] Error stack:`, error.stack)
@@ -262,6 +286,9 @@ router.post('/process-base64', async (req, res) => {
           } catch (updateError) {
             console.error(`❌ [LOCAL DEBUG] Failed to update job status for ${jobId}:`, updateError)
           }
+          
+          // Clean up failed job from cancellation tracker
+          cancelledJobs.delete(jobId)
         }
       })
     }
@@ -477,10 +504,14 @@ router.post('/cancel/:jobId', async (req, res) => {
       })
     }
     
-    // Update job status to cancelled
-    await priceMatchingService.updateJobStatus(jobId, 'cancelled', 0, 'Job cancelled by user')
+    // Add job to cancellation tracker
+    cancelledJobs.add(jobId)
     
-    console.log(`✅ Job ${jobId} cancelled successfully`)
+    // Update job status to stopped
+    await priceMatchingService.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+    
+    console.log(`✅ Job ${jobId} stopped successfully`)
+    console.log(`🛑 Added job ${jobId} to cancellation tracker`)
     
     res.json({ 
       success: true, 
@@ -862,5 +893,15 @@ router.get('/test-admin-settings', async (req, res) => {
     })
   }
 })
+
+// Export cancellation checker for other services
+export function isJobCancelled(jobId) {
+  return cancelledJobs.has(jobId)
+}
+
+// Clean up old cancelled jobs (optional - for memory management)
+export function cleanupCancelledJob(jobId) {
+  cancelledJobs.delete(jobId)
+}
 
 export { router as priceMatchingRouter } 

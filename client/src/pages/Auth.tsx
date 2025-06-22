@@ -29,10 +29,7 @@ export default function Auth() {
   const [registerData, setRegisterData] = useState({
     email: '',
     password: '',
-    name: '',
-    company: '',
-    phone: '',
-    message: ''
+    name: ''
   });
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -42,13 +39,19 @@ export default function Auth() {
     setMessage('');
 
     try {
-      const response = await fetch(apiEndpoint('/auth/login'), {
+      const endpoint = apiEndpoint('/auth/login');
+      console.log('Login endpoint:', endpoint);
+      console.log('Login data:', loginData);
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(loginData),
       });
 
+      console.log('Login response status:', response.status);
       const data = await response.json();
+      console.log('Login response data:', data);
 
       if (response.ok) {
         // Store tokens
@@ -91,10 +94,7 @@ export default function Auth() {
         setRegisterData({
           email: '',
           password: '',
-          name: '',
-          company: '',
-          phone: '',
-          message: ''
+          name: ''
         });
       } else {
         setError(data.message || 'Registration failed');
@@ -177,7 +177,7 @@ export default function Auth() {
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleRegister} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div>
                     <Input
                       type="text"
                       placeholder="Full Name"
@@ -186,6 +186,8 @@ export default function Auth() {
                       required
                       disabled={loading}
                     />
+                  </div>
+                  <div>
                     <Input
                       type="email"
                       placeholder="Email"
@@ -204,31 +206,6 @@ export default function Auth() {
                       required
                       minLength={6}
                       disabled={loading}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Input
-                      type="text"
-                      placeholder="Company (optional)"
-                      value={registerData.company}
-                      onChange={(e) => setRegisterData({ ...registerData, company: e.target.value })}
-                      disabled={loading}
-                    />
-                    <Input
-                      type="tel"
-                      placeholder="Phone (optional)"
-                      value={registerData.phone}
-                      onChange={(e) => setRegisterData({ ...registerData, phone: e.target.value })}
-                      disabled={loading}
-                    />
-                  </div>
-                  <div>
-                    <Textarea
-                      placeholder="Tell us why you need access to the system (optional)"
-                      value={registerData.message}
-                      onChange={(e) => setRegisterData({ ...registerData, message: e.target.value })}
-                      disabled={loading}
-                      rows={3}
                     />
                   </div>
                   <Button 

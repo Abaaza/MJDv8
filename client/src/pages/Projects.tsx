@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Search, Download, RefreshCw, Clock, CheckCircle, AlertCircle, Zap, FileSpreadsheet, Edit } from "lucide-react"
+import { Search, Download, RefreshCw, Clock, CheckCircle, AlertCircle, Zap, FileSpreadsheet, Edit, Square } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
 import { Tables } from "@/integrations/supabase/types"
@@ -180,6 +180,8 @@ export default function Projects() {
       case "processing": return "bg-blue-100 text-blue-800"
       case "failed": return "bg-red-100 text-red-800"
       case "pending": return "bg-yellow-100 text-yellow-800"
+      case "stopped": return "bg-orange-100 text-orange-800"
+      case "cancelled": return "bg-orange-100 text-orange-800"
       default: return "bg-gray-100 text-gray-800"
     }
   }
@@ -190,12 +192,40 @@ export default function Projects() {
       case "processing": return <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
       case "failed": return <AlertCircle className="h-4 w-4 text-red-600" />
       case "pending": return <Clock className="h-4 w-4 text-yellow-600" />
+      case "stopped": return <Square className="h-4 w-4 text-orange-600" />
+      case "cancelled": return <Square className="h-4 w-4 text-orange-600" />
       default: return <Clock className="h-4 w-4 text-gray-600" />
     }
   }
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString()
+  }
+
+  const handleStopJob = async (jobId: string, projectName: string) => {
+    try {
+      const response = await fetch(apiEndpoint(`/price-matching/cancel/${jobId}`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Stop failed: ${errorData.message || errorData.error}`)
+      }
+
+      toast.success(`Job "${projectName}" stopped successfully`)
+      
+      // Refresh the jobs list to show updated status
+      await fetchJobs()
+
+    } catch (error) {
+      console.error('Stop error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to stop job: ${errorMessage}`)
+    }
   }
 
   const downloadJobResults = async (jobId: string, projectName: string) => {
@@ -447,6 +477,17 @@ export default function Projects() {
                               <Download className="h-4 w-4" />
                             </Button>
                           </>
+                        )}
+                        {(job.status === "processing" || job.status === "pending") && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => handleStopJob(job.id, job.project_name)}
+                            title="Stop Process"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Square className="h-4 w-4" />
+                          </Button>
                         )}
                         <Button variant="ghost" size="sm" onClick={fetchJobs} title="Refresh">
                           <RefreshCw className="h-4 w-4" />

@@ -150,8 +150,9 @@ export class CohereMatchingService {
       console.log(`   - Items to match: ${items.length}`)
       console.log(`   - Price list items: ${priceList.length}`)
       
-      // Import PriceMatchingService for progress updates
+      // Import PriceMatchingService for progress updates and cancellation checker
       const { PriceMatchingService } = await import('./PriceMatchingService.js')
+      const { isJobCancelled } = await import('../routes/priceMatching.js')
       const pmService = new PriceMatchingService()
       
       // Pre-compute price list embeddings
@@ -167,6 +168,13 @@ export class CohereMatchingService {
       const totalBatches = Math.ceil(items.length / this.EMBEDDING_BATCH_SIZE)
       
       for (let i = 0; i < items.length; i += this.EMBEDDING_BATCH_SIZE) {
+        // Check if job was cancelled before processing each batch
+        if (isJobCancelled(jobId)) {
+          console.log(`🛑 Job ${jobId} was cancelled during matching, stopping batch processing`)
+          await pmService.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+          return { outputPath: null, totalMatched: 0, averageConfidence: 0, matches: [] }
+        }
+        
         const batch = items.slice(i, i + this.EMBEDDING_BATCH_SIZE)
         const currentBatch = Math.floor(i/this.EMBEDDING_BATCH_SIZE) + 1
         
