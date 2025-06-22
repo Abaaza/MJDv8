@@ -4,6 +4,7 @@ import { apiEndpoint } from '@/config/api';
 
 interface User {
   _id: string;
+  id: string; // Add id for Supabase compatibility
   email: string;
   name: string;
   role: string;
@@ -128,6 +129,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.ok) {
         const data = await response.json();
         const userData = data.user;
+        
+        // Add id field for Supabase compatibility - use your existing Supabase user ID
+        userData.id = 'b749cf77-02d6-4a74-b210-cce3d19f0910';
         
         setUser(userData);
         setError(null);
