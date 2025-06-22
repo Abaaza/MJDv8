@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/mjdpricing/",
+      "destination": "https://your-mjd-app.vercel.app/"
+    },
+    {
+      "source": "/mjdpricing/:match*",
+      "destination": "https://your-mjd-app.vercel.app/:match*"
+    },
+    {
+      "source": "/",
+      "destination": "https://your-main-site.vercel.app/"
+    },
+    {
+      "source": "/:match*",
+      "destination": "https://your-main-site.vercel.app/:match*"
+    }
+  ]
+} 
