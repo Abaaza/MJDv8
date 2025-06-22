@@ -12,8 +12,25 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
-// Connect to MongoDB
-connectDB().catch(console.error);
+// Connect to MongoDB and handle connection errors
+let dbConnectionPromise = null;
+
+const initializeDatabase = async () => {
+  if (!dbConnectionPromise) {
+    dbConnectionPromise = connectDB();
+  }
+  try {
+    await dbConnectionPromise;
+  } catch (error) {
+    console.error('Failed to connect to MongoDB:', error);
+    // Reset promise so we can retry on next request
+    dbConnectionPromise = null;
+    throw error;
+  }
+};
+
+// Initialize database connection
+initializeDatabase().catch(console.error);
 
 // CORS Configuration
 const corsOptions = {
@@ -47,9 +64,24 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Database connection middleware for routes that require DB access
+const ensureDbConnection = async (req, res, next) => {
+  try {
+    await initializeDatabase();
+    next();
+  } catch (error) {
+    console.error('Database connection failed:', error);
+    res.status(503).json({
+      error: 'Service Unavailable',
+      message: 'Database connection failed. Please check MongoDB Atlas IP whitelist.',
+      details: error.message
+    });
+  }
+};
+
 // Routes
-app.use('/auth', authRouter);
-app.use('/price-matching', priceMatchingRouter);
+app.use('/auth', ensureDbConnection, authRouter);
+app.use('/price-matching', ensureDbConnection, priceMatchingRouter);
 
 // Health check with database status
 app.get('/health', async (req, res) => {

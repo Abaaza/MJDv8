@@ -5,17 +5,22 @@ dotenv.config();
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/mjd-auth';
 
-// MongoDB connection options
+// MongoDB connection options optimized for serverless
 const options = {
   // Connection management
-  maxPoolSize: 10, // Maintain up to 10 socket connections
-  serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
+  maxPoolSize: 5, // Maintain up to 5 socket connections for serverless
+  serverSelectionTimeoutMS: 10000, // Increased timeout for serverless cold starts
   socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
-  bufferCommands: false, // Disable mongoose buffering
+  bufferCommands: true, // Enable buffering for better serverless compatibility
+  bufferMaxEntries: 0, // Disable buffer size limit
   
   // Replica set / sharding
   retryWrites: true,
-  w: 'majority'
+  w: 'majority',
+  
+  // Connection retry options
+  maxIdleTimeMS: 30000, // Close connections after 30 seconds of inactivity
+  connectTimeoutMS: 10000, // Increased connection timeout
 };
 
 // Connection state management
