@@ -23,11 +23,10 @@ export function useRecentActivity() {
     try {
       setLoading(true)
       
-      // Get recent matching jobs (limit to 3)
+      // Get recent matching jobs (limit to 3) - all users
       const { data: jobs, error: jobsError } = await supabase
         .from('ai_matching_jobs')
         .select('id, project_name, status, created_at, updated_at, user_id')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(3)
 
@@ -35,11 +34,10 @@ export function useRecentActivity() {
         console.error('Error fetching jobs:', jobsError)
       }
 
-      // Get recent clients (limit to 2)
+      // Get recent clients (limit to 2) - all users
       const { data: clients, error: clientsError } = await supabase
         .from('clients')
         .select('id, name, created_at, user_id')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(2)
 
@@ -47,11 +45,10 @@ export function useRecentActivity() {
         console.error('Error fetching clients:', clientsError)
       }
 
-      // Get recent price items (limit to 1)
+      // Get recent price items (limit to 1) - all users
       const { data: priceItems, error: priceItemsError } = await supabase
         .from('price_items')
         .select('id, description, created_at, user_id')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(1)
 

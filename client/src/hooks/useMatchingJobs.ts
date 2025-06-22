@@ -20,14 +20,13 @@ export function useMatchingJobs() {
     try {
       setLoading(true)
       
-      // Get all matching jobs for the user with client information
+      // Get all matching jobs (all users) with client information
       const { data: jobsData, error: jobsError } = await supabase
         .from('ai_matching_jobs')
         .select(`
           *,
           clients!client_id(name)
         `)
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (jobsError) {
@@ -57,7 +56,6 @@ export function useMatchingJobs() {
         .from('ai_matching_jobs')
         .delete()
         .eq('id', id)
-        .eq('user_id', user?.id)
 
       if (error) {
         console.error('Error deleting job:', error)

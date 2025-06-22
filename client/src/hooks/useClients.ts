@@ -27,11 +27,10 @@ export function useClients() {
     try {
       setLoading(true)
       
-      // First get all clients
+      // First get all clients (all users)
       const { data: clientsData, error: clientsError } = await supabase
         .from('clients')
         .select('*')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
 
       if (clientsError) {
@@ -40,11 +39,10 @@ export function useClients() {
         return
       }
 
-      // Get all matching jobs for this user grouped by client_id
+      // Get all matching jobs (all users) grouped by client_id
       const { data: allJobs, error: jobsError } = await supabase
         .from('ai_matching_jobs')
         .select('client_id')
-        .eq('user_id', user.id)
         .not('client_id', 'is', null)
 
       if (jobsError) {
@@ -78,7 +76,7 @@ export function useClients() {
         .from('clients')
         .insert({
           ...clientData,
-          user_id: user.id
+          user_id: 'shared-user-id' // Use shared user ID for all clients
         })
         .select()
         .single()
@@ -110,7 +108,6 @@ export function useClients() {
         .from('clients')
         .update(clientData)
         .eq('id', id)
-        .eq('user_id', user.id)
 
       if (error) {
         console.error('Error updating client:', error)
@@ -139,7 +136,6 @@ export function useClients() {
         .from('clients')
         .delete()
         .eq('id', id)
-        .eq('user_id', user.id)
 
       if (error) {
         console.error('Error deleting client:', error)

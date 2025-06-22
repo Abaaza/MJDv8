@@ -23,41 +23,37 @@ export function useDashboardStats() {
     if (!user) return
 
     try {
-      // Fetch total clients for the current user
+      // Fetch total clients (all users)
       const { count: clientsCount, error: clientsError } = await supabase
         .from('clients')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
 
       if (clientsError) {
         console.error('Error fetching clients count:', clientsError)
       }
 
-      // Fetch total price items for the current user
+      // Fetch total price items (all users)
       const { count: priceItemsCount, error: priceItemsError } = await supabase
         .from('price_items')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
 
       if (priceItemsError) {
         console.error('Error fetching price items count:', priceItemsError)
       }
 
-      // Fetch total matching jobs for the current user
+      // Fetch total matching jobs (all users)
       const { count: matchingJobsCount, error: matchingJobsError } = await supabase
         .from('ai_matching_jobs')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
 
       if (matchingJobsError) {
         console.error('Error fetching matching jobs count:', matchingJobsError)
       }
 
-      // Fetch total matched items from ai_matching_jobs table directly
+      // Fetch total matched items from ai_matching_jobs table directly (all users)
       const { data: matchingJobsData, error: matchedItemsError } = await supabase
         .from('ai_matching_jobs')
         .select('matched_items')
-        .eq('user_id', user.id)
         .eq('status', 'completed')
 
       if (matchedItemsError) {
