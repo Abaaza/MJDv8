@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
-const userSchema = new mongoose.Schema({
+const userMjdSchema = new mongoose.Schema({
   email: {
     type: String,
     required: true,
@@ -99,18 +99,19 @@ const userSchema = new mongoose.Schema({
     },
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+      ref: 'UserMjd'
     },
     approvedAt: Date,
     rejectedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+      ref: 'UserMjd'
     },
     rejectedAt: Date,
     adminNotes: String
   }
 }, {
   timestamps: true,
+  collection: 'users_mjd', // Custom collection name to avoid conflicts
   toJSON: {
     transform: function(doc, ret) {
       delete ret.password;
@@ -124,18 +125,18 @@ const userSchema = new mongoose.Schema({
 });
 
 // Indexes for performance
-userSchema.index({ email: 1 });
-userSchema.index({ status: 1 });
-userSchema.index({ role: 1 });
-userSchema.index({ 'refreshTokens.token': 1 });
+userMjdSchema.index({ email: 1 });
+userMjdSchema.index({ status: 1 });
+userMjdSchema.index({ role: 1 });
+userMjdSchema.index({ 'refreshTokens.token': 1 });
 
 // Virtual for account locked status
-userSchema.virtual('isLocked').get(function() {
+userMjdSchema.virtual('isLocked').get(function() {
   return !!(this.failedLoginAttempts >= 5 && this.accountLockedUntil && Date.now() < this.accountLockedUntil);
 });
 
 // Pre-save middleware to hash password
-userSchema.pre('save', async function(next) {
+userMjdSchema.pre('save', async function(next) {
   // Only hash password if it's modified or new
   if (!this.isModified('password')) return next();
   
@@ -150,13 +151,13 @@ userSchema.pre('save', async function(next) {
 });
 
 // Method to compare password
-userSchema.methods.comparePassword = async function(candidatePassword) {
+userMjdSchema.methods.comparePassword = async function(candidatePassword) {
   if (!candidatePassword || !this.password) return false;
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
 // Method to increment failed login attempts
-userSchema.methods.incLoginAttempts = function() {
+userMjdSchema.methods.incLoginAttempts = function() {
   // If we have a previous lock that has expired, restart at 1
   if (this.accountLockedUntil && this.accountLockedUntil < Date.now()) {
     return this.updateOne({
@@ -176,7 +177,7 @@ userSchema.methods.incLoginAttempts = function() {
 };
 
 // Method to reset login attempts
-userSchema.methods.resetLoginAttempts = function() {
+userMjdSchema.methods.resetLoginAttempts = function() {
   return this.updateOne({
     $unset: { 
       failedLoginAttempts: 1,
@@ -186,7 +187,7 @@ userSchema.methods.resetLoginAttempts = function() {
 };
 
 // Method to add refresh token
-userSchema.methods.addRefreshToken = function(token, expiresIn = 7 * 24 * 60 * 60 * 1000) { // 7 days
+userMjdSchema.methods.addRefreshToken = function(token, expiresIn = 7 * 24 * 60 * 60 * 1000) { // 7 days
   this.refreshTokens.push({
     token,
     expiresAt: new Date(Date.now() + expiresIn)
@@ -201,23 +202,23 @@ userSchema.methods.addRefreshToken = function(token, expiresIn = 7 * 24 * 60 * 6
 };
 
 // Method to remove refresh token
-userSchema.methods.removeRefreshToken = function(token) {
+userMjdSchema.methods.removeRefreshToken = function(token) {
   this.refreshTokens = this.refreshTokens.filter(rt => rt.token !== token);
   return this.save();
 };
 
 // Method to clean expired refresh tokens
-userSchema.methods.cleanExpiredTokens = function() {
+userMjdSchema.methods.cleanExpiredTokens = function() {
   this.refreshTokens = this.refreshTokens.filter(rt => rt.expiresAt > new Date());
   return this.save();
 };
 
 // Static method to find user by refresh token
-userSchema.statics.findByRefreshToken = function(token) {
+userMjdSchema.statics.findByRefreshToken = function(token) {
   return this.findOne({
     'refreshTokens.token': token,
     'refreshTokens.expiresAt': { $gt: new Date() }
   });
 };
 
-export default mongoose.model('User', userSchema); 
+export default mongoose.model('UserMjd', userMjdSchema); 

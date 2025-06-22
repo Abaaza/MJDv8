@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { connectDB } from '../config/database.js';
-import User from '../models/User.js';
+import UserMjd from '../models/UserMjd.js';
 
 dotenv.config();
 
@@ -10,7 +10,7 @@ const createAdmin = async () => {
     await connectDB();
 
     // Check if admin already exists
-    const existingAdmin = await User.findOne({ role: 'admin' });
+    const existingAdmin = await UserMjd.findOne({ role: 'admin' });
     
     if (existingAdmin) {
       console.log('✅ Admin user already exists:', existingAdmin.email);
@@ -27,7 +27,7 @@ const createAdmin = async () => {
       emailVerified: true
     };
 
-    const admin = new User(adminData);
+    const admin = new UserMjd(adminData);
     await admin.save();
 
     console.log('✅ Admin user created successfully!');

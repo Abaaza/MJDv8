@@ -1,5 +1,5 @@
 import express from 'express';
-import User from '../models/User.js';
+import UserMjd from '../models/UserMjd.js';
 import { 
   generateAccessToken, 
   generateRefreshToken, 
@@ -59,7 +59,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const existingUser = await UserMjd.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       return res.status(409).json({
         error: 'User exists',
@@ -68,7 +68,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Create new user with pending status
-    const user = new User({
+    const user = new UserMjd({
       email: email.toLowerCase(),
       password,
       name,
@@ -133,7 +133,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Find user by email
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await UserMjd.findOne({ email: email.toLowerCase() });
     
     if (!user) {
       return res.status(401).json({
@@ -333,7 +333,7 @@ router.put('/change-password', authenticate, async (req, res) => {
     }
 
     // Verify current password
-    const user = await User.findById(req.user._id);
+    const user = await UserMjd.findById(req.user._id);
     const isCurrentPasswordValid = await user.comparePassword(currentPassword);
 
     if (!isCurrentPasswordValid) {
@@ -377,7 +377,7 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await UserMjd.findOne({ email: email.toLowerCase() });
 
     // Always return success to prevent email enumeration
     if (!user) {
@@ -432,7 +432,7 @@ router.post('/reset-password', async (req, res) => {
     }
 
     // Find user by reset token
-    const user = await User.findOne({
+    const user = await UserMjd.findOne({
       passwordResetToken: token,
       passwordResetExpires: { $gt: new Date() }
     });
@@ -480,13 +480,13 @@ router.get('/admin/access-requests', authenticate, requireAdmin, async (req, res
     
     const skip = (page - 1) * limit;
     
-    const users = await User.find({ status })
+    const users = await UserMjd.find({ status })
       .select('-password -refreshTokens')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    const total = await User.countDocuments({ status });
+    const total = await UserMjd.countDocuments({ status });
 
     res.json({
       success: true,
@@ -514,7 +514,7 @@ router.post('/admin/approve/:userId', authenticate, requireAdmin, async (req, re
     const { userId } = req.params;
     const { role = 'user', adminNotes } = req.body;
 
-    const user = await User.findById(userId);
+    const user = await UserMjd.findById(userId);
     
     if (!user) {
       return res.status(404).json({
@@ -560,7 +560,7 @@ router.post('/admin/reject/:userId', authenticate, requireAdmin, async (req, res
     const { userId } = req.params;
     const { adminNotes } = req.body;
 
-    const user = await User.findById(userId);
+    const user = await UserMjd.findById(userId);
     
     if (!user) {
       return res.status(404).json({
@@ -610,7 +610,7 @@ router.get('/admin/users', authenticate, requireAdmin, async (req, res) => {
     
     const skip = (page - 1) * limit;
     
-    const users = await User.find(filter)
+    const users = await UserMjd.find(filter)
       .select('-password -refreshTokens')
       .populate('accessRequest.approvedBy', 'name email')
       .populate('accessRequest.rejectedBy', 'name email')
@@ -618,7 +618,7 @@ router.get('/admin/users', authenticate, requireAdmin, async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
-    const total = await User.countDocuments(filter);
+    const total = await UserMjd.countDocuments(filter);
 
     res.json({
       success: true,
@@ -643,7 +643,7 @@ router.get('/admin/users', authenticate, requireAdmin, async (req, res) => {
 // Admin: Get pending users
 router.get('/admin/pending', authenticate, requireAdmin, async (req, res) => {
   try {
-    const users = await User.find({ status: 'pending' })
+    const users = await UserMjd.find({ status: 'pending' })
       .select('-password -refreshTokens')
       .sort({ createdAt: -1 });
 
@@ -665,7 +665,7 @@ router.post('/admin/approve/:userId', authenticate, requireAdmin, async (req, re
     const { userId } = req.params;
     const { role = 'user' } = req.body;
 
-    const user = await User.findById(userId);
+    const user = await UserMjd.findById(userId);
     
     if (!user) {
       return res.status(404).json({

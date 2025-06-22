@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
+import UserMjd from '../models/UserMjd.js';
 
 // JWT configuration
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
@@ -56,7 +56,7 @@ export const authenticate = async (req, res, next) => {
     }
 
     // Get user from database
-    const user = await User.findById(decoded.userId).select('-password -refreshTokens');
+    const user = await UserMjd.findById(decoded.userId).select('-password -refreshTokens');
     
     if (!user) {
       return res.status(401).json({ 
@@ -133,7 +133,7 @@ export const optionalAuth = async (req, res, next) => {
     const decoded = verifyToken(token);
 
     if (decoded && decoded.type === 'access') {
-      const user = await User.findById(decoded.userId).select('-password -refreshTokens');
+      const user = await UserMjd.findById(decoded.userId).select('-password -refreshTokens');
       if (user && user.status === 'active' && !user.isLocked) {
         req.user = user;
       }
@@ -201,7 +201,7 @@ export const refreshAccessToken = async (req, res) => {
     }
 
     // Find user with this refresh token
-    const user = await User.findByRefreshToken(refreshToken);
+    const user = await UserMjd.findByRefreshToken(refreshToken);
     
     if (!user) {
       return res.status(401).json({ 
