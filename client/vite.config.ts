@@ -17,7 +17,6 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    base: "/mjdpricing/",
     server: {
       host: "::",
       port: 8080,

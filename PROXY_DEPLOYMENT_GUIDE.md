@@ -13,7 +13,7 @@ You'll need to create **two Vercel projects**:
 
 1. Deploy your current MJD project to Vercel as normal
 2. Note the deployment URL (e.g., `mjd-pricing-app.vercel.app`)
-3. The app is already configured with `base: "/mjdpricing/"` in vite.config.ts
+3. The app is built WITHOUT a base path (vite.config.ts has no base property)
 
 ## Step 2: Create the Proxy Project
 
@@ -25,20 +25,20 @@ You'll need to create **two Vercel projects**:
 {
   "rewrites": [
     {
-      "source": "/mjdpricing/",
-      "destination": "https://your-actual-mjd-app.vercel.app/"
+      "source": "/mjdpricing/(.*)",
+      "destination": "https://your-actual-mjd-app.vercel.app/$1"
     },
     {
-      "source": "/mjdpricing/:match*",
-      "destination": "https://your-actual-mjd-app.vercel.app/:match*"
+      "source": "/mjdpricing",
+      "destination": "https://your-actual-mjd-app.vercel.app/"
     },
     {
       "source": "/",
       "destination": "https://your-main-braunwell-site.vercel.app/"
     },
     {
-      "source": "/:match*",
-      "destination": "https://your-main-braunwell-site.vercel.app/:match*"
+      "source": "/(.*)",
+      "destination": "https://your-main-braunwell-site.vercel.app/$1"
     }
   ]
 }
@@ -54,15 +54,23 @@ You'll need to create **two Vercel projects**:
 - `braunwell.co.uk/` → Routes to your main site
 - `braunwell.co.uk/mjdpricing/` → Routes to your MJD pricing app
 - `braunwell.co.uk/mjdpricing/price-matching/` → Routes to MJD app's price matching page
+- `braunwell.co.uk/mjdpricing/assets/vendor.js` → Routes to MJD app's assets correctly
+
+## Asset Forwarding Fix
+
+The key to fixing the "MIME type" error is the proxy configuration:
+
+- `"/mjdpricing/(.*)"` captures everything after `/mjdpricing/`
+- `"$1"` forwards only the captured part, stripping the `/mjdpricing/` prefix
+- This ensures `/mjdpricing/assets/vendor.js` becomes `/assets/vendor.js` on the target app
 
 ## Important Notes
 
 1. **Only assign the custom domain to the proxy project**, not the individual apps
-2. The MJD app will be accessible at both:
-   - Direct URL: `mjd-pricing-app.vercel.app`
-   - Proxy URL: `braunwell.co.uk/mjdpricing/`
-3. All API routes are relative and will work correctly
-4. The `base: "/mjdpricing/"` in vite.config.ts ensures assets load correctly
+2. The MJD app is built WITHOUT a base path to avoid asset conflicts
+3. The proxy strips the `/mjdpricing/` prefix when forwarding requests
+4. All API routes are relative and will work correctly
+5. Assets (JS, CSS, images) will load correctly through the proxy
 
 ## Directory Structure
 
@@ -79,6 +87,7 @@ mjd-pricing-app/
 
 ## Troubleshooting
 
-- If assets don't load, verify the `base: "/mjdpricing/"` is set in vite.config.ts
-- If API calls fail, check that they're using relative URLs (which they should be)
-- Ensure the proxy vercel.json has the correct destination URLs
+- **"MIME type" errors**: Ensure the proxy config uses `$1` to strip the prefix
+- **404 on assets**: Verify the MJD app has NO base path in vite.config.ts
+- **API calls fail**: Check that they're using relative URLs (which they should be)
+- **Routing issues**: Ensure the proxy vercel.json has the correct destination URLs
