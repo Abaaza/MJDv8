@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run vercel-build",
   "outputDirectory": "client/dist",
   "framework": null,
   "regions": ["iad1"],
+  "installCommand": "npm install && cd client && npm install && cd ../server && npm install",
   "functions": {
     "api/index.js": {
       "maxDuration": 30,
