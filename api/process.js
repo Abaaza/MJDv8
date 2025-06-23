@@ -17,10 +17,10 @@ export default async function handler(req, res) {
   });
   console.log(`🔄 [PROCESS] Request body:`, req.body);
   
-  // Handle GET requests for health check
+  // Handle GET requests for health check - MUST be before other method checks
   if (req.method === 'GET') {
     console.log(`🏓 [PROCESS] Health check - GET request received`);
-    return res.json({ 
+    return res.status(200).json({ 
       status: 'ok', 
       message: 'Process function is alive',
       timestamp: new Date().toISOString(),

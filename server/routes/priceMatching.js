@@ -256,7 +256,9 @@ router.post('/process-base64', async (req, res) => {
       // Call the separate processing function
       try {
         // Force HTTPS in production, handle local development
+        console.log(`🔧 [VERCEL DEBUG] Protocol selection - VERCEL env: ${!!process.env.VERCEL}, req.protocol: ${req.protocol}`)
         const protocol = process.env.VERCEL ? 'https' : req.protocol
+        console.log(`🔧 [VERCEL DEBUG] Selected protocol: ${protocol}`)
         const processingUrl = `${protocol}://${req.get('host')}/api/process`
         console.log(`📞 [VERCEL DEBUG] Calling processing function: ${processingUrl}`)
         
