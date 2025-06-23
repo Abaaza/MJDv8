@@ -41,6 +41,10 @@
       "destination": "/api/health"
     },
     {
+      "source": "/api/test-process",
+      "destination": "/api/test-process"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

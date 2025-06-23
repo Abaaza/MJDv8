@@ -258,30 +258,57 @@ router.post('/process-base64', async (req, res) => {
         const processingUrl = `${req.protocol}://${req.get('host')}/api/process`
         console.log(`📞 [VERCEL DEBUG] Calling processing function: ${processingUrl}`)
         
-        // Use a shorter timeout and don't await the response
+        // Use a longer timeout and better error handling
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+        const timeoutId = setTimeout(() => {
+          console.log('⏰ [VERCEL DEBUG] Processing function call timing out after 30 seconds')
+          controller.abort()
+        }, 30000) // 30 second timeout instead of 5
+        
+        console.log(`🔄 [VERCEL DEBUG] Starting fetch to processing function...`)
         
         fetch(processingUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'User-Agent': 'MJDv8-Processing-Trigger'
+          },
           body: JSON.stringify({ jobId }),
           signal: controller.signal
         })
-        .then(response => {
+        .then(async response => {
           clearTimeout(timeoutId)
+          console.log(`📨 [VERCEL DEBUG] Processing function responded with status: ${response.status}`)
+          
           if (response.ok) {
             console.log('✅ [VERCEL DEBUG] Processing function triggered successfully')
+            try {
+              const responseText = await response.text()
+              console.log(`📋 [VERCEL DEBUG] Processing function response: ${responseText.substring(0, 200)}...`)
+            } catch (textError) {
+              console.log('📋 [VERCEL DEBUG] Could not read response text:', textError.message)
+            }
           } else {
-            console.error(`❌ [VERCEL DEBUG] Processing function returned status: ${response.status}`)
+            console.error(`❌ [VERCEL DEBUG] Processing function returned error status: ${response.status}`)
+            try {
+              const errorText = await response.text()
+              console.error(`❌ [VERCEL DEBUG] Error response: ${errorText.substring(0, 500)}...`)
+            } catch (textError) {
+              console.error('❌ [VERCEL DEBUG] Could not read error response:', textError.message)
+            }
           }
         })
         .catch(error => {
           clearTimeout(timeoutId)
           if (error.name === 'AbortError') {
-            console.log('⏰ [VERCEL DEBUG] Processing function call timed out (expected)')
+            console.log('⏰ [VERCEL DEBUG] Processing function call timed out after 30 seconds')
           } else {
             console.error(`❌ [VERCEL DEBUG] Processing function call failed:`, error.message)
+            console.error(`❌ [VERCEL DEBUG] Error details:`, {
+              name: error.name,
+              code: error.code,
+              stack: error.stack?.substring(0, 500)
+            })
           }
         })
         

@@ -7,7 +7,15 @@ import fs from 'fs-extra';
 import path from 'path';
 
 export default async function handler(req, res) {
-  console.log(`🔄 [PROCESS] Function invoked with method: ${req.method}`);
+  const startTime = Date.now();
+  console.log(`🔄 [PROCESS] Function invoked at ${new Date().toISOString()}`);
+  console.log(`🔄 [PROCESS] Method: ${req.method}`);
+  console.log(`🔄 [PROCESS] Headers:`, {
+    'content-type': req.headers['content-type'],
+    'user-agent': req.headers['user-agent'],
+    'content-length': req.headers['content-length']
+  });
+  console.log(`🔄 [PROCESS] Request body:`, req.body);
   
   if (req.method !== 'POST') {
     console.log(`❌ [PROCESS] Invalid method: ${req.method}`);
@@ -176,12 +184,15 @@ export default async function handler(req, res) {
       console.log(`⚠️ [PROCESS] No output file generated or file doesn't exist: ${outputPath}`);
     }
 
-    console.log(`🎉 [PROCESS] Job ${jobId} completed successfully`);
+    const completionTime = Date.now();
+    const totalTime = completionTime - startTime;
+    console.log(`🎉 [PROCESS] Job ${jobId} completed successfully in ${totalTime}ms`);
     
     res.json({ 
       success: true, 
       message: 'Processing completed',
-      jobId 
+      jobId,
+      processingTimeMs: totalTime
     });
 
   } catch (error) {
