@@ -255,7 +255,9 @@ router.post('/process-base64', async (req, res) => {
       
       // Call the separate processing function
       try {
-        const processingUrl = `${req.protocol}://${req.get('host')}/api/process`
+        // Force HTTPS in production, handle local development
+        const protocol = process.env.VERCEL ? 'https' : req.protocol
+        const processingUrl = `${protocol}://${req.get('host')}/api/process`
         console.log(`📞 [VERCEL DEBUG] Calling processing function: ${processingUrl}`)
         
         // Use a longer timeout and better error handling

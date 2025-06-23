@@ -17,6 +17,18 @@
   },
   "rewrites": [
     {
+      "source": "/api/process",
+      "destination": "/api/process"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/health"
+    },
+    {
+      "source": "/api/test-process",
+      "destination": "/api/test-process"
+    },
+    {
       "source": "/price-matching/(.*)",
       "destination": "/api"
     },
@@ -31,18 +43,6 @@
     {
       "source": "/health",
       "destination": "/api"
-    },
-    {
-      "source": "/api/process",
-      "destination": "/api/process"
-    },
-    {
-      "source": "/api/health",
-      "destination": "/api/health"
-    },
-    {
-      "source": "/api/test-process",
-      "destination": "/api/test-process"
     },
     {
       "source": "/(.*)",

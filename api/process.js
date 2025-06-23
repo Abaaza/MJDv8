@@ -19,6 +19,8 @@ export default async function handler(req, res) {
   
   if (req.method !== 'POST') {
     console.log(`❌ [PROCESS] Invalid method: ${req.method}`);
+    console.log(`❌ [PROCESS] Expected POST, got: ${req.method}`);
+    console.log(`❌ [PROCESS] Request URL: ${req.url}`);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -27,6 +29,15 @@ export default async function handler(req, res) {
   
   try {
     console.log(`🔄 [PROCESS] Parsing request body...`);
+    console.log(`🔄 [PROCESS] Body type: ${typeof req.body}`);
+    console.log(`🔄 [PROCESS] Body contents:`, req.body);
+    
+    // Handle case where body might not be parsed
+    if (!req.body || typeof req.body !== 'object') {
+      console.error(`❌ [PROCESS] Invalid request body format:`, req.body);
+      return res.status(400).json({ error: 'Invalid request body format' });
+    }
+    
     const { jobId: requestJobId } = req.body;
     jobId = requestJobId;
     
