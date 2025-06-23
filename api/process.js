@@ -17,6 +17,17 @@ export default async function handler(req, res) {
   });
   console.log(`🔄 [PROCESS] Request body:`, req.body);
   
+  // Handle GET requests for health check
+  if (req.method === 'GET') {
+    console.log(`🏓 [PROCESS] Health check - GET request received`);
+    return res.json({ 
+      status: 'ok', 
+      message: 'Process function is alive',
+      timestamp: new Date().toISOString(),
+      method: 'GET'
+    });
+  }
+  
   if (req.method !== 'POST') {
     console.log(`❌ [PROCESS] Invalid method: ${req.method}`);
     console.log(`❌ [PROCESS] Expected POST, got: ${req.method}`);
