@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { ExcelUpload } from "./ExcelUpload"
 import { EditableMatchResultsTable } from "./EditableMatchResultsTable"
 import { ClientForm } from "./ClientForm"
-import { Download, Play, Zap, AlertCircle, CheckCircle, Edit, FileSpreadsheet, Plus, Trash2, Square } from "lucide-react"
+import { Download, Play, Zap, AlertCircle, CheckCircle, Edit, FileSpreadsheet, Plus, Trash2, Square, Loader2 } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
 import { useClients } from "@/hooks/useClients"
@@ -48,6 +48,7 @@ export function PriceMatching() {
   const [currentJob, setCurrentJob] = useState<MatchingJob | null>(null)
   const [log, setLog] = useState<string[]>([])
   const [matchResults, setMatchResults] = useState<MatchResult[]>([])
+  const [isExporting, setIsExporting] = useState(false)
   // Always use Cohere AI for matching
   
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -289,8 +290,9 @@ export function PriceMatching() {
       return
     }
 
+    setIsExporting(true)
     try {
-      toast.info('Exporting filtered Excel results...')
+      toast.info('Preparing Excel export...')
       
       // Export the current edited results
       const response = await fetch(apiEndpoint(`/price-matching/export/${currentJob.id}`), {
@@ -334,6 +336,8 @@ export function PriceMatching() {
       console.error('Export error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       toast.error(`Failed to export results: ${errorMessage}`)
+    } finally {
+      setIsExporting(false)
     }
   }
 
@@ -687,6 +691,7 @@ export function PriceMatching() {
       return
     }
 
+    setIsExporting(true)
     try {
       const timestamp = new Date().toLocaleTimeString()
       setLog(prev => [...prev, `[${timestamp}] Downloading results...`])
@@ -729,6 +734,8 @@ export function PriceMatching() {
       const timestamp = new Date().toLocaleTimeString()
       setLog(prev => [...prev, `[${timestamp}] Download error: ${errorMessage}`])
       toast.error('Failed to download results')
+    } finally {
+      setIsExporting(false)
     }
   }
 
@@ -876,6 +883,19 @@ export function PriceMatching() {
             <div ref={logContainerRef} className="bg-muted/50 p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs space-y-1 border">
               {log.map((entry, index) => (<p key={index} className={entry.includes('✅') ? 'text-green-500' : entry.includes('❌') ? 'text-red-500' : 'text-muted-foreground'}>{entry}</p>))}
             </div>
+            <Button onClick={downloadResults} variant="outline" size="sm" disabled={isExporting}>
+              {isExporting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Downloading...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download Results
+                </>
+              )}
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -888,9 +908,18 @@ export function PriceMatching() {
                 <CardTitle>Match Results</CardTitle>
                 <CardDescription>Review and edit the matches. Changes are saved automatically.</CardDescription>
               </div>
-              <Button onClick={exportToExcel} size="sm" variant="outline">
-                <FileSpreadsheet className="h-4 w-4 mr-2" />
-                Export Results
+              <Button onClick={exportToExcel} size="sm" variant="outline" disabled={isExporting}>
+                {isExporting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Exporting...
+                  </>
+                ) : (
+                  <>
+                    <FileSpreadsheet className="h-4 w-4 mr-2" />
+                    Export Results
+                  </>
+                )}
               </Button>
             </div>
           </CardHeader>

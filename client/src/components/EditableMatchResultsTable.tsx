@@ -345,9 +345,9 @@ export function EditableMatchResultsTable({
                     </TableCell>
                     <TableCell>
                       <RadioGroup value={currentMode} onValueChange={(v) => handleMatchModeChange(result.id, v as any)} className="mb-2">
-                        <div className="flex items-center space-x-2"><RadioGroupItem value="ai" id={`ai-${result.id}`} /><Label htmlFor={`ai-${result.id}`}>AI</Label></div>
-                        <div className="flex items-center space-x-2"><RadioGroupItem value="local" id={`local-${result.id}`} /><Label htmlFor={`local-${result.id}`}>Local</Label></div>
-                        <div className="flex items-center space-x-2"><RadioGroupItem value="manual" id={`manual-${result.id}`} /><Label htmlFor={`manual-${result.id}`}>Manual</Label></div>
+                        <div className="flex items-center space-x-2"><RadioGroupItem value="ai" id={`ai-${result.id}`} /><Label htmlFor={`ai-${result.id}`}>AI Match</Label></div>
+                        <div className="flex items-center space-x-2"><RadioGroupItem value="local" id={`local-${result.id}`} /><Label htmlFor={`local-${result.id}`}>Local Match</Label></div>
+                        <div className="flex items-center space-x-2"><RadioGroupItem value="manual" id={`manual-${result.id}`} /><Label htmlFor={`manual-${result.id}`}>Manual Match</Label></div>
                       </RadioGroup>
                       {currentMode === 'manual' && displayData.matched_description ? (
                         <div className="p-2 border rounded-md bg-blue-500/10 border-blue-500/20">

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Progress } from "@/components/ui/progress"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Search, Download, RefreshCw, Clock, CheckCircle, AlertCircle, Zap, FileSpreadsheet, Edit, Square } from "lucide-react"
+import { Search, Download, RefreshCw, Clock, CheckCircle, AlertCircle, Zap, FileSpreadsheet, Edit, Square, Loader2 } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
 import { Tables } from "@/integrations/supabase/types"
@@ -35,9 +35,10 @@ export default function Projects() {
   const [jobs, setJobs] = useState<MatchingJob[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [loadingResults, setLoadingResults] = useState(false)
   const [editingJob, setEditingJob] = useState<MatchingJob | null>(null)
   const [matchResults, setMatchResults] = useState<MatchResult[]>([])
-  const [loadingResults, setLoadingResults] = useState(false)
+  const [exportingJobs, setExportingJobs] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetchJobs()
@@ -239,6 +240,7 @@ export default function Projects() {
   }
 
   const downloadJobResults = async (jobId: string, projectName: string) => {
+    setExportingJobs(prev => new Set(prev).add(jobId))
     try {
       // First, get all match results for this job to send to export endpoint
       const { data: matchResultsData, error: matchError } = await supabase
@@ -313,6 +315,12 @@ export default function Projects() {
     } catch (error) {
       console.error('Export error:', error)
       toast.error('Failed to export results')
+    } finally {
+      setExportingJobs(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(jobId)
+        return newSet
+      })
     }
   }
 
@@ -483,8 +491,19 @@ export default function Projects() {
                               size="sm"
                               onClick={() => downloadJobResults(job.id, job.project_name)}
                               title="Download Results"
+                              disabled={exportingJobs.has(job.id)}
                             >
-                              <Download className="h-4 w-4" />
+                              {exportingJobs.has(job.id) ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Exporting...
+                                </>
+                              ) : (
+                                <>
+                                  <Download className="h-4 w-4" />
+                                  Export
+                                </>
+                              )}
                             </Button>
                           </>
                         )}

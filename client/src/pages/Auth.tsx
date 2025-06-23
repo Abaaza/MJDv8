@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiEndpoint } from '@/config/api';
+import { Loader2 } from 'lucide-react';
 
 // Remove hardcoded API_URL - we'll use apiEndpoint helper instead
 
@@ -160,7 +161,14 @@ export default function Auth() {
                     className="w-full" 
                     disabled={loading}
                   >
-                    {loading ? 'Signing in...' : 'Sign In'}
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Signing in...
+                      </>
+                    ) : (
+                      'Sign In'
+                    )}
                   </Button>
                 </form>
               </CardContent>
@@ -213,7 +221,14 @@ export default function Auth() {
                     className="w-full" 
                     disabled={loading}
                   >
-                    {loading ? 'Submitting...' : 'Request Access'}
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      'Request Access'
+                    )}
                   </Button>
                 </form>
               </CardContent>
