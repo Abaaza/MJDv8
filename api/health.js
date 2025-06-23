@@ -61,10 +61,15 @@ export default async function handler(req, res) {
   // Test Vercel Blob
   try {
     console.log('🔍 [HEALTH] Testing Vercel Blob...');
-    // Just test if the service can be instantiated
-    const blobService = new VercelBlobService();
-    healthCheck.services.vercelBlob.status = 'healthy';
-    console.log('✅ [HEALTH] Vercel Blob service available');
+    // VercelBlobService is exported as a singleton instance, not a class
+    if (VercelBlobService && typeof VercelBlobService.uploadFile === 'function') {
+      healthCheck.services.vercelBlob.status = 'healthy';
+      console.log('✅ [HEALTH] Vercel Blob service available');
+    } else {
+      healthCheck.services.vercelBlob.status = 'unhealthy';
+      healthCheck.services.vercelBlob.error = 'VercelBlobService methods not available';
+      console.error('❌ [HEALTH] Vercel Blob service methods not available');
+    }
   } catch (blobError) {
     healthCheck.services.vercelBlob.status = 'unhealthy';
     healthCheck.services.vercelBlob.error = blobError.message;
