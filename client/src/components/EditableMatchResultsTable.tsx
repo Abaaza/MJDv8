@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Search, ChevronLeft, ChevronRight, Loader2, Info } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Trash2, Search, ChevronLeft, ChevronRight, Loader2, Info, Percent, Undo2 } from "lucide-react"
 import { PriceItemSelectionModal } from "./PriceItemSelectionModal"
 import { supabase } from "@/integrations/supabase/client"
 import { toast } from "sonner"
@@ -54,6 +55,11 @@ export function EditableMatchResultsTable({
   const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({})
   const [localMatches, setLocalMatches] = useState<Record<string, Partial<MatchResult>>>({})
   const [originalAIMatches, setOriginalAIMatches] = useState<Record<string, Partial<MatchResult>>>({})
+  const [isBulkDiscountModalOpen, setIsBulkDiscountModalOpen] = useState(false)
+  const [discountPercentage, setDiscountPercentage] = useState('')
+  const [lastAppliedDiscount, setLastAppliedDiscount] = useState('')
+  const [originalRatesBeforeDiscount, setOriginalRatesBeforeDiscount] = useState<Record<string, { matched_rate: number; total_amount: number }>>({})
+  const [isDiscountApplied, setIsDiscountApplied] = useState(false)
   
   const safeMatchResults = useMemo(() => Array.isArray(matchResults) ? matchResults.filter(r => r && r.id) : [], [matchResults])
   
@@ -271,10 +277,173 @@ export function EditableMatchResultsTable({
     setSelectedResultId(null)
   }
 
+  const handleOpenBulkDiscountModal = () => {
+    setDiscountPercentage(lastAppliedDiscount)
+    setIsBulkDiscountModalOpen(true)
+    console.log(`🔧 [BULK DISCOUNT] Modal opened with last applied discount: ${lastAppliedDiscount}%`)
+  }
+
+  const handleBulkDiscount = () => {
+    const discount = parseFloat(discountPercentage)
+    
+    if (!discount || discount < 0 || discount > 100) {
+      toast.error('Please enter a valid discount percentage (0-100)')
+      return
+    }
+
+    // Store original rates before applying discount (only if no discount is currently applied)
+    let originalRates: Record<string, { matched_rate: number; total_amount: number }> = {}
+    
+    if (!isDiscountApplied) {
+      // First time applying discount - store current rates as original
+      safeMatchResults.forEach(result => {
+        if (result.matched_rate && result.matched_rate > 0) {
+          originalRates[result.id] = {
+            matched_rate: result.matched_rate,
+            total_amount: result.total_amount || 0
+          }
+        }
+      })
+      setOriginalRatesBeforeDiscount(originalRates)
+    } else {
+      // Discount already applied - keep the existing original rates
+      originalRates = originalRatesBeforeDiscount
+      console.log(`⚠️ [BULK DISCOUNT] Replacing existing ${lastAppliedDiscount}% discount with new ${discount}% discount`)
+    }
+
+    const discountMultiplier = (100 - discount) / 100
+    let updatedCount = 0
+
+    console.log(`🎯 [BULK DISCOUNT] Starting bulk discount application of ${discount}%`)
+    console.log(`💾 [BULK DISCOUNT] Storing original rates for ${Object.keys(originalRates).length} items`)
+
+    safeMatchResults.forEach(result => {
+      if (result.matched_rate && result.matched_rate > 0) {
+        const oldRate = result.matched_rate
+        // If discount is already applied, calculate new rate from original rate, not current discounted rate
+        const baseRate = isDiscountApplied && originalRates[result.id] 
+          ? originalRates[result.id].matched_rate 
+          : result.matched_rate
+        const newRate = baseRate * discountMultiplier
+        const updates = {
+          matched_rate: Number(newRate.toFixed(2)),
+          total_amount: calculateTotal(result.quantity, Number(newRate.toFixed(2)))
+        }
+        
+        console.log(`📝 [BULK DISCOUNT] Item ${result.id}: ${oldRate} → ${updates.matched_rate} (${discount}% discount from base rate ${baseRate})`)
+        
+        onUpdateResult(result.id, updates)
+        
+        // Update the stored matches for different modes
+        const currentMode = matchModes[result.id] || 'ai'
+        if (currentMode === 'ai') {
+          setOriginalAIMatches(prev => ({ 
+            ...prev, 
+            [result.id]: { ...prev[result.id], ...updates }
+          }))
+        } else if (currentMode === 'local') {
+          setLocalMatches(prev => ({ 
+            ...prev, 
+            [result.id]: { ...prev[result.id], ...updates }
+          }))
+        }
+        
+        updatedCount++
+      }
+    })
+
+    // Remember the last applied discount and mark as applied
+    setLastAppliedDiscount(discountPercentage)
+    setIsDiscountApplied(true)
+    setIsBulkDiscountModalOpen(false)
+    
+    console.log(`✅ [BULK DISCOUNT] ${discount}% applied successfully to ${updatedCount} items`)
+    toast.success(`Applied ${discount}% discount to ${updatedCount} items`)
+  }
+
+  const handleUndoDiscount = () => {
+    if (!isDiscountApplied || Object.keys(originalRatesBeforeDiscount).length === 0) {
+      toast.error('No discount to undo')
+      return
+    }
+
+    let restoredCount = 0
+    console.log(`🔄 [UNDO DISCOUNT] Starting to restore original rates for ${Object.keys(originalRatesBeforeDiscount).length} items`)
+
+    Object.entries(originalRatesBeforeDiscount).forEach(([resultId, originalData]) => {
+      const result = safeMatchResults.find(r => r.id === resultId)
+      if (result) {
+        const updates = {
+          matched_rate: originalData.matched_rate,
+          total_amount: originalData.total_amount
+        }
+        
+        console.log(`📝 [UNDO DISCOUNT] Item ${resultId}: ${result.matched_rate} → ${originalData.matched_rate} (restored)`)
+        
+        onUpdateResult(resultId, updates)
+        
+        // Update the stored matches for different modes
+        const currentMode = matchModes[resultId] || 'ai'
+        if (currentMode === 'ai') {
+          setOriginalAIMatches(prev => ({ 
+            ...prev, 
+            [resultId]: { ...prev[resultId], ...updates }
+          }))
+        } else if (currentMode === 'local') {
+          setLocalMatches(prev => ({ 
+            ...prev, 
+            [resultId]: { ...prev[resultId], ...updates }
+          }))
+        }
+        
+        restoredCount++
+      }
+    })
+
+    // Clear the discount state
+    setIsDiscountApplied(false)
+    setOriginalRatesBeforeDiscount({})
+    
+    console.log(`✅ [UNDO DISCOUNT] Successfully restored original rates for ${restoredCount} items`)
+    toast.success(`Discount cancelled - restored original rates for ${restoredCount} items`)
+  }
+
   const grandTotal = useMemo(() => safeMatchResults.reduce((sum, r) => sum + (r.total_amount || 0), 0), [safeMatchResults])
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-semibold">
+          Match Results
+          {isDiscountApplied && lastAppliedDiscount && (
+            <span className="ml-2 text-sm font-normal text-green-600 dark:text-green-400">
+              ({lastAppliedDiscount}% discount applied)
+            </span>
+          )}
+        </h3>
+        <div className="flex items-center gap-2">
+          {isDiscountApplied && (
+            <Button 
+              variant="outline" 
+              onClick={handleUndoDiscount}
+              className="flex items-center gap-2 text-orange-600 hover:text-orange-700 border-orange-200 hover:border-orange-300"
+            >
+              <Undo2 className="h-4 w-4" />
+              Undo Discount
+            </Button>
+          )}
+          <Button 
+            variant="outline" 
+            onClick={handleOpenBulkDiscountModal}
+            className="flex items-center gap-2"
+            disabled={safeMatchResults.length === 0}
+          >
+            <Percent className="h-4 w-4" />
+            Bulk Discount
+          </Button>
+        </div>
+      </div>
+      
       <Table>
         <TableHeader>
           <TableRow>
@@ -400,6 +569,81 @@ export function EditableMatchResultsTable({
       </div>
 
       <PriceItemSelectionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSelect={handleManualSelection} inquiryDescription={selectedResultId ? safeMatchResults.find(r => r.id === selectedResultId)?.original_description || '' : ''} />
+
+      <Dialog open={isBulkDiscountModalOpen} onOpenChange={setIsBulkDiscountModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Percent className="h-5 w-5" />
+              Bulk Discount
+            </DialogTitle>
+            <DialogDescription>
+              Apply a percentage discount to all matched rates. This will reduce all current rates by the specified percentage.
+              {isDiscountApplied && (
+                <span className="block mt-2 text-orange-600 dark:text-orange-400 font-medium">
+                  ⚠️ A {lastAppliedDiscount}% discount is currently applied. Applying a new discount will replace the current one.
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="discount-percentage">Discount Percentage</Label>
+              <Input
+                id="discount-percentage"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                placeholder="Enter discount percentage (e.g., 10 for 10%)"
+                value={discountPercentage}
+                onChange={(e) => setDiscountPercentage(e.target.value)}
+                className="w-full"
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter a value between 0 and 100. For example, enter "10" for a 10% discount.
+              </p>
+            </div>
+
+            <div className="bg-muted/50 p-3 rounded-md">
+              <div className="text-sm">
+                <div className="flex justify-between items-center mb-1">
+                  <span>Current Total:</span>
+                  <span className="font-medium">{getCurrencySymbol(currency)}{formatNumber(grandTotal)}</span>
+                </div>
+                {discountPercentage && !isNaN(parseFloat(discountPercentage)) && parseFloat(discountPercentage) >= 0 && parseFloat(discountPercentage) <= 100 && (
+                  <div className="flex justify-between items-center text-green-600 dark:text-green-400">
+                    <span>New Total (after {discountPercentage}% discount):</span>
+                    <span className="font-medium">
+                      {getCurrencySymbol(currency)}{formatNumber(grandTotal * (100 - parseFloat(discountPercentage)) / 100)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <Button 
+              onClick={handleBulkDiscount}
+              className="flex-1"
+              disabled={!discountPercentage || isNaN(parseFloat(discountPercentage)) || parseFloat(discountPercentage) < 0 || parseFloat(discountPercentage) > 100}
+            >
+              Apply Discount
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsBulkDiscountModalOpen(false)
+                console.log(`❌ [BULK DISCOUNT] Modal cancelled, keeping last value: ${discountPercentage}%`)
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
