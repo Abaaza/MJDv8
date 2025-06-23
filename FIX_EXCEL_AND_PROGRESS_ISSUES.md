@@ -16,11 +16,22 @@
 
 **Problem**: Jobs would get stuck at pending status with 0% progress on the server.
 
+**Root Cause**: The separate Vercel processing function (`api/process.js`) was failing silently or timing out.
+
 **Fix Applied**:
 
-- Ensured proper job initialization in the database with all required fields
-- Added immediate status update to "processing" with 1% progress after job creation
-- This prevents the job from appearing stuck
+- Enhanced logging in `api/process.js` to track each step of processing
+- Added proper error handling and status updates
+- Improved the fetch timeout mechanism to 5 seconds (expected to timeout)
+- Added environment variable checks to diagnose missing dependencies
+- Better error reporting with stack traces in development
+
+**Key Changes**:
+
+- Added detailed logging throughout the processing pipeline
+- Enhanced error handling in both trigger and processing functions
+- Added database error checks and proper status updates
+- Improved timeout handling for the processing function call
 
 ### 3. Rate 0 Not Populating
 
@@ -94,3 +105,36 @@ await pmService.updateJobStatus(
 - Improved error messages to be more descriptive
 - Added null checks to prevent crashes
 - Made the progress updates more granular and informative
+
+## Debugging Commands
+
+To check if processing is working:
+
+```bash
+# Test health endpoint
+curl https://your-domain.com/health
+
+# Check processing endpoint
+curl -X POST https://your-domain.com/api/process \
+  -H "Content-Type: application/json" \
+  -d '{"jobId":"test-job-id"}'
+```
+
+## Files Modified
+
+1. `server/services/ExcelExportService.js` - Excel formatting and rate population fixes
+2. `server/routes/priceMatching.js` - Job initialization and timeout improvements
+3. `client/src/components/PriceMatching.tsx` - Frontend job creation
+4. `server/services/CohereMatchingService.js` - Progress tracking improvements
+5. `api/process.js` - Enhanced logging and error handling
+6. `client/src/components/EditableMatchResultsTable.tsx` - Updated radio button labels
+
+## Testing
+
+After deployment, verify:
+
+1. Jobs no longer get stuck at pending (should move to processing within 10 seconds)
+2. Excel files with multiple sheets export correctly
+3. Zero rates are populated in output files
+4. Progress updates are more frequent and informative
+5. Better error messages when issues occur

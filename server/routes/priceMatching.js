@@ -258,15 +258,34 @@ router.post('/process-base64', async (req, res) => {
         const processingUrl = `${req.protocol}://${req.get('host')}/api/process`
         console.log(`📞 [VERCEL DEBUG] Calling processing function: ${processingUrl}`)
         
+        // Use a shorter timeout and don't await the response
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+        
         fetch(processingUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jobId })
-        }).catch(error => {
-          console.error(`❌ [VERCEL DEBUG] Processing function call failed:`, error)
+          body: JSON.stringify({ jobId }),
+          signal: controller.signal
+        })
+        .then(response => {
+          clearTimeout(timeoutId)
+          if (response.ok) {
+            console.log('✅ [VERCEL DEBUG] Processing function triggered successfully')
+          } else {
+            console.error(`❌ [VERCEL DEBUG] Processing function returned status: ${response.status}`)
+          }
+        })
+        .catch(error => {
+          clearTimeout(timeoutId)
+          if (error.name === 'AbortError') {
+            console.log('⏰ [VERCEL DEBUG] Processing function call timed out (expected)')
+          } else {
+            console.error(`❌ [VERCEL DEBUG] Processing function call failed:`, error.message)
+          }
         })
         
-        console.log('✅ [VERCEL DEBUG] Processing function triggered')
+        console.log('✅ [VERCEL DEBUG] Processing function call initiated')
       } catch (error) {
         console.error(`❌ [VERCEL DEBUG] Failed to trigger processing function:`, error)
       }
