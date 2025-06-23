@@ -70,8 +70,14 @@ export class ExcelExportService {
         const matchLookup = new Map()
         if (Array.isArray(sheetMatches) && sheetMatches.length > 0) {
           sheetMatches.forEach(match => {
+            // Log for debugging row number mapping
+            if (matchLookup.has(match.row_number)) {
+              console.log(`   ⚠️ Duplicate row number ${match.row_number} in matches`)
+            }
             matchLookup.set(match.row_number, match)
           })
+          console.log(`   📊 Created match lookup with ${matchLookup.size} entries`)
+          console.log(`   📊 Row numbers in matches: ${Array.from(matchLookup.keys()).slice(0, 5).join(', ')}...`)
         }
         
         // Find rate column index and last used column
@@ -119,7 +125,12 @@ export class ExcelExportService {
             
             // If this is the rate column and we have a match, use the matched rate
             if (match && rateColumnIndex > 0 && colNumber === rateColumnIndex && rowNumber !== headerRowNum) {
-              newCell.value = match.matched_rate || 0
+              // IMPORTANT: Set the rate even if it's 0
+              newCell.value = match.matched_rate !== undefined && match.matched_rate !== null ? match.matched_rate : 0
+              
+              // Log for debugging rate population
+              console.log(`   📊 Setting rate for row ${rowNumber}: ${match.matched_rate}`)
+              
               // Preserve the original cell formatting but highlight it's been updated
               if (cell.style) {
                 newCell.style = JSON.parse(JSON.stringify(cell.style))
@@ -138,11 +149,11 @@ export class ExcelExportService {
               }
             } else {
               // Copy value as-is
-            newCell.value = cell.value
-            
-            // Deep copy all cell properties for perfect format preservation
-            if (cell.style) {
-              newCell.style = JSON.parse(JSON.stringify(cell.style))
+              newCell.value = cell.value
+              
+              // Deep copy all cell properties for perfect format preservation
+              if (cell.style) {
+                newCell.style = JSON.parse(JSON.stringify(cell.style))
               }
             }
             
@@ -364,22 +375,34 @@ export class ExcelExportService {
         
         // Copy merged cells
         if (originalWorksheet && originalWorksheet.model && originalWorksheet.model.merges) {
-          for (const mergeRange of originalWorksheet.model.merges) {
-            newWorksheet.mergeCells(mergeRange)
+          try {
+            for (const mergeRange of originalWorksheet.model.merges) {
+              newWorksheet.mergeCells(mergeRange)
+            }
+          } catch (mergeError) {
+            console.warn(`⚠️ Could not merge cells in sheet ${sheetName}: ${mergeError.message}`)
           }
         }
         
         // Copy images if any
         if (originalWorksheet && originalWorksheet.getImages) {
-          const images = originalWorksheet.getImages()
-          if (images && images.length > 0) {
-            for (const image of images) {
-              const imageId = newWorkbook.addImage({
-                buffer: image.buffer,
-                extension: image.extension
-              })
-              newWorksheet.addImage(imageId, image.range)
+          try {
+            const images = originalWorksheet.getImages()
+            if (images && images.length > 0) {
+              for (const image of images) {
+                try {
+                  const imageId = newWorkbook.addImage({
+                    buffer: image.buffer,
+                    extension: image.extension
+                  })
+                  newWorksheet.addImage(imageId, image.range)
+                } catch (imgError) {
+                  console.warn(`⚠️ Could not copy image in sheet ${sheetName}: ${imgError.message}`)
+                }
+              }
             }
+          } catch (imagesError) {
+            console.warn(`⚠️ Could not process images in sheet ${sheetName}: ${imagesError.message}`)
           }
         }
       }

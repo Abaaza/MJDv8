@@ -89,7 +89,7 @@ export class CohereMatchingService {
   /**
    * Precompute embeddings for price list items
    */
-  async precomputePriceListEmbeddings(priceItems) {
+  async precomputePriceListEmbeddings(priceItems, jobId, pmService) {
     console.log(`⚡ Pre-computing embeddings for ${priceItems.length} price items...`);
     console.log(`[COHERE DEBUG] First 3 price items:`, priceItems.slice(0, 3).map(item => ({
       id: item.id,
@@ -100,12 +100,16 @@ export class CohereMatchingService {
     this.embeddings.clear();
     const startTime = Date.now();
     
+    // Calculate total batches for progress tracking
+    const totalBatches = Math.ceil(priceItems.length / this.EMBEDDING_BATCH_SIZE);
+    
     // Process in batches
     for (let i = 0; i < priceItems.length; i += this.EMBEDDING_BATCH_SIZE) {
       const batch = priceItems.slice(i, i + this.EMBEDDING_BATCH_SIZE);
       const texts = batch.map(item => this.createSearchText(item));
       
-      console.log(`[COHERE DEBUG] Processing batch ${i / this.EMBEDDING_BATCH_SIZE + 1}, texts sample:`, texts.slice(0, 2));
+      const currentBatch = Math.floor(i / this.EMBEDDING_BATCH_SIZE) + 1;
+      console.log(`[COHERE DEBUG] Processing batch ${currentBatch}/${totalBatches}, texts sample:`, texts.slice(0, 2));
       
       try {
         const response = await this.cohere.embed({
@@ -125,6 +129,21 @@ export class CohereMatchingService {
             embedding: response.embeddings.float[index]
           });
         });
+        
+        // Update progress during embedding computation (45% to 50%)
+        if (pmService && jobId) {
+          const embeddingProgress = 45 + Math.round((currentBatch / totalBatches) * 5); // Progress from 45% to 50%
+          await pmService.updateJobStatus(
+            jobId, 
+            'processing', 
+            embeddingProgress, 
+            `Analyzing price database... (${Math.min(i + batch.length, priceItems.length)}/${priceItems.length} items)`,
+            {
+              total_items: pmService.currentTotalItems || 0,
+              matched_items: 0
+            }
+          );
+        }
         
         const progress = Math.min(100, Math.round((i + batch.length) / priceItems.length * 100));
         console.log(`   ⚡ Progress: ${progress}% (${i + batch.length}/${priceItems.length})`);
@@ -155,8 +174,11 @@ export class CohereMatchingService {
       const { isJobCancelled } = await import('../routes/priceMatching.js')
       const pmService = new PriceMatchingService()
       
+      // Store total items for progress tracking
+      pmService.currentTotalItems = items.length
+      
       // Pre-compute price list embeddings
-      await this.precomputePriceListEmbeddings(priceList);
+      await this.precomputePriceListEmbeddings(priceList, jobId, pmService)
       await pmService.updateJobStatus(jobId, 'processing', 45, `Analyzing price database...`);
       
       const matches = []
@@ -256,7 +278,8 @@ export class CohereMatchingService {
           });
           
           // Update progress AFTER processing the batch
-          const matchingProgress = 45 + Math.round((currentBatch / totalBatches) * 35)
+          // Progress from 50% to 80% during matching
+          const matchingProgress = 50 + Math.round((currentBatch / totalBatches) * 30)
           await pmService.updateJobStatus(
             jobId, 
             'processing', 

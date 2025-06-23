@@ -74,14 +74,47 @@ router.post('/process', upload.single('file'), async (req, res) => {
     // Create service instance when needed (after dotenv is loaded)
     const priceMatchingService = getPriceMatchingService()
 
-    // Update job with storage file information
-    await priceMatchingService.supabase
-      .from('matching_jobs')
-      .update({ 
+    // Create matching job record
+    const { data: jobData, error: jobError } = await priceMatchingService.supabase
+      .from('ai_matching_jobs')
+      .insert({
+        id: jobId,
+        user_id: userId,
+        original_filename: req.file.originalname,
         input_file_blob_key: storageResult.key,
-        input_file_blob_url: storageResult.url 
+        input_file_blob_url: storageResult.url,
+        status: 'pending',
+        progress: 0,
+        created_at: new Date().toISOString(),
+        // Initialize these fields to prevent null issues
+        matched_items: 0,
+        total_items: 0,
+        confidence_score: 0,
+        error_message: null
+      })
+      .select()
+      .single()
+
+    if (jobError) {
+      console.error('Job creation error:', jobError)
+      throw new Error('Failed to create job record')
+    }
+
+    console.log(`✅ Created job record: ${jobId}`)
+    
+    // Immediately update job status to show it's starting
+    const { error: updateError } = await priceMatchingService.supabase
+      .from('ai_matching_jobs')
+      .update({
+        status: 'processing',
+        progress: 1,
+        error_message: 'Initializing...'
       })
       .eq('id', jobId)
+    
+    if (updateError) {
+      console.error(`❌ Failed to update initial job status: ${updateError.message}`)
+    }
 
     // Start processing in background with proper error handling - DON'T AWAIT
     setImmediate(async () => {

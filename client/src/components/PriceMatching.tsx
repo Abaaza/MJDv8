@@ -400,7 +400,13 @@ export function PriceMatching() {
           project_name: projectName.trim(),
           original_filename: selectedFile.name,
           status: 'pending',
-          client_id: clientId
+          client_id: clientId,
+          // Initialize these fields to prevent null issues
+          progress: 0,
+          matched_items: 0,
+          total_items: 0,
+          confidence_score: 0,
+          error_message: null
         })
         .select()
         .single()
