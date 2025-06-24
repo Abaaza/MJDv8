@@ -56,6 +56,89 @@ export class LocalPriceMatchingService {
   }
 
   /**
+   * Identify category from various sources
+   */
+  identifyCategory(item, headerInfo, sheetName) {
+    const categoryKeywords = {
+      'excavation': ['excavation', 'earthwork', 'digging', 'cut', 'fill', 'soil', 'ground'],
+      'concrete': ['concrete', 'rcc', 'pcc', 'cement', 'mortar', 'plaster'],
+      'steel': ['steel', 'rebar', 'reinforcement', 'tor', 'tmt', 'bar', 'metal'],
+      'masonry': ['brick', 'block', 'masonry', 'wall', 'partition'],
+      'finishing': ['paint', 'painting', 'tile', 'tiles', 'flooring', 'ceiling', 'plaster'],
+      'doors_windows': ['door', 'window', 'shutter', 'frame', 'glazing'],
+      'plumbing': ['pipe', 'plumbing', 'water', 'sanitary', 'drainage', 'sewage'],
+      'electrical': ['wire', 'cable', 'electrical', 'switch', 'socket', 'light'],
+      'roofing': ['roof', 'waterproof', 'insulation', 'sheet', 'covering'],
+      'formwork': ['formwork', 'shuttering', 'centering', 'staging'],
+      'structural': ['beam', 'column', 'slab', 'foundation', 'footing', 'structural']
+    }
+    
+    let identifiedCategory = null
+    let confidenceScore = 0
+    
+    // 1. Check section headers (highest priority)
+    if (item.section_header) {
+      const headerLower = item.section_header.toLowerCase()
+      for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        if (keywords.some(keyword => headerLower.includes(keyword))) {
+          identifiedCategory = category
+          confidenceScore = 0.9
+          console.log(`📂 Category from header: ${category} (${item.section_header})`)
+          break
+        }
+      }
+    }
+    
+    // 2. Check sheet name (medium priority)
+    if (!identifiedCategory && sheetName) {
+      const sheetLower = sheetName.toLowerCase()
+      for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        if (keywords.some(keyword => sheetLower.includes(keyword))) {
+          identifiedCategory = category
+          confidenceScore = 0.7
+          console.log(`📂 Category from sheet: ${category} (${sheetName})`)
+          break
+        }
+      }
+    }
+    
+    // 3. Check item description (lower priority)
+    if (!identifiedCategory && item.description) {
+      const descLower = item.description.toLowerCase()
+      for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        const matchCount = keywords.filter(keyword => descLower.includes(keyword)).length
+        if (matchCount > 0) {
+          const score = matchCount / keywords.length
+          if (score > confidenceScore) {
+            identifiedCategory = category
+            confidenceScore = 0.5 + (score * 0.3)
+            console.log(`📂 Category from description: ${category} (score: ${confidenceScore})`)
+          }
+        }
+      }
+    }
+    
+    return { category: identifiedCategory, confidence: confidenceScore }
+  }
+
+  /**
+   * Filter price list by category
+   */
+  filterPriceListByCategory(priceList, category) {
+    if (!category) return priceList
+    
+    const categoryFiltered = priceList.filter(item => {
+      if (item.category) {
+        return item.category.toLowerCase().includes(category.toLowerCase())
+      }
+      return false
+    })
+    
+    console.log(`📂 Filtered price list: ${categoryFiltered.length} items in category '${category}'`)
+    return categoryFiltered
+  }
+
+  /**
    * Main function to match items against price list
    */
   async matchItems(items, priceList, jobId, originalFileName, updateJobStatus) {
@@ -96,6 +179,11 @@ export class LocalPriceMatchingService {
       // Process each item
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
+        
+        // Identify category for this item
+        const categoryInfo = this.identifyCategory(item, {}, item.sheet_name)
+        console.log(`📂 Item ${i + 1}: Category = ${categoryInfo.category || 'none'} (confidence: ${categoryInfo.confidence})`)
+        
         const processedItem = this.preprocessDescription(item.description)
         const itemTokens = this.tokenizeDescription(item.description)
         const itemKeywords = this.extractKeywords(item.description)
@@ -124,8 +212,14 @@ export class LocalPriceMatchingService {
           console.log(`📊 [LOCAL MATCH PROGRESS] ${i + 1}/${items.length} items processed, ${matchedCount} matches found`)
         }
         
-        // Find best match with enhanced algorithm
-        const match = this.findBestMatch(processedItem, processedPriceList, itemTokens, itemKeywords)
+        // Find best match with enhanced algorithm - try category first, then all items
+        const match = this.findBestMatchWithCategory(
+          processedItem, 
+          processedPriceList, 
+          itemTokens, 
+          itemKeywords,
+          categoryInfo.category
+        )
         
         // Ensure we always have a match (never null) to guarantee progress updates
         if (match) { // Always process the match since findBestMatch guarantees minimum 1% confidence
@@ -281,6 +375,43 @@ export class LocalPriceMatchingService {
     
     // Restore compound terms
     return tokens.map(token => token.replace(/_/g, ' '))
+  }
+
+  /**
+   * Find best match with category preference
+   */
+  findBestMatchWithCategory(processedItem, processedPriceList, itemTokens, itemKeywords, category) {
+    let bestMatch = null
+    
+    // First, try matching within the category if identified
+    if (category) {
+      const categoryItems = this.filterPriceListByCategory(processedPriceList, category)
+      if (categoryItems.length > 0) {
+        console.log(`🔍 [LOCAL MATCH] Searching within category '${category}' (${categoryItems.length} items)`)
+        bestMatch = this.findBestMatch(processedItem, categoryItems, itemTokens, itemKeywords)
+        
+        // If we found a good match in the category (>40% confidence), use it
+        if (bestMatch && bestMatch.confidence > 0.4) {
+          console.log(`✅ [LOCAL MATCH] Found category match with ${(bestMatch.confidence * 100).toFixed(2)}% confidence`)
+          return bestMatch
+        }
+      }
+    }
+    
+    // If no good category match, search all items
+    console.log(`🔍 [LOCAL MATCH] Searching across all items (category match not sufficient)`)
+    const allItemsMatch = this.findBestMatch(processedItem, processedPriceList, itemTokens, itemKeywords)
+    
+    // If we have both matches, compare and choose the better one
+    if (bestMatch && allItemsMatch) {
+      // Prefer category match if confidence difference is small
+      if (bestMatch.confidence >= allItemsMatch.confidence * 0.8) {
+        console.log(`📂 [LOCAL MATCH] Using category match despite lower confidence`)
+        return bestMatch
+      }
+    }
+    
+    return allItemsMatch || bestMatch
   }
 
   /**

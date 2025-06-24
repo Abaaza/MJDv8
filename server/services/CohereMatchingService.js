@@ -8,6 +8,7 @@ export class CohereMatchingService {
     // Don't initialize Cohere client here - we'll do it when we have the API key
     this.cohere = null
     this.embeddings = new Map()
+    this.embeddingsByCategory = new Map()
     this.EMBEDDING_BATCH_SIZE = 96
     
     // Initialize Supabase for fetching API key
@@ -71,6 +72,72 @@ export class CohereMatchingService {
   }
 
   /**
+   * Identify category from various sources
+   */
+  identifyCategory(item, sheetName) {
+    const categoryKeywords = {
+      'excavation': ['excavation', 'earthwork', 'digging', 'cut', 'fill', 'soil', 'ground'],
+      'concrete': ['concrete', 'rcc', 'pcc', 'cement', 'mortar', 'plaster'],
+      'steel': ['steel', 'rebar', 'reinforcement', 'tor', 'tmt', 'bar', 'metal'],
+      'masonry': ['brick', 'block', 'masonry', 'wall', 'partition'],
+      'finishing': ['paint', 'painting', 'tile', 'tiles', 'flooring', 'ceiling', 'plaster'],
+      'doors_windows': ['door', 'window', 'shutter', 'frame', 'glazing'],
+      'plumbing': ['pipe', 'plumbing', 'water', 'sanitary', 'drainage', 'sewage'],
+      'electrical': ['wire', 'cable', 'electrical', 'switch', 'socket', 'light'],
+      'roofing': ['roof', 'waterproof', 'insulation', 'sheet', 'covering'],
+      'formwork': ['formwork', 'shuttering', 'centering', 'staging'],
+      'structural': ['beam', 'column', 'slab', 'foundation', 'footing', 'structural']
+    }
+    
+    let identifiedCategory = null
+    let confidenceScore = 0
+    
+    // 1. Check section headers (highest priority)
+    if (item.section_header) {
+      const headerLower = item.section_header.toLowerCase()
+      for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        if (keywords.some(keyword => headerLower.includes(keyword))) {
+          identifiedCategory = category
+          confidenceScore = 0.9
+          console.log(`📂 [COHERE] Category from header: ${category} (${item.section_header})`)
+          break
+        }
+      }
+    }
+    
+    // 2. Check sheet name (medium priority)
+    if (!identifiedCategory && sheetName) {
+      const sheetLower = sheetName.toLowerCase()
+      for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        if (keywords.some(keyword => sheetLower.includes(keyword))) {
+          identifiedCategory = category
+          confidenceScore = 0.7
+          console.log(`📂 [COHERE] Category from sheet: ${category} (${sheetName})`)
+          break
+        }
+      }
+    }
+    
+    // 3. Check item description (lower priority)
+    if (!identifiedCategory && item.description) {
+      const descLower = item.description.toLowerCase()
+      for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        const matchCount = keywords.filter(keyword => descLower.includes(keyword)).length
+        if (matchCount > 0) {
+          const score = matchCount / keywords.length
+          if (score > confidenceScore) {
+            identifiedCategory = category
+            confidenceScore = 0.5 + (score * 0.3)
+            console.log(`📂 [COHERE] Category from description: ${category} (score: ${confidenceScore})`)
+          }
+        }
+      }
+    }
+    
+    return { category: identifiedCategory, confidence: confidenceScore }
+  }
+
+  /**
    * Create search text for embeddings
    */
   createSearchText(item) {
@@ -94,10 +161,12 @@ export class CohereMatchingService {
     console.log(`[COHERE DEBUG] First 3 price items:`, priceItems.slice(0, 3).map(item => ({
       id: item.id,
       description: item.description?.substring(0, 50) + '...',
-      rate: item.rate
+      rate: item.rate,
+      category: item.category
     })));
     
     this.embeddings.clear();
+    this.embeddingsByCategory = new Map(); // Store embeddings by category
     const startTime = Date.now();
     
     // Calculate total batches for progress tracking
@@ -124,10 +193,22 @@ export class CohereMatchingService {
         
         // Store embeddings
         batch.forEach((item, index) => {
-          this.embeddings.set(item.id, {
+          const embeddingData = {
             item: item,
             embedding: response.embeddings.float[index]
-          });
+          };
+          
+          // Store in main map
+          this.embeddings.set(item.id, embeddingData);
+          
+          // Also store by category if available
+          if (item.category) {
+            const categoryKey = item.category.toLowerCase();
+            if (!this.embeddingsByCategory.has(categoryKey)) {
+              this.embeddingsByCategory.set(categoryKey, new Map());
+            }
+            this.embeddingsByCategory.get(categoryKey).set(item.id, embeddingData);
+          }
         });
         
         // Update progress during embedding computation (45% to 50%)
@@ -217,8 +298,12 @@ export class CohereMatchingService {
           
           // Find best matches for each query
           batch.forEach((boqItem, index) => {
+            // Identify category for this item
+            const categoryInfo = this.identifyCategory(boqItem, boqItem.sheet_name);
+            console.log(`📂 [COHERE] Item ${i + index + 1}: Category = ${categoryInfo.category || 'none'} (confidence: ${categoryInfo.confidence})`);
+            
             const queryEmbedding = response.embeddings.float[index];
-            const bestMatch = this.findBestEmbeddingMatch(queryEmbedding, boqItem);
+            const bestMatch = this.findBestEmbeddingMatchWithCategory(queryEmbedding, boqItem, categoryInfo.category);
             
             console.log(`[COHERE DEBUG] Item ${i + index + 1}: bestMatch =`, bestMatch ? { confidence: bestMatch.confidence, hasItem: !!bestMatch.item } : 'null');
             
@@ -381,6 +466,99 @@ export class CohereMatchingService {
     }
     
     return queryText;
+  }
+
+  /**
+   * Find best match with category preference using embeddings
+   */
+  findBestEmbeddingMatchWithCategory(queryEmbedding, boqItem, category) {
+    let bestMatch = null;
+    
+    // First, try matching within the category if identified
+    if (category) {
+      const categoryKey = category.toLowerCase();
+      const categoryEmbeddings = this.embeddingsByCategory.get(categoryKey);
+      
+      if (categoryEmbeddings && categoryEmbeddings.size > 0) {
+        console.log(`🔍 [COHERE] Searching within category '${category}' (${categoryEmbeddings.size} items)`);
+        bestMatch = this.findBestEmbeddingMatchInSet(queryEmbedding, boqItem, categoryEmbeddings);
+        
+        // If we found a good match in the category (>50% confidence), use it
+        if (bestMatch && bestMatch.confidence > 50) {
+          console.log(`✅ [COHERE] Found category match with ${bestMatch.confidence}% confidence`);
+          bestMatch.reason = `Category match (${category}): ${bestMatch.reason}`;
+          return bestMatch;
+        }
+      }
+    }
+    
+    // If no good category match, search all items
+    console.log(`🔍 [COHERE] Searching across all items (category match not sufficient)`);
+    const allItemsMatch = this.findBestEmbeddingMatch(queryEmbedding, boqItem);
+    
+    // If we have both matches, compare and choose the better one
+    if (bestMatch && allItemsMatch) {
+      // Prefer category match if confidence difference is small (within 80%)
+      if (bestMatch.confidence >= allItemsMatch.confidence * 0.8) {
+        console.log(`📂 [COHERE] Using category match despite lower confidence`);
+        bestMatch.reason = `Preferred category match: ${bestMatch.reason}`;
+        return bestMatch;
+      }
+    }
+    
+    return allItemsMatch || bestMatch;
+  }
+
+  /**
+   * Find best match in a specific set of embeddings
+   */
+  findBestEmbeddingMatchInSet(queryEmbedding, boqItem, embeddingsMap) {
+    let bestMatch = null;
+    let bestScore = -1;
+    let bestItem = null;
+    
+    // Calculate cosine similarity with items in the set
+    for (const [priceItemId, data] of embeddingsMap) {
+      const similarity = this.cosineSimilarity(queryEmbedding, data.embedding);
+      
+      if (similarity > bestScore) {
+        bestScore = similarity;
+        bestItem = data.item;
+      }
+    }
+    
+    if (!bestItem) {
+      return null;
+    }
+    
+    // Convert similarity to confidence percentage
+    let confidence = Math.round(bestScore * 100);
+    
+    // Additional checks for unit matching
+    let unitBonus = 0;
+    if (boqItem.unit && bestItem.unit) {
+      const boqUnit = boqItem.unit.toLowerCase().trim();
+      const priceUnit = bestItem.unit.toLowerCase().trim();
+      
+      if (boqUnit === priceUnit) {
+        unitBonus = 10;
+      } else if (this.areUnitsCompatible(boqUnit, priceUnit)) {
+        unitBonus = 5;
+      }
+    }
+    
+    confidence = Math.min(confidence + unitBonus, 100);
+    
+    // Always return the best match, even with very low confidence
+    if (confidence === 0) {
+      confidence = 1;
+    }
+    
+    return {
+      item: bestItem,
+      confidence: confidence,
+      reason: `Semantic similarity: ${Math.round(bestScore * 100)}%${unitBonus > 0 ? `, Unit match: +${unitBonus}%` : ''}`
+    };
   }
 
   /**

@@ -82,10 +82,11 @@ export class ExcelExportService {
         
         // Find rate column index and last used column
         let rateColumnIndex = -1
+        let quantityColumnIndex = -1
         let maxColumn = 1
         let headerRowNum = 1
         
-        // First, find the header row and locate rate column
+        // First, find the header row and locate rate and quantity columns
         for (let rowNum = 1; rowNum <= Math.min(10, originalWorksheet.rowCount); rowNum++) {
           const row = originalWorksheet.getRow(rowNum)
           let maxCellsInRow = 0
@@ -94,23 +95,33 @@ export class ExcelExportService {
             maxCellsInRow++
             const cellValue = String(cell.value || '').toLowerCase().trim()
             
+            // Look for quantity-related headers
+            if (cellValue === 'quantity' || cellValue === 'qty' || cellValue === 'quantities' || 
+                cellValue === 'no' || cellValue === 'nos' || cellValue.includes('quantity')) {
+              quantityColumnIndex = colNumber
+              headerRowNum = rowNum
+              console.log(`   📍 Found quantity column at index ${colNumber} in row ${rowNum}`)
+            }
+            
             // Look for rate-related headers
             if (cellValue === 'rate' || cellValue === 'price' || cellValue === 'unit rate' || 
                 cellValue === 'unit price' || cellValue.includes('rate') || cellValue.includes('price')) {
               rateColumnIndex = colNumber
-              headerRowNum = rowNum
               console.log(`   📍 Found rate column at index ${colNumber} in row ${rowNum}`)
             }
             
             if (colNumber > maxColumn) maxColumn = colNumber
           })
           
-          // If we found the rate column, stop looking
-          if (rateColumnIndex > 0) break
+          // If we found both columns, stop looking
+          if (quantityColumnIndex > 0 && rateColumnIndex > 0) break
         }
         
-        console.log(`   📍 Rate column: ${rateColumnIndex > 0 ? rateColumnIndex : 'not found'}, Max column: ${maxColumn}`)
-        console.log(`   📍 Adding matched description at column ${maxColumn + 2}`)
+        console.log(`   📍 Quantity column: ${quantityColumnIndex > 0 ? quantityColumnIndex : 'not found'}, Rate column: ${rateColumnIndex > 0 ? rateColumnIndex : 'not found'}, Max column: ${maxColumn}`)
+        
+        // Determine where to place the new columns
+        let newColumnsStartIndex = quantityColumnIndex > 0 ? quantityColumnIndex + 1 : maxColumn + 2
+        console.log(`   📍 Adding new columns starting at column ${newColumnsStartIndex}`)
         
         // Copy all rows with original formatting
         originalWorksheet.eachRow({ includeEmpty: true }, (originalRow, rowNumber) => {
@@ -182,13 +193,10 @@ export class ExcelExportService {
           
           // Add matched description if this row has a match
           if (match) {
-            // Leave a gap column
-            const gapCol = maxColumn + 1
-            
-            // Add matched description
-            const matchedDescCell = newRow.getCell(maxColumn + 2)
-            matchedDescCell.value = match.matched_description || ''
-            matchedDescCell.style = {
+            // Add matched item name
+            const matchedNameCell = newRow.getCell(newColumnsStartIndex)
+            matchedNameCell.value = match.matched_description || ''
+            matchedNameCell.style = {
               fill: {
                 type: 'pattern',
                 pattern: 'solid',
@@ -203,15 +211,32 @@ export class ExcelExportService {
               alignment: { wrapText: true }
             }
             
-            // Add confidence score
-            const confidenceCell = newRow.getCell(maxColumn + 3)
-            confidenceCell.value = Math.round(match.similarity_score || 0)
-            confidenceCell.numFmt = '0"%"'
-            confidenceCell.style = {
+            // Add rate
+            const rateCell = newRow.getCell(newColumnsStartIndex + 1)
+            rateCell.value = match.matched_rate || 0
+            rateCell.numFmt = '#,##0.00'
+            rateCell.style = {
               fill: {
                 type: 'pattern',
                 pattern: 'solid',
-                fgColor: { argb: match.similarity_score >= 70 ? 'C8E6C9' : 'FFE0B2' }
+                fgColor: { argb: 'E8F5E9' }
+              },
+              border: {
+                top: { style: 'thin' },
+                left: { style: 'thin' },
+                bottom: { style: 'thin' },
+                right: { style: 'thin' }
+              }
+            }
+            
+            // Add unit
+            const unitCell = newRow.getCell(newColumnsStartIndex + 2)
+            unitCell.value = match.unit || match.matched_unit || ''
+            unitCell.style = {
+              fill: {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FFF3E0' }
               },
               border: {
                 top: { style: 'thin' },
@@ -230,10 +255,10 @@ export class ExcelExportService {
         if (originalWorksheet.rowCount > 0) {
           const headerRow = newWorksheet.getRow(headerRowNum)
           
-          // Add header for matched description
-          const matchedDescHeader = headerRow.getCell(maxColumn + 2)
-          matchedDescHeader.value = 'Matched Description'
-          matchedDescHeader.style = {
+          // Add header for matched item name
+          const matchedNameHeader = headerRow.getCell(newColumnsStartIndex)
+          matchedNameHeader.value = 'Matched Item Name'
+          matchedNameHeader.style = {
             font: { bold: true, color: { argb: 'FFFFFF' } },
             fill: {
               type: 'pattern',
@@ -249,15 +274,15 @@ export class ExcelExportService {
             }
           }
           
-          // Add header for confidence
-          const confidenceHeader = headerRow.getCell(maxColumn + 3)
-          confidenceHeader.value = 'Confidence'
-          confidenceHeader.style = {
+          // Add header for rate
+          const rateHeader = headerRow.getCell(newColumnsStartIndex + 1)
+          rateHeader.value = 'Rate'
+          rateHeader.style = {
             font: { bold: true, color: { argb: 'FFFFFF' } },
             fill: {
               type: 'pattern',
               pattern: 'solid',
-              fgColor: { argb: '388E3C' }
+              fgColor: { argb: '2E7D32' }
             },
             alignment: { horizontal: 'center', vertical: 'middle' },
             border: {
@@ -268,42 +293,22 @@ export class ExcelExportService {
             }
           }
           
-          // If no rate column was found, add headers for rate info
-          if (rateColumnIndex === -1) {
-            const rateHeader = headerRow.getCell(maxColumn + 4)
-            rateHeader.value = 'Matched Rate'
-            rateHeader.style = {
-              font: { bold: true, color: { argb: 'FFFFFF' } },
-              fill: {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'D32F2F' }
-              },
-              alignment: { horizontal: 'center', vertical: 'middle' },
-              border: {
-                top: { style: 'medium' },
-                left: { style: 'medium' },
-                bottom: { style: 'medium' },
-                right: { style: 'medium' }
-              }
-            }
-            
-            const unitHeader = headerRow.getCell(maxColumn + 5)
-            unitHeader.value = 'Unit'
-            unitHeader.style = {
-              font: { bold: true, color: { argb: 'FFFFFF' } },
-              fill: {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: '7B1FA2' }
-              },
-              alignment: { horizontal: 'center', vertical: 'middle' },
-              border: {
-                top: { style: 'medium' },
-                left: { style: 'medium' },
-                bottom: { style: 'medium' },
-                right: { style: 'medium' }
-              }
+          // Add header for unit
+          const unitHeader = headerRow.getCell(newColumnsStartIndex + 2)
+          unitHeader.value = 'Unit'
+          unitHeader.style = {
+            font: { bold: true, color: { argb: 'FFFFFF' } },
+            fill: {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'E65100' }
+            },
+            alignment: { horizontal: 'center', vertical: 'middle' },
+            border: {
+              top: { style: 'medium' },
+              left: { style: 'medium' },
+              bottom: { style: 'medium' },
+              right: { style: 'medium' }
             }
           }
         }
@@ -321,57 +326,9 @@ export class ExcelExportService {
         }
         
         // Set width for new columns
-        newWorksheet.getColumn(maxColumn + 2).width = 45 // Matched Description
-        newWorksheet.getColumn(maxColumn + 3).width = 12 // Confidence
-        
-        // If no rate column was found, add columns for rate info
-        if (rateColumnIndex === -1) {
-          newWorksheet.getColumn(maxColumn + 4).width = 12 // Rate
-          newWorksheet.getColumn(maxColumn + 5).width = 10 // Unit
-          
-          // Add rate and unit data for matches
-          if (originalWorksheet && originalWorksheet.eachRow) {
-            originalWorksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-              const match = matchLookup.get(rowNumber)
-              if (match && rowNumber !== headerRowNum) {
-                const newRow = newWorksheet.getRow(rowNumber)
-                
-                const rateCell = newRow.getCell(maxColumn + 4)
-                rateCell.value = match.matched_rate || 0
-                rateCell.numFmt = '#,##0.00'
-                rateCell.style = {
-                  fill: {
-                    type: 'pattern',
-                    pattern: 'solid',
-                    fgColor: { argb: 'FFEBEE' }
-                  },
-                  border: {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    right: { style: 'thin' }
-                  }
-                }
-                
-                const unitCell = newRow.getCell(maxColumn + 5)
-                unitCell.value = match.unit || ''
-                unitCell.style = {
-                  fill: {
-                    type: 'pattern',
-                    pattern: 'solid',
-                    fgColor: { argb: 'F3E5F5' }
-                  },
-                  border: {
-                    top: { style: 'thin' },
-                    left: { style: 'thin' },
-                    bottom: { style: 'thin' },
-                    right: { style: 'thin' }
-                  }
-                }
-              }
-            })
-          }
-        }
+        newWorksheet.getColumn(newColumnsStartIndex).width = 45 // Matched Item Name
+        newWorksheet.getColumn(newColumnsStartIndex + 1).width = 12 // Rate
+        newWorksheet.getColumn(newColumnsStartIndex + 2).width = 10 // Unit
         
         // Copy merged cells
         if (originalWorksheet && originalWorksheet.model && originalWorksheet.model.merges) {
