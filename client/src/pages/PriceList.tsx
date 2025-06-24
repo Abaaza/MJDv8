@@ -75,11 +75,12 @@ export default function PriceList() {
     setItemsPerPage,
     sortField,
     sortDirection,
-    onSort,
+    handleSort,
     handleDeleteItem,
     handleDeleteAll,
     refreshData,
-    itemsPerPageOptions
+    ITEMS_PER_PAGE_OPTIONS,
+    handleItemsPerPageChange
   } = usePriceList()
 
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -91,7 +92,11 @@ export default function PriceList() {
   }
 
   if (loading) {
-    return <div className="p-6">Loading price items...</div>
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    )
   }
 
   return (
@@ -139,7 +144,7 @@ export default function PriceList() {
             currency={currency}
             sortField={sortField}
             sortDirection={sortDirection}
-            onSort={onSort}
+            onSort={handleSort}
           />
           
           <PriceListPagination
@@ -147,8 +152,8 @@ export default function PriceList() {
             totalPages={totalPages}
             onPageChange={setCurrentPage}
             itemsPerPage={itemsPerPage}
-            onItemsPerPageChange={setItemsPerPage}
-            itemsPerPageOptions={itemsPerPageOptions}
+            onItemsPerPageChange={handleItemsPerPageChange}
+            itemsPerPageOptions={ITEMS_PER_PAGE_OPTIONS}
             totalItems={totalItems}
           />
         </CardContent>

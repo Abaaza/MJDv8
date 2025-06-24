@@ -1,7 +1,9 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
 import { toast } from "sonner"
+import { useDebounce } from "@/hooks/use-debounce"
 
 interface PriceItem {
   id: string
@@ -52,72 +54,80 @@ interface PriceItem {
   updated_at: string
 }
 
-export type SortField = 'code' | 'description' | 'category' | 'unit' | 'rate' | 'created_at'
-export type SortDirection = 'asc' | 'desc'
+type SortField = 'created_at' | 'description' | 'category' | 'rate'
+type SortDirection = 'asc' | 'desc'
 
 const ITEMS_PER_PAGE_OPTIONS = [50, 100, 200]
 
 export function usePriceList() {
-  const [priceItems, setPriceItems] = useState<PriceItem[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
-  const [loading, setLoading] = useState(true)
   const [currentPage, setCurrentPage] = useState(1)
-  const [totalItems, setTotalItems] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
-  const [availableCategories, setAvailableCategories] = useState<string[]>([])
-  const [currency, setCurrency] = useState("USD")
   const [itemsPerPage, setItemsPerPage] = useState(ITEMS_PER_PAGE_OPTIONS[0])
   const [sortField, setSortField] = useState<SortField>('created_at')
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
   const { user } = useAuth()
+  const queryClient = useQueryClient()
+  
+  // Debounce search term for performance
+  const debouncedSearchTerm = useDebounce(searchTerm, 300)
 
-  const fetchCurrency = async () => {
-    try {
+  // Fetch currency setting
+  const { data: currency = "USD" } = useQuery({
+    queryKey: ['app-settings', 'currency'],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from('app_settings')
         .select('currency')
         .eq('id', 1)
         .single()
 
-      if (error) {
-        console.error('Error fetching currency:', error)
-        return
-      }
+      if (error) throw error
+      return data?.currency || "USD"
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  })
 
-      setCurrency(data?.currency || "USD")
-    } catch (error) {
-      console.error('Error fetching currency:', error)
-    }
-  }
-
-  const fetchAvailableCategories = async () => {
-    try {
+  // Fetch available categories
+  const { data: availableCategories = [] } = useQuery({
+    queryKey: ['price-items-categories'],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from('price_items')
         .select('category')
         .not('category', 'is', null)
 
-      if (error) {
-        console.error('Error fetching categories:', error)
-        return
-      }
+      if (error) throw error
 
-      const uniqueCategories = Array.from(new Set(data?.map(item => item.category?.toLowerCase()).filter(Boolean))) as string[]
-      setAvailableCategories(uniqueCategories)
-    } catch (error) {
-      console.error('Error fetching categories:', error)
-    }
-  }
+      const uniqueCategories = Array.from(
+        new Set(data?.map(item => item.category?.toLowerCase()).filter(Boolean))
+      ) as string[]
+      
+      return uniqueCategories
+    },
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes
+  })
 
-  const fetchTotalCount = async () => {
-    try {
+  // Build query parameters
+  const queryParams = useMemo(() => ({
+    searchTerm: debouncedSearchTerm,
+    categoryFilter,
+    currentPage,
+    itemsPerPage,
+    sortField,
+    sortDirection,
+  }), [debouncedSearchTerm, categoryFilter, currentPage, itemsPerPage, sortField, sortDirection])
+
+  // Fetch total count
+  const { data: totalCount = 0 } = useQuery({
+    queryKey: ['price-items-count', queryParams],
+    queryFn: async () => {
       let query = supabase
         .from('price_items')
         .select('*', { count: 'exact', head: true })
 
-      if (searchTerm) {
-        query = query.or(`description.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%,subcategory.ilike.%${searchTerm}%,code.ilike.%${searchTerm}%`)
+      if (debouncedSearchTerm) {
+        query = query.or(`description.ilike.%${debouncedSearchTerm}%,category.ilike.%${debouncedSearchTerm}%,subcategory.ilike.%${debouncedSearchTerm}%,code.ilike.%${debouncedSearchTerm}%`)
       }
       
       if (categoryFilter !== "all") {
@@ -125,21 +135,23 @@ export function usePriceList() {
       }
 
       const { count, error } = await query
+      if (error) throw error
 
-      if (error) {
-        console.error('Error fetching total count:', error)
-        return
-      }
+      return count || 0
+    },
+    staleTime: 30 * 1000, // Cache for 30 seconds
+  })
 
-      setTotalItems(count || 0)
-      setTotalPages(Math.ceil((count || 0) / itemsPerPage))
-    } catch (error) {
-      console.error('Error fetching total count:', error)
-    }
-  }
+  const totalPages = Math.ceil(totalCount / itemsPerPage)
 
-  const fetchPriceItems = async () => {
-    try {
+  // Fetch price items
+  const { 
+    data: priceItems = [], 
+    isLoading: loading,
+    error 
+  } = useQuery({
+    queryKey: ['price-items', queryParams],
+    queryFn: async () => {
       const offset = (currentPage - 1) * itemsPerPage
       
       let query = supabase
@@ -148,8 +160,8 @@ export function usePriceList() {
         .order(sortField, { ascending: sortDirection === 'asc' })
         .range(offset, offset + itemsPerPage - 1)
 
-      if (searchTerm) {
-        query = query.or(`description.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%,subcategory.ilike.%${searchTerm}%,code.ilike.%${searchTerm}%`)
+      if (debouncedSearchTerm) {
+        query = query.or(`description.ilike.%${debouncedSearchTerm}%,category.ilike.%${debouncedSearchTerm}%,subcategory.ilike.%${debouncedSearchTerm}%,code.ilike.%${debouncedSearchTerm}%`)
       }
       
       if (categoryFilter !== "all") {
@@ -157,109 +169,91 @@ export function usePriceList() {
       }
 
       const { data, error } = await query
+      if (error) throw error
 
-      if (error) {
-        console.error('Error fetching price items:', error)
-        toast.error('Failed to load price items')
-        return
-      }
+      return data || []
+    },
+    staleTime: 30 * 1000, // Cache for 30 seconds
+    enabled: !!user,
+  })
 
-      setPriceItems(data || [])
-    } catch (error) {
-      console.error('Error fetching price items:', error)
-      toast.error('Failed to load price items')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDirection('asc')
-    }
-    setCurrentPage(1) // Reset to first page when sorting
-  }
-
-  const handleItemsPerPageChange = (newItemsPerPage: number) => {
-    setItemsPerPage(newItemsPerPage)
-    setCurrentPage(1) // Reset to first page when changing items per page
-  }
-
-  const handleDeleteItem = async (id: string) => {
-    try {
+  // Delete item mutation
+  const deleteItemMutation = useMutation({
+    mutationFn: async (id: string) => {
       const { error } = await supabase
         .from('price_items')
         .delete()
         .eq('id', id)
 
-      if (error) {
-        console.error('Error deleting price item:', error)
-        toast.error('Failed to delete price item')
-        return
-      }
-
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['price-items'] })
+      queryClient.invalidateQueries({ queryKey: ['price-items-count'] })
       toast.success('Price item deleted successfully')
-      fetchPriceItems()
-      fetchTotalCount()
-    } catch (error) {
+    },
+    onError: (error) => {
       console.error('Error deleting price item:', error)
       toast.error('Failed to delete price item')
-    }
-  }
+    },
+  })
 
-  const handleDeleteAll = async () => {
-    if (!confirm('Are you sure you want to delete ALL price items? This action cannot be undone.')) {
-      return
-    }
+  // Delete all mutation
+  const deleteAllMutation = useMutation({
+    mutationFn: async () => {
+      if (!confirm('Are you sure you want to delete ALL price items? This action cannot be undone.')) {
+        throw new Error('User cancelled')
+      }
 
-    try {
       const { error } = await supabase
         .from('price_items')
         .delete()
         .not('id', 'is', null)
 
-      if (error) {
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['price-items'] })
+      queryClient.invalidateQueries({ queryKey: ['price-items-count'] })
+      queryClient.invalidateQueries({ queryKey: ['price-items-categories'] })
+      toast.success('All price items deleted successfully')
+    },
+    onError: (error: any) => {
+      if (error.message !== 'User cancelled') {
         console.error('Error deleting all price items:', error)
         toast.error('Failed to delete all price items')
-        return
       }
+    },
+  })
 
-      toast.success('All price items deleted successfully')
-      fetchPriceItems()
-      fetchTotalCount()
-      fetchAvailableCategories()
-    } catch (error) {
-      console.error('Error deleting all price items:', error)
-      toast.error('Failed to delete all price items')
+  const handleSort = useCallback((field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
     }
-  }
-
-  const refreshData = () => {
-    fetchPriceItems()
-    fetchTotalCount()
-    fetchAvailableCategories()
-    fetchCurrency()
-  }
-
-  useEffect(() => {
-    if (user) {
-      fetchAvailableCategories()
-      fetchPriceItems()
-      fetchTotalCount()
-      fetchCurrency()
-    }
-  }, [user, currentPage, searchTerm, categoryFilter, itemsPerPage, sortField, sortDirection])
-
-  useEffect(() => {
     setCurrentPage(1)
-  }, [searchTerm, categoryFilter, itemsPerPage])
+  }, [sortField])
+
+  const handleItemsPerPageChange = useCallback((newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage)
+    setCurrentPage(1)
+  }, [])
+
+  const refreshData = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['price-items'] })
+    queryClient.invalidateQueries({ queryKey: ['price-items-count'] })
+    queryClient.invalidateQueries({ queryKey: ['price-items-categories'] })
+    queryClient.invalidateQueries({ queryKey: ['app-settings'] })
+  }, [queryClient])
 
   useEffect(() => {
-    fetchTotalCount()
-  }, [itemsPerPage])
+    if (error) {
+      console.error('Error fetching price items:', error)
+      toast.error('Failed to load price items')
+    }
+  }, [error])
 
   return {
     priceItems,
@@ -270,18 +264,19 @@ export function usePriceList() {
     loading,
     currentPage,
     setCurrentPage,
-    totalItems,
+    totalItems: totalCount,
     totalPages,
     availableCategories,
     currency,
     itemsPerPage,
-    setItemsPerPage: handleItemsPerPageChange,
+    setItemsPerPage,
     sortField,
     sortDirection,
-    onSort: handleSort,
-    handleDeleteItem,
-    handleDeleteAll,
+    handleSort,
+    handleItemsPerPageChange,
+    handleDeleteItem: (id: string) => deleteItemMutation.mutate(id),
+    handleDeleteAll: () => deleteAllMutation.mutate(),
     refreshData,
-    itemsPerPageOptions: ITEMS_PER_PAGE_OPTIONS
+    ITEMS_PER_PAGE_OPTIONS
   }
 }

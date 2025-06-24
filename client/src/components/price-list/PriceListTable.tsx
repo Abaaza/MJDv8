@@ -2,7 +2,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Edit, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
-import { SortField, SortDirection } from "@/hooks/usePriceList"
+
+type SortField = 'created_at' | 'description' | 'category' | 'rate'
+type SortDirection = 'asc' | 'desc'
 
 interface PriceItem {
   id: string
@@ -124,10 +126,10 @@ export function PriceListTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <SortableHeader field="code" className="w-[80px]">Code</SortableHeader>
+          <TableHead className="w-[80px] text-left">Code</TableHead>
           <SortableHeader field="description">Description</SortableHeader>
           <SortableHeader field="category">Category</SortableHeader>
-          <SortableHeader field="unit">Unit</SortableHeader>
+          <TableHead className="text-left">Unit</TableHead>
           <SortableHeader field="rate">Rate ({currency})</SortableHeader>
           <TableHead className="text-left">Keywords</TableHead>
           <TableHead className="w-[100px] text-center">Actions</TableHead>

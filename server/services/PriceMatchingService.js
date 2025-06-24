@@ -6,7 +6,7 @@ import ExcelJS from 'exceljs'
 import XLSX from 'xlsx'
 import { createClient } from '@supabase/supabase-js'
 import { ExcelParsingService } from './ExcelParsingService.js'
-// LocalPriceMatchingService removed - using Cohere AI only
+import { LocalPriceMatchingService } from './LocalPriceMatchingService.js'
 import { CohereMatchingService } from './CohereMatchingService.js'
 import { ExcelExportService } from './ExcelExportService.js'
 
@@ -35,9 +35,20 @@ export class PriceMatchingService {
     this.pythonScriptPath = path.join(__dirname, 'cohereexcelparsing.py')
     this.pricelistPath = path.join(__dirname, '..', 'temp', 'pricelist.xlsx')
     
-    // Initialize services - using Cohere AI only
+    // Initialize services
     this.excelParser = new ExcelParsingService()
+    this.localMatcher = new LocalPriceMatchingService()
     this.cohereMatcher = new CohereMatchingService()
+    this.exportService = new ExcelExportService()
+    
+    // Performance optimization: Cache price list
+    this.priceListCache = null
+    this.priceListCacheTime = null
+    this.CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+    
+    // Batch processing configuration
+    this.BATCH_SIZE = 100
+    this.MAX_CONCURRENT_BATCHES = 3
   }
 
   async processFile(jobId, inputFilePath, originalFileName, matchingMethod = 'cohere') {
@@ -141,7 +152,7 @@ export class PriceMatchingService {
       // Step 2: Load price list from database
       console.log(`💰 Loading price list from database...`)
       await this.updateJobStatus(jobId, 'processing', 30, 'Loading price database...')
-      const priceList = await this.loadPriceList()
+      const priceList = await this.getCachedPriceList()
       console.log(`✅ Loaded ${priceList.length} price items`)
       await this.updateJobStatus(jobId, 'processing', 45, `Preparing to match against ${priceList.length} price items`)
 
@@ -200,8 +211,7 @@ export class PriceMatchingService {
       // If no output path (e.g., no matches), create one with ExcelExportService
       if (!outputPath || matchingResult.totalMatched === 0) {
         console.log(`📄 Creating Excel output with original format...`)
-        const exportService = new ExcelExportService()
-        outputPath = await exportService.exportWithOriginalFormat(
+        outputPath = await this.exportService.exportWithOriginalFormat(
           inputFilePath, 
           matchingResult.matches || [], 
           jobId, 
@@ -285,6 +295,27 @@ export class PriceMatchingService {
       await this.updateJobStatus(jobId, 'failed', 0, error.message)
       throw error
     }
+  }
+
+  async getCachedPriceList() {
+    const now = Date.now()
+    
+    // Check if cache is valid
+    if (this.priceListCache && this.priceListCacheTime && 
+        (now - this.priceListCacheTime) < this.CACHE_DURATION) {
+      console.log('📦 Using cached price list')
+      return this.priceListCache
+    }
+    
+    // Fetch fresh data
+    console.log('🔄 Fetching fresh price list...')
+    const priceList = await this.loadPriceList()
+    
+    // Update cache
+    this.priceListCache = priceList
+    this.priceListCacheTime = now
+    
+    return priceList
   }
 
   async loadPriceList() {
@@ -572,545 +603,316 @@ export class PriceMatchingService {
         await this.updateJobStatus(jobId, 'failed', 0, `
 ❌ Cohere API Key Missing!
 
-Setup required:
-1. Add to Supabase app_settings table, OR
-2. Add COHERE_API_KEY to .env file
+import { ExcelParsingService } from './ExcelParsingService.js'
+import { LocalPriceMatchingService } from './LocalPriceMatchingService.js'
+import { CohereMatchingService } from './CohereMatchingService.js'
+import { ExcelExportService } from './ExcelExportService.js'
+import { createClient } from '@supabase/supabase-js'
+import path from 'path'
+import fs from 'fs-extra'
+import os from 'os'
 
-Admin settings error: ${adminError.message}
-        `.trim())
-        throw new Error('No Cohere API key available')
-      }
-    }
-
-    if (!apiKey) {
-      throw new Error('Failed to obtain Cohere API key from any source')
-    }
-
-    console.log('🔧 Configuring Python script execution...')
+export class PriceMatchingService {
+  constructor() {
+    this.supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+    )
+    this.parsingService = new ExcelParsingService()
+    this.localMatchingService = new LocalPriceMatchingService()
+    this.cohereMatchingService = new CohereMatchingService(process.env.COHERE_API_KEY)
+    this.exportService = new ExcelExportService()
     
-    // Use python or python3 based on environment
-    const pythonExecutable = process.env.PYTHON_EXECUTABLE || 'python'
-
-    return new Promise((resolve, reject) => {
-      console.log(`🚀 Starting Python process: ${pythonExecutable}`)
-      console.log(`📁 Input file: ${inputPath}`)
-      console.log(`📁 Output file: ${outputPath}`)
-      
-      const pythonProcess = spawn(pythonExecutable, [
-        this.pythonScriptPath,
-        '--inquiry', inputPath,
-        '--pricelist', this.pricelistPath,
-        '--output', outputPath,
-        '--api-key', apiKey,
-        '--verbose'  // Enable verbose logging
-      ])
-
-      let stdout = ''
-      let stderr = ''
-
-      pythonProcess.stdout.on('data', (data) => {
-        const output = data.toString()
-        stdout += output
-        console.log('🐍 Python stdout:', output.trim())
-        
-        // Handle progress messages
-        if (output.includes('PROGRESS:')) {
-          const progressMatch = output.match(/PROGRESS:\s*(\d+\.?\d*)%/)
-          if (progressMatch) {
-            const progress = parseFloat(progressMatch[1])
-            // Convert Python progress (0-100) to Node.js progress (30-80)
-            const nodeProgress = 30 + (progress * 0.5)
-            this.updateJobStatus(jobId, 'processing', Math.round(nodeProgress), `AI Processing: ${progress}%`)
-          }
-        }
-        
-        // Handle progress info messages
-        if (output.includes('PROGRESS_INFO:')) {
-          const infoMatch = output.match(/PROGRESS_INFO:\s*(.+)/)
-          if (infoMatch) {
-            console.log(`📊 Processing info: ${infoMatch[1]}`)
-            // Update status with the info message
-            this.updateJobStatus(jobId, 'processing', null, infoMatch[1])
-          }
-        }
-        
-        // Enhanced progress tracking based on Python output
-        if (output.includes('Initializing Cohere client')) {
-          this.updateJobStatus(jobId, 'processing', 33, 'Connecting to AI service...')
-        } else if (output.includes('Loading pricelist')) {
-          this.updateJobStatus(jobId, 'processing', 35, 'Loading price database...')
-        } else if (output.includes('Generating price embeddings')) {
-          this.updateJobStatus(jobId, 'processing', 40, 'Analyzing price descriptions...')
-        } else if (output.includes('Loading inquiry workbook')) {
-          this.updateJobStatus(jobId, 'processing', 50, 'Reading your Excel file...')
-        } else if (output.includes('Generating embeddings for')) {
-          this.updateJobStatus(jobId, 'processing', 60, 'Processing your items...')
-        } else if (output.includes('Calculating similarity')) {
-          this.updateJobStatus(jobId, 'processing', 70, 'Finding best matches...')
-        } else if (output.includes('Saving results')) {
-          this.updateJobStatus(jobId, 'processing', 75, 'Saving results to Excel...')
-        } else if (output.includes('Processing completed')) {
-          this.updateJobStatus(jobId, 'processing', 80, 'Finalizing results...')
-        }
-      })
-
-      pythonProcess.stderr.on('data', (data) => {
-        const error = data.toString()
-        stderr += error
-        console.error('🐍 Python stderr:', error.trim())
-      })
-
-      pythonProcess.on('close', async (code) => {
-        if (code === 0) {
-          console.log('✅ Python script completed successfully')
-          
-          // Try to extract summary data from stdout
-          const summaryMatch = stdout.match(/SUMMARY:\s*({.*?})/)
-          let summaryExtracted = false
-          
-          if (summaryMatch) {
-            try {
-              const summary = JSON.parse(summaryMatch[1])
-              console.log('📊 Python summary:', summary)
-              
-              // Update job with summary data
-              await this.supabase
-                .from('ai_matching_jobs')
-                .update({
-                  matched_items: summary.total_matched,
-                  total_items: summary.total_processed,
-                  confidence_score: Math.round(summary.match_rate)
-                })
-                .eq('id', jobId)
-              
-              console.log('✅ Updated job with Python summary data')
-              summaryExtracted = true
-              
-            } catch (parseError) {
-              console.warn('⚠️ Could not parse Python summary:', parseError.message)
-            }
-          }
-          
-          // If no structured summary found, try to extract info from logs
-          if (!summaryExtracted) {
-            console.log('📊 Extracting summary from Python logs...')
-            
-            // Extract match statistics from log output
-            const totalProcessedMatch = stdout.match(/Total items processed:\s*(\d+)/)
-            const totalMatchedMatch = stdout.match(/Total items matched:\s*(\d+)/)
-            const matchRateMatch = stdout.match(/Match rate:\s*([\d.]+)%/)
-            
-            if (totalProcessedMatch && totalMatchedMatch && matchRateMatch) {
-              const totalProcessed = parseInt(totalProcessedMatch[1])
-              const totalMatched = parseInt(totalMatchedMatch[1])
-              const matchRate = parseFloat(matchRateMatch[1])
-              
-              console.log(`📊 Extracted from logs: ${totalMatched}/${totalProcessed} items (${matchRate}%)`)
-              
-              // Update job with extracted data
-              await this.supabase
-                .from('ai_matching_jobs')
-                .update({
-                  matched_items: totalMatched,
-                  total_items: totalProcessed,
-                  confidence_score: Math.round(matchRate)
-                })
-                .eq('id', jobId)
-              
-              console.log('✅ Updated job with extracted summary data')
-            } else {
-              console.warn('⚠️ Could not extract summary from logs, using default values')
-              
-              // Still update with basic completion info
-              await this.supabase
-                .from('ai_matching_jobs')
-                .update({
-                  matched_items: 0,
-                  total_items: 0,
-                  confidence_score: 0
-                })
-                .eq('id', jobId)
-            }
-          }
-          
-          resolve(stdout)
-        } else {
-          console.error(`❌ Python script failed with exit code ${code}`)
-          console.error('📄 Full stderr output:', stderr)
-          
-          // Update job status with detailed error
-          this.updateJobStatus(jobId, 'failed', 0, `
-Python script failed (exit code: ${code})
-
-Error details:
-${stderr || 'No error details available'}
-
-Possible causes:
-- Python not installed or not in PATH
-- Missing Python packages (cohere, openpyxl, numpy)
-- Invalid Cohere API key
-- File permission issues
-          `.trim())
-          
-          reject(new Error(`Python script failed: ${stderr || 'Unknown error'}`))
-        }
-      })
-
-      pythonProcess.on('error', (error) => {
-        console.error('❌ Failed to start Python process:', error)
-        
-        this.updateJobStatus(jobId, 'failed', 0, `
-Failed to start Python process
-
-Error: ${error.message}
-
-Possible causes:
-- Python not installed
-- Python not in system PATH
-- Incorrect PYTHON_EXECUTABLE in .env
-        `.trim())
-        
-        reject(new Error(`Failed to start Python process: ${error.message}`))
-      })
-    })
+    // Performance optimization: Cache price list
+    this.priceListCache = null
+    this.priceListCacheTime = null
+    this.CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+    
+    // Batch processing configuration
+    this.BATCH_SIZE = 100
+    this.MAX_CONCURRENT_BATCHES = 3
   }
 
-  async applyPreservedFormatting(processedFilePath, originalFormatting) {
+  async processFile(filePath, jobId, updateJobStatus, originalFileName) {
     try {
-      console.log('Applying preserved formatting to processed file...')
+      console.log('🚀 Starting price matching process...')
       
-      // Load the processed workbook
-      const workbook = new ExcelJS.Workbook()
-      await workbook.xlsx.readFile(processedFilePath)
-
-      // Apply formatting to each worksheet
-      originalFormatting.forEach((formatting, sheetIndex) => {
-        if (!formatting) return
-
-        const worksheet = workbook.worksheets[sheetIndex]
-        if (!worksheet) return
-
-        // Apply worksheet properties safely
-        try {
-          if (formatting.properties) {
-            Object.assign(worksheet.properties, formatting.properties)
-          }
-          if (formatting.pageSetup) {
-            Object.assign(worksheet.pageSetup, formatting.pageSetup)
-          }
-          if (formatting.defaultRowHeight) {
-            worksheet.properties.defaultRowHeight = formatting.defaultRowHeight
-          }
-          if (formatting.defaultColWidth) {
-            worksheet.properties.defaultColWidth = formatting.defaultColWidth
-          }
-        } catch (propError) {
-          console.warn(`⚠️ Could not apply worksheet properties: ${propError.message}`)
-        }
-
-        // Apply column formatting safely
-        if (formatting.columns && Array.isArray(formatting.columns)) {
-          formatting.columns.forEach((colFormat, colIndex) => {
-            try {
-              if (colFormat && worksheet.getColumn(colIndex + 1)) {
-                const column = worksheet.getColumn(colIndex + 1)
-                if (colFormat.width) column.width = colFormat.width
-                if (colFormat.style) column.style = colFormat.style
-              }
-            } catch (colError) {
-              console.warn(`⚠️ Could not apply column ${colIndex + 1} formatting: ${colError.message}`)
-            }
-          })
-        }
-
-        // Apply row and cell formatting safely
-        if (formatting.rows && Array.isArray(formatting.rows)) {
-          formatting.rows.forEach((rowFormat, rowNumber) => {
-            try {
-              if (!rowFormat) return
-
-              const row = worksheet.getRow(rowNumber)
-              if (rowFormat.height) row.height = rowFormat.height
-
-              // Apply cell formatting
-              if (rowFormat.cells && Array.isArray(rowFormat.cells)) {
-                rowFormat.cells.forEach((cellFormat, colNumber) => {
-                  try {
-                    if (!cellFormat) return
-
-                    const cell = row.getCell(colNumber)
-                    if (cellFormat.style) {
-                      Object.assign(cell, cellFormat.style)
-                    }
-                  } catch (cellError) {
-                    console.warn(`⚠️ Could not apply cell formatting at row ${rowNumber}, col ${colNumber}: ${cellError.message}`)
-                  }
-                })
-              }
-            } catch (rowError) {
-              console.warn(`⚠️ Could not apply row ${rowNumber} formatting: ${rowError.message}`)
-            }
-          })
+      // Parse Excel file
+      console.log('📋 Parsing Excel file...')
+      const parsedData = await this.parsingService.parseExcelFile(filePath)
+      
+      // Get price list from database with caching
+      console.log('💾 Loading price list from database...')
+      const priceList = await this.getCachedPriceList()
+      
+      console.log(`✅ Found ${priceList.length} price items in database`)
+      
+      // Update job with parsed items count
+      await updateJobStatus(jobId, 'processing', {
+        progress: 20,
+        extraData: {
+          totalItems: parsedData.items.length,
+          processedItems: 0,
+          matchedItems: 0,
+          confidence: 0
         }
       })
-
-      // Save the formatted file
-      await workbook.xlsx.writeFile(processedFilePath)
-      console.log('✅ Applied preserved formatting successfully')
       
-    } catch (error) {
-      console.error(`❌ Error applying formatting: ${error.message}`)
-      throw new Error(`Failed to apply formatting: ${error.message}`)
-    }
-  }
-
-  async saveResultsToDatabase(jobId, outputFilePath) {
-    console.log('Parsing results and saving to database...')
-    
-    try {
-      console.log(`📁 Reading Excel file: ${outputFilePath}`)
-      
-      // Use xlsx library instead of ExcelJS to avoid compatibility issues
-      const workbook = XLSX.readFile(outputFilePath)
-      console.log(`✅ Excel file loaded successfully with xlsx library`)
-      
-      const matchResults = []
-      let totalMatched = 0
-      let totalConfidence = 0
-      
-      // Process each worksheet
-      for (const sheetName of workbook.SheetNames) {
-        try {
-          console.log(`📊 Processing sheet: ${sheetName}`)
-          const worksheet = workbook.Sheets[sheetName]
-          
-          // Convert worksheet to JSON format for easier processing
-          const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
-          
-          if (!jsonData || jsonData.length === 0) {
-            console.warn(`⚠️ Empty sheet: ${sheetName}`)
-            continue
-          }
-          
-          // Find header row
-          let headerRow = -1
-          for (let i = 0; i < Math.min(10, jsonData.length); i++) {
-            const row = jsonData[i]
-            if (row && Array.isArray(row)) {
-              const rowStr = row.join(',').toLowerCase()
-              if (rowStr.includes('description') || rowStr.includes('best match')) {
-                headerRow = i
-                break
-              }
-            }
-          }
-          
-          if (headerRow === -1) {
-            console.warn(`⚠️ Could not find headers in sheet ${sheetName}`)
-            continue
-          }
-          
-          // Process data rows
-          for (let i = headerRow + 1; i < jsonData.length; i++) {
-            const row = jsonData[i]
-            if (!row || !Array.isArray(row)) continue
-            
-            // Extract data from row
-            const description = row[0]
-            const matchedDescription = row[1]
-            const confidence = row[2]
-            const quantity = row[3]
-            const unit = row[4]
-            const rate = row[5]
-            
-            if (description && matchedDescription && confidence) {
-              const confidenceScore = parseFloat(String(confidence).replace('%', ''))
-              
-              matchResults.push({
-                job_id: jobId,
-                original_description: description,
-                matched_description: matchedDescription,
-                confidence_score: confidenceScore,
-                quantity: quantity || 0,
-                unit: unit || '',
-                matched_rate: rate || 0,
-                row_number: i
-              })
-              
-              if (confidenceScore > 0) {
-                totalMatched++
-                totalConfidence += confidenceScore
-              }
-            }
-          }
-          
-        } catch (sheetError) {
-          console.error(`❌ Error processing sheet ${sheetName}:`, sheetError)
-        }
+      // Pre-compute embeddings for AI matching (if API key exists)
+      if (process.env.COHERE_API_KEY) {
+        console.log('🤖 Pre-computing embeddings for AI matching...')
+        await this.cohereMatchingService.precomputePriceListEmbeddings(priceList, jobId, this)
+        await updateJobStatus(jobId, 'processing', { progress: 30 })
       }
       
-      console.log(`📊 Parsed ${matchResults.length} results, ${totalMatched} matched`)
-      
-      // Calculate average confidence
-      const averageConfidence = totalMatched > 0 ? totalConfidence / totalMatched : 0
+      // Process items in parallel batches for better performance
+      const results = await this.processItemsInBatches(
+        parsedData.items, 
+        priceList, 
+        jobId, 
+        updateJobStatus
+      )
       
       // Save results to database
-      if (matchResults.length > 0) {
-        const { error } = await this.supabase
-          .from('match_results')
-          .insert(matchResults)
-        
-        if (error) {
-          console.error('❌ Error saving match results:', error)
-          throw error
-        }
-      }
+      console.log('💾 Saving match results to database...')
+      await this.saveMatchResults(jobId, results)
+      
+      // Export results
+      console.log('📊 Exporting results to Excel...')
+      const outputFileName = await this.exportService.exportWithOriginalFormat(
+        filePath,
+        results,
+        jobId,
+        originalFileName
+      )
+      
+      console.log('✅ Price matching completed successfully!')
       
       return {
-        totalItems: matchResults.length,
-        totalMatched,
-        averageConfidence: Math.round(averageConfidence)
+        success: true,
+        totalItems: parsedData.items.length,
+        processedItems: results.length,
+        matchedItems: results.filter(r => r.matched).length,
+        confidence: this.calculateAverageConfidence(results),
+        outputFileName
       }
       
     } catch (error) {
-      console.error('❌ Error parsing results:', error)
+      console.error('❌ Error in price matching:', error)
       throw error
     }
   }
 
-  /**
-   * Get job status from database
-   */
-  async getJobStatus(jobId) {
-    try {
-      const { data, error } = await this.supabase
-        .from('ai_matching_jobs')
-        .select('*')
-        .eq('id', jobId)
-        .single()
-
-      if (error) {
-        console.error('Error fetching job status:', error)
-        return null
-      }
-
-      return data
-    } catch (error) {
-      console.error('Error in getJobStatus:', error)
-      return null
+  async getCachedPriceList() {
+    const now = Date.now()
+    
+    // Check if cache is valid
+    if (this.priceListCache && this.priceListCacheTime && 
+        (now - this.priceListCacheTime) < this.CACHE_DURATION) {
+      console.log('📦 Using cached price list')
+      return this.priceListCache
     }
+    
+    // Fetch fresh data
+    console.log('🔄 Fetching fresh price list...')
+    const priceList = await this.loadPriceList()
+    
+    // Update cache
+    this.priceListCache = priceList
+    this.priceListCacheTime = now
+    
+    return priceList
   }
 
-  /**
-   * Update job status in database
-   */
-  async updateJobStatus(jobId, status, progress = null, message = null, extraData = {}) {
-    try {
-      console.log(`🔄 [UPDATE JOB STATUS] Starting update for job ${jobId}:`, {
-        status,
+  async processItemsInBatches(items, priceList, jobId, updateJobStatus) {
+    const results = []
+    const totalBatches = Math.ceil(items.length / this.BATCH_SIZE)
+    
+    console.log(`📦 Processing ${items.length} items in ${totalBatches} batches...`)
+    
+    // Process batches with concurrency limit
+    for (let i = 0; i < totalBatches; i += this.MAX_CONCURRENT_BATCHES) {
+      const batchPromises = []
+      
+      for (let j = 0; j < this.MAX_CONCURRENT_BATCHES && (i + j) < totalBatches; j++) {
+        const batchIndex = i + j
+        const start = batchIndex * this.BATCH_SIZE
+        const end = Math.min(start + this.BATCH_SIZE, items.length)
+        const batch = items.slice(start, end)
+        
+        batchPromises.push(this.processBatch(batch, priceList, jobId, batchIndex))
+      }
+      
+      // Wait for current set of batches to complete
+      const batchResults = await Promise.all(batchPromises)
+      
+      // Flatten results
+      for (const batchResult of batchResults) {
+        results.push(...batchResult)
+      }
+      
+      // Update progress
+      const progress = 30 + Math.round(((i + batchPromises.length) / totalBatches) * 60)
+      await updateJobStatus(jobId, 'processing', {
         progress,
-        message: message ? message.substring(0, 100) + '...' : null,
-        extraData
+        extraData: {
+          processedItems: results.length,
+          matchedItems: results.filter(r => r.matched).length,
+          confidence: this.calculateAverageConfidence(results)
+        }
       })
-      
-      const updateData = {
-        status,
-        updated_at: new Date().toISOString()
-      }
-
-      // Properly merge extraData
-      if (extraData && typeof extraData === 'object') {
-        Object.assign(updateData, extraData)
-      }
-
-      if (progress !== null) {
-        updateData.progress = progress
-      }
-
-      if (message !== null) {
-        // Ensure message fits within database constraints (e.g., 500 chars)
-        // Note: The database column is actually 'error_message', not 'message'
-        updateData.error_message = message ? message.substring(0, 500) : null
-      }
-
-      console.log(`🔄 [UPDATE JOB STATUS] Updating database with:`, updateData)
-
-      const { error } = await this.supabase
-        .from('ai_matching_jobs')
-        .update(updateData)
-        .eq('id', jobId)
-
-      if (error) {
-        console.error(`❌ [UPDATE JOB STATUS] Failed to update job ${jobId}:`, error)
-        return false
-      }
-
-      console.log(`✅ [UPDATE JOB STATUS] Successfully updated job ${jobId}: status=${status}, progress=${progress}`)
-      
-      // Verify the update worked by reading it back
-      const { data: verifyData, error: verifyError } = await this.supabase
-        .from('ai_matching_jobs')
-        .select('status, progress, error_message, total_items, matched_items, updated_at')
-        .eq('id', jobId)
-        .single()
-      
-      if (verifyError) {
-        console.error(`❌ [UPDATE JOB STATUS] Could not verify update for job ${jobId}:`, verifyError)
-      } else {
-        console.log(`🔍 [UPDATE JOB STATUS] Verified database state for job ${jobId}:`, {
-          status: verifyData.status,
-          progress: verifyData.progress,
-          message: verifyData.error_message?.substring(0, 50) + '...',
-          total_items: verifyData.total_items,
-          matched_items: verifyData.matched_items,
-          updated_at: verifyData.updated_at
-        })
-      }
-
-      return true
-
-    } catch (error) {
-      console.error(`❌ [UPDATE JOB STATUS] Error updating job status for ${jobId}:`, error)
-      return false
     }
+    
+    return results
   }
 
-  /**
-   * Clean up temporary files after processing - but preserve original input files for export
-   */
-  async cleanup(filePath) {
-    try {
-      console.log(`🧹 Checking file for cleanup: ${filePath}`)
-      
-      if (!filePath) {
-        console.log('No file path provided for cleanup')
-        return
-      }
+  async processBatch(batch, priceList, jobId, batchIndex) {
+    console.log(`🔄 Processing batch ${batchIndex + 1} (${batch.length} items)...`)
+    
+    // Run local and AI matching in parallel
+    const [localResults, aiResults] = await Promise.all([
+      this.localMatchingService.matchItems(batch, priceList, jobId, () => {}),
+      process.env.COHERE_API_KEY 
+        ? this.cohereMatchingService.matchItems(batch, priceList, jobId, () => {})
+        : Promise.resolve([])
+    ])
+    
+    // Combine results
+    const combinedResults = this.combineMatchingResults(localResults, aiResults)
+    
+    return combinedResults
+  }
 
-      // Don't delete original input files - they're needed for export format preservation
-      const fileName = path.basename(filePath)
-      if (fileName.includes('job-') && !fileName.includes('output') && !fileName.includes('result')) {
-        console.log(`📄 Preserving original input file for export: ${filePath}`)
-        return
-      }
+  combineMatchingResults(localResults, aiResults) {
+    // If no AI results, return local results
+    if (!aiResults || aiResults.length === 0) {
+      return localResults
+    }
 
-      // Check if file exists before trying to delete
-      const fs = await import('fs/promises')
+    // Combine results, preferring higher confidence matches
+    return localResults.map((localResult, index) => {
+      const aiResult = aiResults[index]
       
-      try {
-        await fs.access(filePath)
-        await fs.unlink(filePath)
-        console.log(`✅ Successfully deleted temporary file: ${filePath}`)
-      } catch (accessError) {
-        if (accessError.code === 'ENOENT') {
-          console.log(`📁 File already removed or doesn't exist: ${filePath}`)
-        } else {
-          console.warn(`⚠️ Could not access file for cleanup: ${accessError.message}`)
+      if (!aiResult || !aiResult.matched) {
+        return localResult
+      }
+      
+      // Use AI result if it has higher confidence
+      if (aiResult.confidence > localResult.confidence) {
+        return {
+          ...aiResult,
+          matching_method: 'ai'
         }
       }
+      
+      return {
+        ...localResult,
+        matching_method: 'local'
+      }
+    })
+  }
+
+  async loadPriceList() {
+    try {
+      const allPriceItems = []
+      let hasMore = true
+      let offset = 0
+      const limit = 1000
+      
+      while (hasMore) {
+        const { data, error } = await this.supabase
+          .from('price_items')
+          .select('*')
+          .range(offset, offset + limit - 1)
+          .order('created_at', { ascending: false })
+        
+        if (error) {
+          console.error('Error loading price items:', error)
+          throw error
+        }
+        
+        if (data && data.length > 0) {
+          allPriceItems.push(...data)
+          offset += limit
+          hasMore = data.length === limit
+        } else {
+          hasMore = false
+        }
+      }
+      
+      return allPriceItems
     } catch (error) {
-      console.error(`❌ Error during cleanup: ${error.message}`)
-      // Don't throw error - cleanup failure shouldn't break the entire job
+      console.error('Error loading price list:', error)
+      throw error
+    }
+  }
+
+  async saveMatchResults(jobId, results) {
+    if (!results || results.length === 0) return
+
+    try {
+      // Batch insert for better performance
+      const batchSize = 500
+      for (let i = 0; i < results.length; i += batchSize) {
+        const batch = results.slice(i, i + batchSize).map(result => ({
+          job_id: jobId,
+          original_description: result.original_description,
+          matched_description: result.matched_description,
+          matched_rate: result.matched_rate,
+          similarity_score: result.confidence,
+          row_number: result.row_number,
+          sheet_name: result.sheet_name,
+          quantity: result.quantity,
+          matched_price_item_id: result.matched_price_item_id,
+          created_at: new Date().toISOString()
+        }))
+
+        const { error } = await this.supabase
+          .from('match_results')
+          .insert(batch)
+
+        if (error) {
+          console.error('Error saving batch:', error)
+          throw error
+        }
+      }
+      
+      console.log(`✅ Saved ${results.length} match results`)
+    } catch (error) {
+      console.error('Error saving match results:', error)
+      throw error
+    }
+  }
+
+  calculateAverageConfidence(results) {
+    if (!results || results.length === 0) return 0
+    
+    const matchedResults = results.filter(r => r.matched)
+    if (matchedResults.length === 0) return 0
+    
+    const totalConfidence = matchedResults.reduce((sum, r) => sum + (r.confidence || 0), 0)
+    return Math.round((totalConfidence / matchedResults.length) * 100)
+  }
+
+  updateJobStatus = async (jobId, status, updates = {}) => {
+    try {
+      const { error } = await this.supabase
+        .from('ai_matching_jobs')
+        .update({
+          status,
+          progress: updates.progress || 0,
+          matched_items: updates.extraData?.matchedItems || 0,
+          average_confidence: updates.extraData?.confidence || 0,
+          updated_at: new Date().toISOString(),
+          ...updates.extraData
+        })
+        .eq('id', jobId)
+
+      if (error) {
+        console.error('Error updating job status:', error)
+      }
+    } catch (error) {
+      console.error('Error updating job status:', error)
     }
   }
 }

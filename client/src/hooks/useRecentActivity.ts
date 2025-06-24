@@ -1,5 +1,4 @@
-
-import { useState, useEffect } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
 
@@ -13,142 +12,126 @@ interface RecentActivity {
 }
 
 export function useRecentActivity() {
-  const [activities, setActivities] = useState<RecentActivity[]>([])
-  const [loading, setLoading] = useState(true)
   const { user } = useAuth()
 
-  const fetchActivities = async () => {
-    if (!user) return
+  const { data: activities = [], isLoading: loading } = useQuery({
+    queryKey: ['recent-activity', user?.id],
+    queryFn: async (): Promise<RecentActivity[]> => {
+      if (!user) return []
 
-    try {
-      setLoading(true)
-      
-      // Get recent matching jobs (limit to 3) - all users
-      const { data: jobs, error: jobsError } = await supabase
-        .from('ai_matching_jobs')
-        .select('id, project_name, status, created_at, updated_at, user_id')
-        .order('created_at', { ascending: false })
-        .limit(3)
+      // Fetch all data in parallel for better performance
+      const [jobsResult, clientsResult, priceItemsResult] = await Promise.all([
+        // Get recent matching jobs (limit to 3)
+        supabase
+          .from('ai_matching_jobs')
+          .select('id, project_name, status, created_at, updated_at, user_id')
+          .order('created_at', { ascending: false })
+          .limit(3),
+        
+        // Get recent clients (limit to 2)
+        supabase
+          .from('clients')
+          .select('id, name, created_at, user_id')
+          .order('created_at', { ascending: false })
+          .limit(2),
+        
+        // Get recent price items (limit to 1)
+        supabase
+          .from('price_items')
+          .select('id, description, created_at, user_id')
+          .order('created_at', { ascending: false })
+          .limit(1)
+      ])
 
-      if (jobsError) {
-        console.error('Error fetching jobs:', jobsError)
-      }
+      // Log errors but don't fail the whole query
+      if (jobsResult.error) console.error('Error fetching jobs:', jobsResult.error)
+      if (clientsResult.error) console.error('Error fetching clients:', clientsResult.error)
+      if (priceItemsResult.error) console.error('Error fetching price items:', priceItemsResult.error)
 
-      // Get recent clients (limit to 2) - all users
-      const { data: clients, error: clientsError } = await supabase
-        .from('clients')
-        .select('id, name, created_at, user_id')
-        .order('created_at', { ascending: false })
-        .limit(2)
-
-      if (clientsError) {
-        console.error('Error fetching clients:', clientsError)
-      }
-
-      // Get recent price items (limit to 1) - all users
-      const { data: priceItems, error: priceItemsError } = await supabase
-        .from('price_items')
-        .select('id, description, created_at, user_id')
-        .order('created_at', { ascending: false })
-        .limit(1)
-
-      if (priceItemsError) {
-        console.error('Error fetching price items:', priceItemsError)
-      }
+      const jobs = jobsResult.data || []
+      const clients = clientsResult.data || []
+      const priceItems = priceItemsResult.data || []
 
       // Get all unique user IDs
       const userIds = new Set<string>()
-      jobs?.forEach(job => userIds.add(job.user_id))
-      clients?.forEach(client => userIds.add(client.user_id))
-      priceItems?.forEach(item => userIds.add(item.user_id))
+      jobs.forEach(job => job.user_id && userIds.add(job.user_id))
+      clients.forEach(client => client.user_id && userIds.add(client.user_id))
+      priceItems.forEach(item => item.user_id && userIds.add(item.user_id))
 
-      // Fetch user profiles for names
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, name')
-        .in('id', Array.from(userIds))
+      // Fetch user profiles for names (only if we have user IDs)
+      let profiles: any[] = []
+      if (userIds.size > 0) {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, name')
+          .in('id', Array.from(userIds))
 
-      if (profilesError) {
-        console.error('Error fetching profiles:', profilesError)
+        if (profilesError) {
+          console.error('Error fetching profiles:', profilesError)
+        } else {
+          profiles = profilesData || []
+        }
       }
 
-      // Create a map of user IDs to names
-      const userNameMap = new Map<string, string>()
-      profiles?.forEach(profile => {
-        userNameMap.set(profile.id, profile.name || 'Unknown User')
-      })
+      const profileMap = new Map(profiles.map(p => [p.id, p.name]))
 
       // Combine all activities
       const allActivities: RecentActivity[] = []
 
       // Add job activities
-      jobs?.forEach(job => {
-        const userName = userNameMap.get(job.user_id) || 'Unknown User'
-        if (job.status === 'completed') {
-          allActivities.push({
-            id: `job-completed-${job.id}`,
-            type: 'job_completed',
-            description: `${userName} completed price matching for "${job.project_name}"`,
-            timestamp: job.updated_at,
-            icon: 'CheckCircle',
-            userName
-          })
-        } else if (job.status === 'processing' || job.status === 'pending') {
-          allActivities.push({
-            id: `job-started-${job.id}`,
-            type: 'job_started',
-            description: `${userName} started price matching for "${job.project_name}"`,
-            timestamp: job.created_at,
-            icon: 'Play',
-            userName
-          })
+      jobs.forEach(job => {
+        const activity: RecentActivity = {
+          id: job.id,
+          type: job.status === 'completed' ? 'job_completed' : 'job_started',
+          description: job.status === 'completed' 
+            ? `Completed matching job: ${job.project_name || 'Unnamed Project'}`
+            : `Started matching job: ${job.project_name || 'Unnamed Project'}`,
+          timestamp: job.status === 'completed' && job.updated_at 
+            ? job.updated_at 
+            : job.created_at,
+          userName: job.user_id ? profileMap.get(job.user_id) : undefined
         }
+        allActivities.push(activity)
       })
 
       // Add client activities
-      clients?.forEach(client => {
-        const userName = userNameMap.get(client.user_id) || 'Unknown User'
-        allActivities.push({
-          id: `client-added-${client.id}`,
+      clients.forEach(client => {
+        const activity: RecentActivity = {
+          id: client.id,
           type: 'client_added',
-          description: `${userName} added new client "${client.name}"`,
+          description: `Added new client: ${client.name}`,
           timestamp: client.created_at,
-          icon: 'User',
-          userName
-        })
+          userName: client.user_id ? profileMap.get(client.user_id) : undefined
+        }
+        allActivities.push(activity)
       })
 
       // Add price item activities
-      priceItems?.forEach(item => {
-        const userName = userNameMap.get(item.user_id) || 'Unknown User'
-        allActivities.push({
-          id: `price-item-added-${item.id}`,
+      priceItems.forEach(item => {
+        const activity: RecentActivity = {
+          id: item.id,
           type: 'price_item_added',
-          description: `${userName} added new price item`,
+          description: `Added price item: ${item.description.substring(0, 50)}${item.description.length > 50 ? '...' : ''}`,
           timestamp: item.created_at,
-          icon: 'Plus',
-          userName
-        })
+          userName: item.user_id ? profileMap.get(item.user_id) : undefined
+        }
+        allActivities.push(activity)
       })
 
-      // Sort by timestamp and limit to 6 total
-      allActivities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      setActivities(allActivities.slice(0, 6))
+      // Sort by timestamp (most recent first)
+      allActivities.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      )
 
-    } catch (error) {
-      console.error('Error fetching recent activities:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+      // Return top 5 activities
+      return allActivities.slice(0, 5)
+    },
+    enabled: !!user,
+    staleTime: 60 * 1000, // Cache for 1 minute
+    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
+    refetchInterval: 30 * 1000, // Auto-refresh every 30 seconds
+    refetchOnWindowFocus: true,
+  })
 
-  useEffect(() => {
-    fetchActivities()
-  }, [user])
-
-  return {
-    activities,
-    loading,
-    refreshActivities: fetchActivities
-  }
+  return { activities, loading }
 }
