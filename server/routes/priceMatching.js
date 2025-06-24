@@ -363,7 +363,7 @@ router.post('/process-base64', async (req, res) => {
           }
           
           console.log(`🔄 [LOCAL DEBUG] Background processing started for job ${jobId}`)
-          await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
+          await priceMatchingService.processFile(tempFilePath, jobId, priceMatchingService.updateJobStatus, fileName)
           console.log(`✅ [LOCAL DEBUG] Background processing completed for job ${jobId}`)
           
           // After processing, upload output to Vercel Blob if it exists
