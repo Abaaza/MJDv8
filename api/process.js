@@ -402,115 +402,490 @@ async function processSheet(workbook, sheetName) {
     Object.assign(headerInfo, fallbackInfo);
   }
   
+  console.log(`   🎯 [PARSE] Headers found at row ${headerInfo.headerRow + 1}:`);
+  console.log(`   - Description column: ${headerInfo.descriptionCol + 1}`);
+  console.log(`   - Quantity column: ${headerInfo.quantityCol + 1}`);
+  console.log(`   - Rate column: ${headerInfo.rateCol + 1 || 'Not found'}`);
+  console.log(`   - Unit column: ${headerInfo.unitCol + 1 || 'Not found'}`);
+  
   const items = [];
+  let totalRows = 0;
+  let skippedEmpty = 0;
+  let skippedNoDesc = 0;
+  let skippedNoQty = 0;
+  let skippedByFilter = 0;
   
   // Process data rows
   for (let rowIndex = headerInfo.headerRow + 1; rowIndex < jsonData.length; rowIndex++) {
     const row = jsonData[rowIndex];
-    if (!row || row.length === 0) continue;
+    if (!row || row.length === 0) {
+      skippedEmpty++;
+      continue;
+    }
+    
+    totalRows++;
     
     const item = extractItemFromRow(row, headerInfo, rowIndex + 1, sheetName);
+    
     if (item) {
+      // DEBUG: Log first few items to verify we're reading the right data
+      if (items.length < 3) {
+        console.log(`   📝 [PARSE] Item ${items.length + 1}: "${item.description.substring(0, 50)}..." (Row ${item.row_number})`);
+      }
       items.push(item);
+    } else {
+      // Count why items were skipped for debugging
+      const description = extractDescription(row[headerInfo.descriptionCol]);
+      const quantity = extractQuantity(row[headerInfo.quantityCol]);
+      
+      // DEBUG: Log what we're trying to extract
+      if (skippedNoDesc < 3 || skippedNoQty < 3) {
+        console.log(`   ⚠️ [PARSE] Skipped row ${rowIndex + 1}: desc="${row[headerInfo.descriptionCol]}", qty="${row[headerInfo.quantityCol]}"`);
+      }
+      
+      if (!description) {
+        skippedNoDesc++;
+      } else if (!quantity || quantity <= 0) {
+        skippedNoQty++;
+      } else if (shouldSkipItem(description)) {
+        skippedByFilter++;
+      }
     }
   }
+  
+  console.log(`   📈 [PARSE] Parsing results for ${sheetName}:`);
+  console.log(`      - Total data rows: ${totalRows}`);
+  console.log(`      - Items extracted: ${items.length}`);
+  console.log(`      - Skipped empty: ${skippedEmpty}`);
+  console.log(`      - Skipped no description: ${skippedNoDesc}`);
+  console.log(`      - Skipped no quantity: ${skippedNoQty}`);
+  console.log(`      - Skipped by filter: ${skippedByFilter}`);
   
   return items;
 }
 
-// Find headers in Excel data
+// Find headers in Excel data - FULL LOCAL LOGIC
 function findHeaders(jsonData) {
-  const commonDescHeaders = ['description', 'desc', 'item', 'work', 'activity', 'task'];
-  const commonQtyHeaders = ['quantity', 'qty', 'amount', 'number', 'no'];
+  let headerRow = -1;
+  let descriptionCol = -1;
+  let quantityCol = -1;
+  let rateCol = -1;
+  let unitCol = -1;
   
-  for (let rowIndex = 0; rowIndex < Math.min(5, jsonData.length); rowIndex++) {
+  // Look for headers in first 15 rows
+  for (let rowIndex = 0; rowIndex < Math.min(15, jsonData.length); rowIndex++) {
     const row = jsonData[rowIndex];
     if (!row) continue;
     
-    let descriptionCol = -1;
-    let quantityCol = -1;
-    
+    // First pass: Look for exact "Description" match (case-insensitive)
+    let foundExactDescription = false;
     for (let colIndex = 0; colIndex < row.length; colIndex++) {
-      const cellValue = String(row[colIndex] || '').toLowerCase().trim();
+      const cellValue = String(row[colIndex] || '').trim();
       
-      if (descriptionCol === -1 && commonDescHeaders.some(header => cellValue.includes(header))) {
+      // Check for exact "Description" match first (highest priority)
+      if (cellValue.toLowerCase() === 'description') {
         descriptionCol = colIndex;
-      }
-      
-      if (quantityCol === -1 && commonQtyHeaders.some(header => cellValue.includes(header))) {
-        quantityCol = colIndex;
+        headerRow = rowIndex;
+        foundExactDescription = true;
+        console.log(`   ✅ [PARSE] Found exact "Description" header at row ${rowIndex + 1}, col ${colIndex + 1}`);
       }
     }
     
-    if (descriptionCol !== -1 && quantityCol !== -1) {
+    // Second pass: Look for other headers
+    for (let colIndex = 0; colIndex < row.length; colIndex++) {
+      const cellValue = normalizeHeaderText(row[colIndex]);
+      
+      // Skip if we already found exact description column
+      if (foundExactDescription && colIndex === descriptionCol) continue;
+      
+      // Description column patterns (only if we haven't found exact match)
+      if (!foundExactDescription && isDescriptionHeader(cellValue)) {
+        descriptionCol = colIndex;
+        headerRow = rowIndex;
+      }
+      
+      // Quantity column patterns
+      else if (isQuantityHeader(cellValue)) {
+        quantityCol = colIndex;
+        if (headerRow === -1) headerRow = rowIndex;
+      }
+      
+      // Rate/Price column patterns
+      else if (isRateHeader(cellValue)) {
+        rateCol = colIndex;
+        if (headerRow === -1) headerRow = rowIndex;
+      }
+      
+      // Unit column patterns
+      else if (isUnitHeader(cellValue)) {
+        unitCol = colIndex;
+        if (headerRow === -1) headerRow = rowIndex;
+      }
+    }
+    
+    // If we found description and quantity, that's good enough
+    if (descriptionCol >= 0 && quantityCol >= 0) {
+      break;
+    }
+  }
+  
+  return {
+    found: descriptionCol >= 0 && quantityCol >= 0,
+    headerRow,
+    descriptionCol,
+    quantityCol,
+    rateCol,
+    unitCol
+  };
+}
+
+// Normalize header text for comparison
+function normalizeHeaderText(cellValue) {
+  if (!cellValue) return '';
+  return String(cellValue).toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+}
+
+// Check if a header is a description column
+function isDescriptionHeader(normalized) {
+  // Exclude patterns that are definitely NOT description columns
+  const excludePatterns = ['bill', 'billing', 'flag', 'flags', 'ref', 'reference', 'page', 'section', 'no', 'number', 'serial', 'sr'];
+  if (excludePatterns.some(pattern => normalized === pattern || normalized.endsWith(pattern))) {
+    return false;
+  }
+  
+  const patterns = [
+    'description', 'desc', 'item', 'itemdescription', 'workdescription',
+    'particulars', 'work', 'activity', 'specification', 'details',
+    'scope', 'scopeofwork', 'operation', 'task', 'descriptionofwork',
+    'itemofwork', 'workitem', 'material', 'service', 'component',
+    'element', 'descr', 'itemdesc', 'workdesc', 'particular'
+  ];
+  return patterns.some(pattern => normalized.includes(pattern));
+}
+
+// Check if a header is a quantity column
+function isQuantityHeader(normalized) {
+  const patterns = [
+    'quantity', 'qty', 'quan', 'qnty', 'amount', 'volume', 'area',
+    'length', 'nos', 'number', 'count', 'units', 'each', 'total',
+    'sum', 'net', 'gross', 'quntity', 'qunatity', 'qnty', 'qtty',
+    'no', 'num', 'nbr', 'pcs', 'pieces', 'meters', 'sqm', 'cum',
+    'm2', 'm3', 'lm', 'kg', 'tons', 'tonnes', 'liters', 'gallons'
+  ];
+  return patterns.some(pattern => normalized.includes(pattern)) ||
+         !!normalized.match(/^(qty|quan|qnty|no|nos|q|num|nbr|m|m2|m3)$/i);
+}
+
+// Check if a header is a rate/price column
+function isRateHeader(normalized) {
+  const patterns = [
+    'rate', 'price', 'unitrate', 'unitprice', 'cost', 'unitcost',
+    'rateper', 'priceperunit', 'costperunit'
+  ];
+  return patterns.some(pattern => normalized.includes(pattern));
+}
+
+// Check if a header is a unit column
+function isUnitHeader(normalized) {
+  const patterns = [
+    'unit', 'uom', 'unitofmeasure', 'unitofmeasurement', 'measure',
+    'measurement', 'units'
+  ];
+  return patterns.some(pattern => normalized.includes(pattern));
+}
+
+// Fallback structure detection - AGGRESSIVE MODE (from local)
+function detectFallbackStructure(jsonData, sheetName) {
+  console.log(`   🔍 [PARSE] Attempting AGGRESSIVE fallback structure detection for ${sheetName}`);
+  
+  // Try multiple strategies to find ANY structure
+  
+  // Strategy 1: Look for any column with meaningful text and any column with numbers
+  for (let rowIndex = 0; rowIndex < Math.min(30, jsonData.length); rowIndex++) {
+    const row = jsonData[rowIndex];
+    if (!row || row.length < 2) continue;
+    
+    const columnInfo = [];
+    
+    // Analyze each column
+    for (let colIndex = 0; colIndex < Math.min(15, row.length); colIndex++) {
+      const cell = row[colIndex];
+      if (!cell) continue;
+      
+      const cellStr = String(cell).trim();
+      if (cellStr.length === 0) continue;
+      
+      // Enhanced text detection - exclude single numbers or very short text
+      const hasText = isNaN(cellStr) && cellStr.length > 3 && 
+                     !cellStr.match(/^[A-Z]$/) && // Not just single letter
+                     !cellStr.match(/^\d+$/); // Not just numbers
+      const hasNumber = !isNaN(cellStr) && parseFloat(cellStr) > 0;
+      const hasMeaningfulText = hasText && 
+                               (cellStr.split(' ').length > 1 || // Multiple words
+                                cellStr.length > 10); // Or reasonably long single word
+      
+      columnInfo.push({
+        index: colIndex,
+        content: cellStr,
+        hasText,
+        hasNumber,
+        hasMeaningfulText,
+        length: cellStr.length
+      });
+    }
+    
+    // Find best text column (prefer meaningful text over short text)
+    const textColumns = columnInfo.filter(col => col.hasMeaningfulText || (col.hasText && col.length > 5));
+    const numberColumns = columnInfo.filter(col => col.hasNumber);
+    
+    if (textColumns.length > 0 && numberColumns.length > 0) {
+      // Prefer columns with meaningful text (multiple words or longer text)
+      const bestTextCol = textColumns.sort((a, b) => {
+        // Prioritize meaningful text
+        if (a.hasMeaningfulText && !b.hasMeaningfulText) return -1;
+        if (!a.hasMeaningfulText && b.hasMeaningfulText) return 1;
+        // Then by length
+        return b.length - a.length;
+      })[0];
+      
+      // For quantity, prefer columns that come after the description column
+      const quantityColumns = numberColumns.filter(col => col.index > bestTextCol.index);
+      const bestNumberCol = quantityColumns.length > 0 ? quantityColumns[0] : numberColumns[0];
+      
+      console.log(`   ✅ [PARSE] Aggressive Fallback: Found description at col ${bestTextCol.index + 1} ("${bestTextCol.content.substring(0, 30)}..."), quantity at col ${bestNumberCol.index + 1}`);
       return {
         found: true,
-        headerRow: rowIndex,
-        descriptionCol,
-        quantityCol,
-        rateCol: -1,
+        headerRow: rowIndex > 2 ? rowIndex - 2 : 0,
+        descriptionCol: bestTextCol.index,
+        quantityCol: bestNumberCol.index,
+        rateCol: numberColumns.length > 1 ? numberColumns[1].index : -1,
         unitCol: -1
       };
     }
   }
   
+  // Strategy 2: Look for Description header explicitly before using last resort
+  for (let rowIndex = 0; rowIndex < Math.min(15, jsonData.length); rowIndex++) {
+    const row = jsonData[rowIndex];
+    if (!row) continue;
+    
+    for (let colIndex = 0; colIndex < row.length; colIndex++) {
+      const cellValue = String(row[colIndex] || '').trim();
+      if (cellValue.toLowerCase() === 'description' || cellValue.toLowerCase() === 'desc') {
+        console.log(`   ✅ [PARSE] Found Description header in fallback search at row ${rowIndex + 1}, col ${colIndex + 1}`);
+        
+        // Look for quantity column after description
+        let quantityCol = -1;
+        for (let qCol = colIndex + 1; qCol < row.length; qCol++) {
+          const qCell = String(row[qCol] || '').trim().toLowerCase();
+          if (qCell.includes('qty') || qCell.includes('quantity') || qCell === 'no' || qCell === 'nos') {
+            quantityCol = qCol;
+            break;
+          }
+        }
+        
+        if (quantityCol >= 0) {
+          return {
+            found: true,
+            headerRow: rowIndex,
+            descriptionCol: colIndex,
+            quantityCol: quantityCol,
+            rateCol: -1,
+            unitCol: -1
+          };
+        }
+      }
+    }
+  }
+  
+  // LAST RESORT: Only if we really can't find headers
+  if (jsonData.length > 5) {
+    console.log(`   ⚠️ [PARSE] Using LAST RESORT fallback - WARNING: This may pick wrong columns!`);
+    console.log(`   ⚠️ [PARSE] Please ensure your Excel has a 'Description' header`);
+    return {
+      found: true,
+      headerRow: 0,
+      descriptionCol: 0,
+      quantityCol: 1,
+      rateCol: jsonData[0] && jsonData[0].length > 2 ? 2 : -1,
+      unitCol: -1
+    };
+  }
+  
   return { found: false };
 }
 
-// Fallback structure detection
-function detectFallbackStructure(jsonData, sheetName) {
-  // Assume first column is description, second is quantity
-  console.log(`🔍 [PARSE] Using fallback: assuming column 1=description, column 2=quantity`);
-  
-  return {
-    found: true,
-    headerRow: 0,
-    descriptionCol: 0,
-    quantityCol: 1,
-    rateCol: -1,
-    unitCol: -1
-  };
-}
-
-// Extract item from row
+// Extract item from row - AGGRESSIVE MODE (from local)
 function extractItemFromRow(row, headerInfo, rowNumber, sheetName) {
+  // DEBUG: Log what we're extracting
+  if (rowNumber <= headerInfo.headerRow + 3) {
+    console.log(`   🔍 [PARSE] Row ${rowNumber}: Extracting from col ${headerInfo.descriptionCol + 1} = "${row[headerInfo.descriptionCol]}", col ${headerInfo.quantityCol + 1} = "${row[headerInfo.quantityCol]}"`);
+  }
+  
   const description = extractDescription(row[headerInfo.descriptionCol]);
   const quantity = extractQuantity(row[headerInfo.quantityCol]);
+  const rate = headerInfo.rateCol >= 0 ? extractRate(row[headerInfo.rateCol]) : null;
+  const unit = headerInfo.unitCol >= 0 ? extractUnit(row[headerInfo.unitCol]) : '';
   
-  if (!description || !quantity || quantity <= 0) {
+  // AGGRESSIVE: Try to extract from ANY column if main columns fail
+  let finalDescription = description;
+  let finalQuantity = quantity;
+  
+  if (!finalDescription && row && row.length > 0) {
+    console.log(`   ⚠️ [PARSE] No description found in designated column ${headerInfo.descriptionCol + 1}, searching other columns...`);
+    // Look for description in any column with meaningful text
+    for (let i = 0; i < row.length; i++) {
+      if (i === headerInfo.quantityCol || i === headerInfo.rateCol) continue;
+      const cellDesc = extractDescription(row[i]);
+      if (cellDesc && cellDesc.length > 0) { // Even more lenient
+        console.log(`   ✅ [PARSE] Found description in column ${i + 1}: "${cellDesc.substring(0, 30)}..."`);
+        finalDescription = cellDesc;
+        break;
+      }
+    }
+  }
+  
+  if (!finalQuantity && row && row.length > 0) {
+    // Look for quantity in any column after description column
+    for (let i = headerInfo.descriptionCol + 1; i < row.length; i++) {
+      const cellQty = extractQuantity(row[i]);
+      if (cellQty && cellQty > 0) {
+        finalQuantity = cellQty;
+        break;
+      }
+    }
+  }
+  
+  // MUCH MORE LENIENT: Only skip if absolutely no description or quantity
+  if (!finalDescription || finalDescription.length < 1) {
     return null;
   }
   
-  return {
-    description: description.trim(),
-    quantity: quantity,
+  if (!finalQuantity || finalQuantity <= 0) {
+    return null;
+  }
+  
+  // Skip obvious non-items but be very selective
+  if (shouldSkipItem(finalDescription)) {
+    return null;
+  }
+  
+  // NO DEDUPLICATION - return all items including duplicates
+  const itemData = {
+    id: `${sheetName}_${rowNumber}_${Date.now()}_${Math.random()}`, // More unique ID
+    description: finalDescription.trim(),
+    original_description: finalDescription.trim(),
+    quantity: parseFloat(finalQuantity),
+    rate: rate ? parseFloat(rate) : null,
+    unit: unit || '',
     row_number: rowNumber,
     sheet_name: sheetName,
-    unit: '',
-    section_header: null
+    total_amount: rate ? parseFloat(finalQuantity) * parseFloat(rate) : null
   };
+  
+  return itemData;
 }
 
-// Extract description from cell
+// Extract description from cell - LOCAL LOGIC
 function extractDescription(cellValue) {
   if (!cellValue) return null;
   
-  const desc = String(cellValue).trim();
+  let desc = String(cellValue).trim();
   
-  // Filter out obvious non-descriptions
-  if (desc.length < 5 || desc.length > 500) return null;
-  if (/^[\d\.\,\s]+$/.test(desc)) return null; // Just numbers
-  if (/^[A-Z]{1,5}\d+$/.test(desc)) return null; // Just codes like "A123"
+  // CRITICAL: Reject pure numbers or very short numeric values
+  if (desc.match(/^\d+$/) && desc.length <= 3) {
+    console.log(`   ❌ [PARSE] Rejecting numeric-only description: "${desc}"`);
+    return null;
+  }
   
-  return desc;
+  // Also reject single letters
+  if (desc.match(/^[A-Z]$/i)) {
+    console.log(`   ❌ [PARSE] Rejecting single letter description: "${desc}"`);
+    return null;
+  }
+  
+  // Only remove very obvious prefixes, keep most content
+  desc = desc.replace(/^(item\s*\d+[\.\-\:\s]*)/i, '');
+  desc = desc.replace(/^(\d+[\.\-\:\s]+)/i, '');
+  
+  // Don't remove parentheses content - it might be important specifications
+  
+  return desc.trim();
 }
 
-// Extract quantity from cell
+// Extract quantity from cell - LOCAL LOGIC
 function extractQuantity(cellValue) {
-  if (!cellValue) return null;
+  if (!cellValue && cellValue !== 0) return null;
   
-  const num = parseFloat(cellValue);
+  // Handle different quantity formats
+  let value = String(cellValue).trim();
+  
+  // Remove common quantity suffixes
+  value = value.replace(/\s*(nos?|pcs?|pieces?|units?|each|ea)\.?$/i, '');
+  value = value.replace(/\s*(m|m2|m3|sq\.?m|cu\.?m|lm|km|cm|mm)\.?$/i, '');
+  value = value.replace(/\s*(kg|tons?|tonnes?|lbs?)\.?$/i, '');
+  value = value.replace(/\s*(liters?|litres?|gallons?|gals?)\.?$/i, '');
+  
+  // Handle fractions
+  if (value.includes('/')) {
+    const parts = value.split('/');
+    if (parts.length === 2) {
+      const numerator = parseFloat(parts[0]);
+      const denominator = parseFloat(parts[1]);
+      if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
+        return numerator / denominator;
+      }
+    }
+  }
+  
+  // Handle comma as decimal separator
+  if (value.includes(',') && !value.includes('.')) {
+    value = value.replace(',', '.');
+  }
+  
+  const num = parseFloat(value);
   return isNaN(num) ? null : num;
+}
+
+// Extract rate from cell
+function extractRate(cellValue) {
+  if (!cellValue && cellValue !== 0) return null;
+  
+  let value = String(cellValue).trim();
+  
+  // Remove currency symbols
+  value = value.replace(/[$£€¥₹₨]/g, '');
+  value = value.replace(/[,\s]/g, '');
+  
+  const num = parseFloat(value);
+  return isNaN(num) ? null : num;
+}
+
+// Extract unit from cell
+function extractUnit(cellValue) {
+  if (!cellValue) return '';
+  return String(cellValue).trim();
+}
+
+// Check if item should be skipped
+function shouldSkipItem(description) {
+  if (!description) return true;
+  
+  const desc = description.toLowerCase().trim();
+  
+  // Skip very obvious non-items
+  const skipPatterns = [
+    /^(total|sub[\s-]?total|grand[\s-]?total)/,
+    /^(page|sheet|section)/,
+    /^(note|notes?|remark)/,
+    /^(continue|continued)/,
+    /^(carried[\s-]?forward|c\/f|b\/f|brought[\s-]?forward)/,
+    /^(sum|summary)/,
+    /^(\s*[\-\=\_\+]+\s*)$/, // Lines made of symbols
+    /^(provisional|contingency|daywork)$/
+  ];
+  
+  return skipPatterns.some(pattern => pattern.test(desc));
 }
 
 // Load price list from Supabase
