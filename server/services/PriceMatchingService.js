@@ -67,9 +67,9 @@ export class PriceMatchingService {
         hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
       })
       
-      // Add timeout protection for the database query - be more aggressive in serverless
+      // Add timeout protection for the database query - generous timeout for Vercel Pro (300s total)
       const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
-      const timeoutMs = isServerless ? 2000 : 5000 // 2s for serverless, 5s for local
+      const timeoutMs = isServerless ? 30000 : 10000 // 30s for serverless, 10s for local
       
       const fetchSettings = async () => {
         console.log('🔑 [API-INIT] Fetching API keys from app_settings table...')
@@ -263,13 +263,15 @@ export class PriceMatchingService {
         console.log('[PRICE MATCHING DEBUG] Successfully stored original file path and blob key')
       }
       
-      // Add timeout protection for Excel parsing (30 seconds max for serverless)
-      console.log(`📊 [EXCEL-PARSE] Starting Excel parsing with 30s timeout...`)
+      // Add timeout protection for Excel parsing (generous timeout for Vercel Pro)
+      const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
+      const parseTimeoutMs = isServerless ? 120000 : 60000 // 120s for serverless, 60s for local
+      console.log(`📊 [EXCEL-PARSE] Starting Excel parsing with ${parseTimeoutMs}ms timeout...`)
       const parseExcelWithTimeout = async () => {
         return new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
-            reject(new Error('Excel parsing timeout after 30s'))
-          }, 30000)
+            reject(new Error(`Excel parsing timeout after ${parseTimeoutMs}ms`))
+          }, parseTimeoutMs)
           
           this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
             .then(result => {
@@ -320,13 +322,14 @@ export class PriceMatchingService {
       console.log(`💰 Loading price list from database...`)
       // DON'T update progress here to avoid going backwards
       
-      // Add timeout protection for price list loading (15 seconds max for serverless)
-      console.log(`💰 [PRICELIST] Starting price list loading with 15s timeout...`)
+      // Add timeout protection for price list loading (generous timeout for Vercel Pro)
+      const pricelistTimeoutMs = isServerless ? 90000 : 30000 // 90s for serverless, 30s for local
+      console.log(`💰 [PRICELIST] Starting price list loading with ${pricelistTimeoutMs}ms timeout...`)
       const loadPriceListWithTimeout = async () => {
         return new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
-            reject(new Error('Price list loading timeout after 15s'))
-          }, 15000)
+            reject(new Error(`Price list loading timeout after ${pricelistTimeoutMs}ms`))
+          }, pricelistTimeoutMs)
           
           this.getCachedPriceList()
             .then(result => {
@@ -662,12 +665,15 @@ export class PriceMatchingService {
         console.log(`🔄 [DATABASE] Message: ${message}`)
       }
       
-      // Add timeout protection for database operations (3s max in serverless)
+      // Add timeout protection for database operations (generous timeout for Vercel Pro)
+      const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
+      const dbTimeoutMs = isServerless ? 60000 : 10000 // 60s for serverless, 10s for local
+      
       const dbOperationWithTimeout = async (operation) => {
         return Promise.race([
           operation(),
           new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Database operation timeout after 3s')), 3000)
+            setTimeout(() => reject(new Error(`Database operation timeout after ${dbTimeoutMs}ms`)), dbTimeoutMs)
           )
         ])
       }

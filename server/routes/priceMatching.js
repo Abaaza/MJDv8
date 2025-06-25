@@ -303,13 +303,17 @@ router.post('/process-base64', async (req, res) => {
         console.log(`🔄 [PROCESSING] Starting async processFile for job ${jobId}`)
         console.log(`🔄 [PROCESSING] Environment check: Vercel=${!!process.env.VERCEL}, NodeEnv=${process.env.NODE_ENV}`)
         console.log(`🔄 [PROCESSING] File exists: ${await fs.pathExists(tempFilePath)}`)
+        console.log(`⏱️ [PROCESSING] Using ${processTimeoutMs}ms timeout (Vercel Pro: 300s available)`)
         
-        // Add timeout protection for serverless (5 minutes max)
+        // Add timeout protection for Vercel Pro (280s out of 300s available)
+        const isVercel = !!process.env.VERCEL
+        const processTimeoutMs = isVercel ? 280000 : 300000 // 280s for Vercel, 300s for other serverless
+        
         const processWithTimeout = async () => {
           return Promise.race([
             priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod),
             new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('ProcessFile timeout after 5 minutes')), 5 * 60 * 1000)
+              setTimeout(() => reject(new Error(`ProcessFile timeout after ${processTimeoutMs}ms`)), processTimeoutMs)
             )
           ])
         }
