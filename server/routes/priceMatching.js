@@ -287,78 +287,53 @@ router.post('/process-base64', async (req, res) => {
         const processingUrl = `${protocol}://${req.get('host')}/api/process`
         console.log(`📞 [VERCEL DEBUG] Calling processing function: ${processingUrl}`)
         
-        // Quick ping test to see if endpoint is reachable
-        console.log(`🏓 [VERCEL DEBUG] Testing endpoint reachability...`)
-        try {
-          const pingResponse = await fetch(processingUrl, {
-            method: 'GET',
-            signal: AbortSignal.timeout(5000) // 5 second timeout for ping
-          })
-          console.log(`🏓 [VERCEL DEBUG] Ping response status: ${pingResponse.status}`)
-        } catch (pingError) {
-          console.error(`🏓 [VERCEL DEBUG] Ping failed:`, pingError.message)
-        }
-        
-        // Use a longer timeout and better error handling
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => {
-          console.log('⏰ [VERCEL DEBUG] Processing function call timing out after 30 seconds')
-          controller.abort()
-        }, 30000) // 30 second timeout instead of 5
-        
-        console.log(`🔄 [VERCEL DEBUG] Starting fetch to processing function...`)
+        console.log(`🔄 [VERCEL DEBUG] Starting direct POST to processing function...`)
         console.log(`🔄 [VERCEL DEBUG] Fetch URL: ${processingUrl}`)
         console.log(`🔄 [VERCEL DEBUG] Fetch payload:`, { jobId })
+        console.log(`🔄 [VERCEL DEBUG] Fetch options:`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'User-Agent': 'MJDv8-Processing-Trigger'
+          },
+          body: JSON.stringify({ jobId })
+        })
         
-        const fetchPromise = fetch(processingUrl, {
+        // Use async/await for better error handling
+        const response = await fetch(processingUrl, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json',
             'User-Agent': 'MJDv8-Processing-Trigger'
           },
           body: JSON.stringify({ jobId }),
-          signal: controller.signal
+          signal: AbortSignal.timeout(30000) // 30 second timeout
         })
         
-        console.log(`🔄 [VERCEL DEBUG] Fetch promise created, now waiting for response...`)
-        
-        fetchPromise
-        .then(async response => {
-          clearTimeout(timeoutId)
-          console.log(`📨 [VERCEL DEBUG] Processing function responded with status: ${response.status}`)
-          
-          if (response.ok) {
-            console.log('✅ [VERCEL DEBUG] Processing function triggered successfully')
-            try {
-              const responseText = await response.text()
-              console.log(`📋 [VERCEL DEBUG] Processing function response: ${responseText.substring(0, 200)}...`)
-            } catch (textError) {
-              console.log('📋 [VERCEL DEBUG] Could not read response text:', textError.message)
-            }
-          } else {
-            console.error(`❌ [VERCEL DEBUG] Processing function returned error status: ${response.status}`)
-            try {
-              const errorText = await response.text()
-              console.error(`❌ [VERCEL DEBUG] Error response: ${errorText.substring(0, 500)}...`)
-            } catch (textError) {
-              console.error('❌ [VERCEL DEBUG] Could not read error response:', textError.message)
-            }
-          }
+        console.log(`📨 [VERCEL DEBUG] Processing function responded with status: ${response.status}`)
+        console.log(`📨 [VERCEL DEBUG] Response headers:`, {
+          'content-type': response.headers.get('content-type'),
+          'content-length': response.headers.get('content-length')
         })
-        .catch(error => {
-          clearTimeout(timeoutId)
-          if (error.name === 'AbortError') {
-            console.log('⏰ [VERCEL DEBUG] Processing function call timed out after 30 seconds')
-          } else {
-            console.error(`❌ [VERCEL DEBUG] Processing function call failed:`, error.message)
-            console.error(`❌ [VERCEL DEBUG] Error details:`, {
-              name: error.name,
-              code: error.code,
-              stack: error.stack?.substring(0, 500)
-            })
+        
+        if (response.ok) {
+          console.log('✅ [VERCEL DEBUG] Processing function triggered successfully')
+          try {
+            const responseText = await response.text()
+            console.log(`📋 [VERCEL DEBUG] Processing function response: ${responseText.substring(0, 200)}...`)
+          } catch (textError) {
+            console.log('📋 [VERCEL DEBUG] Could not read response text:', textError.message)
+          }
+        } else {
+          console.error(`❌ [VERCEL DEBUG] Processing function returned error status: ${response.status}`)
+          try {
+            const errorText = await response.text()
+            console.error(`❌ [VERCEL DEBUG] Error response: ${errorText.substring(0, 500)}...`)
+          } catch (textError) {
+            console.error('❌ [VERCEL DEBUG] Could not read error response:', textError.message)
           }
           
-          // FALLBACK: If the separate processing function fails, try direct processing
+          // Trigger fallback processing
           console.log(`🔄 [VERCEL FALLBACK] Processing function failed, attempting direct processing...`)
           setImmediate(async () => {
             try {
@@ -370,11 +345,29 @@ router.post('/process-base64', async (req, res) => {
               await priceMatchingService.updateJobStatus(jobId, 'failed', 0, `Both processing methods failed: ${fallbackError.message}`)
             }
           })
-        })
+        }
         
-        console.log('✅ [VERCEL DEBUG] Processing function call initiated')
+        console.log('✅ [VERCEL DEBUG] Processing function call completed')
       } catch (error) {
         console.error(`❌ [VERCEL DEBUG] Failed to trigger processing function:`, error)
+        console.error(`❌ [VERCEL DEBUG] Error details:`, {
+          name: error.name,
+          message: error.message,
+          code: error.code
+        })
+        
+        // Trigger fallback processing
+        console.log(`🔄 [VERCEL FALLBACK] Processing function failed, attempting direct processing...`)
+        setImmediate(async () => {
+          try {
+            console.log(`🔄 [VERCEL FALLBACK] Starting direct processing for job ${jobId}`)
+            await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
+            console.log(`✅ [VERCEL FALLBACK] Direct processing completed for job ${jobId}`)
+          } catch (fallbackError) {
+            console.error(`❌ [VERCEL FALLBACK] Direct processing also failed for job ${jobId}:`, fallbackError)
+            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, `Both processing methods failed: ${fallbackError.message}`)
+          }
+        })
       }
     } else {
       // Local development - use direct processing

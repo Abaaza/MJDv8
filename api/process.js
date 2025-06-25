@@ -5,11 +5,17 @@ export default async function handler(req, res) {
   const startTime = Date.now();
   console.log(`🔄 [PROCESS] Function invoked at ${new Date().toISOString()}`);
   console.log(`🔄 [PROCESS] Method: ${req.method}`);
+  console.log(`🔄 [PROCESS] URL: ${req.url}`);
   console.log(`🔄 [PROCESS] Headers:`, {
     'content-type': req.headers['content-type'],
     'user-agent': req.headers['user-agent'],
-    'content-length': req.headers['content-length']
+    'content-length': req.headers['content-length'],
+    'host': req.headers['host'],
+    'x-forwarded-for': req.headers['x-forwarded-for'],
+    'x-vercel-id': req.headers['x-vercel-id']
   });
+  console.log(`🔄 [PROCESS] Query params:`, req.query);
+  console.log(`🔄 [PROCESS] Request body type:`, typeof req.body);
   console.log(`🔄 [PROCESS] Request body:`, req.body);
   
   // Handle GET requests for health check - MUST be before other method checks
@@ -27,6 +33,12 @@ export default async function handler(req, res) {
     console.log(`❌ [PROCESS] Invalid method: ${req.method}`);
     console.log(`❌ [PROCESS] Expected POST, got: ${req.method}`);
     console.log(`❌ [PROCESS] Request URL: ${req.url}`);
+    console.log(`❌ [PROCESS] Full request details:`, {
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      body: req.body
+    });
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
