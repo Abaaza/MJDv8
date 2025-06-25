@@ -83,12 +83,12 @@ export class PriceMatchingService {
         return settings
       }
 
-      // Race the fetch with a timeout
-      console.log('🔑 [API-INIT] Starting database query with 10s timeout...')
+      // Race the fetch with a timeout (short timeout for serverless)
+      console.log('🔑 [API-INIT] Starting database query with 3s timeout...')
       const settings = await Promise.race([
         fetchSettings(),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Database query timeout after 10s')), 10000)
+          setTimeout(() => reject(new Error('Database query timeout after 3s')), 3000)
         )
       ])
 
@@ -141,12 +141,15 @@ export class PriceMatchingService {
       console.log(`🚀 [PROCESSFILE] Original filename: ${originalFileName}`)
       console.log(`🚀 [PROCESSFILE] Matching method: ${matchingMethod}`)
       
-      // Initialize API services once when actually needed
-      console.log(`🚀 [PROCESSFILE] Initializing API services if needed...`)
+      // Initialize API services in background (non-blocking)
+      console.log(`🚀 [PROCESSFILE] Starting non-blocking API services initialization...`)
       if (!this.cohereMatcher && !this.openAIMatcher) {
-        await this.initializeAPIServices()
+        // Don't await - let it initialize in background
+        this.initializeAPIServices().catch(error => {
+          console.error(`⚠️ [PROCESSFILE] Background API init failed:`, error.message)
+        })
       }
-      console.log(`🚀 [PROCESSFILE] API services ready (Cohere: ${!!this.cohereMatcher}, OpenAI: ${!!this.openAIMatcher})`)
+      console.log(`🚀 [PROCESSFILE] API services status (will update in background): Cohere: ${!!this.cohereMatcher}, OpenAI: ${!!this.openAIMatcher}`)
       
       console.log(`🚀 STARTING PROCESSING: job ${jobId} with file: ${originalFileName}`)
       console.log(`📁 Input file path: ${inputFilePath}`)
@@ -205,13 +208,13 @@ export class PriceMatchingService {
         console.log('[PRICE MATCHING DEBUG] Successfully stored original file path and blob key')
       }
       
-      // Add timeout protection for Excel parsing (60 seconds max)
-      console.log(`📊 [EXCEL-PARSE] Starting Excel parsing with 60s timeout...`)
+      // Add timeout protection for Excel parsing (30 seconds max for serverless)
+      console.log(`📊 [EXCEL-PARSE] Starting Excel parsing with 30s timeout...`)
       const parseExcelWithTimeout = async () => {
         return new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
-            reject(new Error('Excel parsing timeout after 60s'))
-          }, 60000)
+            reject(new Error('Excel parsing timeout after 30s'))
+          }, 30000)
           
           this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
             .then(result => {
@@ -262,13 +265,13 @@ export class PriceMatchingService {
       console.log(`💰 Loading price list from database...`)
       // DON'T update progress here to avoid going backwards
       
-      // Add timeout protection for price list loading (30 seconds max)
-      console.log(`💰 [PRICELIST] Starting price list loading with 30s timeout...`)
+      // Add timeout protection for price list loading (15 seconds max for serverless)
+      console.log(`💰 [PRICELIST] Starting price list loading with 15s timeout...`)
       const loadPriceListWithTimeout = async () => {
         return new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
-            reject(new Error('Price list loading timeout after 30s'))
-          }, 30000)
+            reject(new Error('Price list loading timeout after 15s'))
+          }, 15000)
           
           this.getCachedPriceList()
             .then(result => {
