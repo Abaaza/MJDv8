@@ -46,9 +46,7 @@ export default async function handler(req, res) {
     const path = await import('path');
     console.log(`✅ [PROCESS] path imported`);
     
-    // Import Vercel Blob for downloading files
-    const { download } = await import('@vercel/blob');
-    console.log(`✅ [PROCESS] Vercel Blob imported`);
+    console.log(`✅ [PROCESS] All imports completed`);
     
     console.log(`🔄 [PROCESS] Parsing request body...`);
     console.log(`🔄 [PROCESS] Body type: ${typeof req.body}`);
@@ -161,10 +159,12 @@ export default async function handler(req, res) {
     
     let fileArrayBuffer;
     try {
-      const downloadResult = await download(job.input_file_blob_url, {
-        handleBlobUrl: true
-      });
-      fileArrayBuffer = await downloadResult.arrayBuffer();
+      // Use fetch to download the file since it's already a public URL
+      const response = await fetch(job.input_file_blob_url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      fileArrayBuffer = await response.arrayBuffer();
       console.log(`✅ [PROCESS] File downloaded, size: ${fileArrayBuffer.byteLength} bytes`);
     } catch (downloadError) {
       console.error(`❌ [PROCESS] File download failed:`, downloadError);
