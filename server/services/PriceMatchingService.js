@@ -660,7 +660,7 @@ export class PriceMatchingService {
         console.log(`🔄 [DATABASE] Message: ${message}`)
       }
       
-      // Get current job status for debugging
+      // Get current job status for debugging and message accumulation
       const currentJobStatus = await this.getJobStatus(jobId)
       console.log(`🔄 [DATABASE] Current job status before update:`, {
         status: currentJobStatus?.status,

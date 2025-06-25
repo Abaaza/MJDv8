@@ -239,7 +239,7 @@ export class CohereMatchingService {
             jobId, 
             'processing', 
             batchProgress, 
-            `Computing embeddings... batch ${currentBatch}/${totalBatches} (${Math.min(i + batch.length, priceItems.length)}/${priceItems.length} items)`
+            `Cohere: Computing embeddings batch ${currentBatch}/${totalBatches} (${Math.min(i + batch.length, priceItems.length)}/${priceItems.length} items)`
           );
           
           console.log(`✅ [COHERE] Progress update sent to wrapper`);
@@ -247,8 +247,8 @@ export class CohereMatchingService {
         
         console.log(`📊 [COHERE] Progress: ${Math.round((currentBatch / totalBatches) * 100)}% (${i + batch.length}/${priceItems.length} items)`);
         
-        // Small delay to ensure frontend sees the progress update
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Longer delay to ensure frontend sees the progress update
+        await new Promise(resolve => setTimeout(resolve, 300));
       } catch (error) {
         console.error(`❌ [COHERE] Error computing embeddings batch ${currentBatch}:`, error);
         
@@ -411,12 +411,15 @@ export class CohereMatchingService {
             jobId, 
             'processing', 
             matchingProgress, 
-            `Matching ${Math.min(i + batch.length, items.length)}/${items.length} items (${matchedCount} matches found)`,
+            `Cohere: Matching ${Math.min(i + batch.length, items.length)}/${items.length} items (${matchedCount} matches found)`,
             {
               total_items: items.length,
               matched_items: matchedCount
             }
           )
+          
+          // Add a small delay to ensure frontend polling can catch this update
+          await new Promise(resolve => setTimeout(resolve, 150))
           
         } catch (error) {
           console.error('Error in embedding batch:', error);

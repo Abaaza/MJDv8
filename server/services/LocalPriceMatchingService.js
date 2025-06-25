@@ -195,12 +195,19 @@ export class LocalPriceMatchingService {
         // Update progress with item counts
         const progress = Math.round(45 + ((i / items.length) * 40)) // Progress from 45% to 85%
         const currentMatches = matches.length // All matches count since we always return a match
-        if (updateJobStatus) {
+        
+        // Update progress for every 10th item or major milestones to avoid overwhelming the frontend
+        const shouldUpdate = (i + 1) % 10 === 0 || (i + 1) === items.length || progress % 5 === 0
+        
+        if (updateJobStatus && shouldUpdate) {
           await updateJobStatus(jobId, 'processing', progress, 
             `Local matching: ${i + 1}/${items.length} items processed (${currentMatches} matches found)`, {
               total_items: items.length,
               matched_items: currentMatches
             })
+          
+          // Add a small delay to ensure frontend polling can catch this update
+          await new Promise(resolve => setTimeout(resolve, 100))
         }
         
         // Find best match with enhanced algorithm - try category first, then all items
