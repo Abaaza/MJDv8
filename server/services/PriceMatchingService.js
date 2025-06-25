@@ -168,6 +168,14 @@ export class PriceMatchingService {
       console.log(`🔥 [PROCESSFILE] CRITICAL: Current time: ${new Date().toISOString()}`)
       console.log(`🔥 [PROCESSFILE] CRITICAL: Environment: Vercel=${!!process.env.VERCEL}, NodeEnv=${process.env.NODE_ENV}`)
       
+      // Log memory usage for debugging
+      const memUsage = process.memoryUsage()
+      console.log(`🔥 [PROCESSFILE] CRITICAL: Memory usage:`, {
+        rss: `${Math.round(memUsage.rss / 1024 / 1024)}MB`,
+        heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`,
+        heapUsed: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`
+      })
+      
       // Initialize API services with improved timeout handling for serverless
       console.log(`🚀 [PROCESSFILE] Starting API services initialization for ${matchingMethod} matching...`)
       
@@ -246,8 +254,25 @@ export class PriceMatchingService {
       
       // Parse Excel file directly - let Vercel handle timeout naturally
       console.log(`📊 [EXCEL-PARSE] Starting Excel parsing...`)
-      const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
-      console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
+      console.log(`🔥 [EXCEL-PARSE] CRITICAL: About to call parseExcelFile`)
+      
+      let extractedItems
+      try {
+        extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
+        console.log(`🔥 [EXCEL-PARSE] CRITICAL: parseExcelFile completed successfully`)
+        console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
+        
+        // Log memory usage after parsing
+        const memUsageAfterParsing = process.memoryUsage()
+        console.log(`🔥 [EXCEL-PARSE] Memory after parsing:`, {
+          rss: `${Math.round(memUsageAfterParsing.rss / 1024 / 1024)}MB`,
+          heapUsed: `${Math.round(memUsageAfterParsing.heapUsed / 1024 / 1024)}MB`
+        })
+      } catch (parseError) {
+        console.error(`❌ [EXCEL-PARSE] CRITICAL: parseExcelFile failed:`, parseError)
+        console.error(`❌ [EXCEL-PARSE] Error stack:`, parseError.stack)
+        throw parseError
+      }
       
       // Check if job was cancelled after parsing
       if (isJobCancelled(jobId)) {
@@ -283,8 +308,18 @@ export class PriceMatchingService {
       
       // Load price list directly - let Vercel handle timeout naturally
       console.log(`💰 [PRICELIST] Starting price list loading...`)
-      const priceList = await this.getCachedPriceList()
-      console.log(`✅ Loaded ${priceList.length} price items`)
+      console.log(`🔥 [PRICELIST] CRITICAL: About to call getCachedPriceList`)
+      
+      let priceList
+      try {
+        priceList = await this.getCachedPriceList()
+        console.log(`🔥 [PRICELIST] CRITICAL: getCachedPriceList completed successfully`)
+        console.log(`✅ Loaded ${priceList.length} price items`)
+      } catch (priceListError) {
+        console.error(`❌ [PRICELIST] CRITICAL: getCachedPriceList failed:`, priceListError)
+        console.error(`❌ [PRICELIST] Error stack:`, priceListError.stack)
+        throw priceListError
+      }
 
       if (priceList.length === 0) {
         throw new Error('No price items found in database')
@@ -302,31 +337,43 @@ export class PriceMatchingService {
       
       let matchingResult
       
-      if (matchingMethod === 'local') {
-        // Use local matching - need to pass updateJobStatus as 5th parameter
-        console.log('🔧 [PROCESSFILE] Using local matching as requested')
-        const updateJobStatus = this.updateJobStatus.bind(this)
-        matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
-      } else if (matchingMethod === 'hybrid' || matchingMethod === 'cohere') {
-        // Use hybrid AI matching if both services are available, otherwise fall back
-        if (this.cohereMatcher && this.openAIMatcher && matchingMethod === 'hybrid') {
-          console.log('🔧 [PROCESSFILE] Using hybrid AI matching (Cohere + OpenAI)')
-          matchingResult = await this.performHybridAIMatching(extractedItems, priceList, jobId, inputFilePath)
-        } else if (this.cohereMatcher) {
-          console.log('🔧 [PROCESSFILE] Using Cohere AI matching')
+      console.log(`🔥 [MATCHING] CRITICAL: About to start matching with method: ${matchingMethod}`)
+      console.log(`🔥 [MATCHING] CRITICAL: Items to match: ${extractedItems.length}`)
+      console.log(`🔥 [MATCHING] CRITICAL: Price items available: ${priceList.length}`)
+      
+      try {
+        if (matchingMethod === 'local') {
+          // Use local matching - need to pass updateJobStatus as 5th parameter
+          console.log('🔧 [PROCESSFILE] Using local matching as requested')
           const updateJobStatus = this.updateJobStatus.bind(this)
-          matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, updateJobStatus)
+          matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
+        } else if (matchingMethod === 'hybrid' || matchingMethod === 'cohere') {
+          // Use hybrid AI matching if both services are available, otherwise fall back
+          if (this.cohereMatcher && this.openAIMatcher && matchingMethod === 'hybrid') {
+            console.log('🔧 [PROCESSFILE] Using hybrid AI matching (Cohere + OpenAI)')
+            matchingResult = await this.performHybridAIMatching(extractedItems, priceList, jobId, inputFilePath)
+          } else if (this.cohereMatcher) {
+            console.log('🔧 [PROCESSFILE] Using Cohere AI matching')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, updateJobStatus)
+          } else {
+            // If AI services not available, fall back to local matching
+            console.log('⚠️ [PROCESSFILE] AI services not configured, using local matching fallback')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
+          }
         } else {
-          // If AI services not available, fall back to local matching
-          console.log('⚠️ [PROCESSFILE] AI services not configured, using local matching fallback')
+          // Default fallback
+          console.log('⚠️ [PROCESSFILE] Unknown matching method, using local fallback')
           const updateJobStatus = this.updateJobStatus.bind(this)
           matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
         }
-      } else {
-        // Default fallback
-        console.log('⚠️ [PROCESSFILE] Unknown matching method, using local fallback')
-        const updateJobStatus = this.updateJobStatus.bind(this)
-        matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
+        
+        console.log(`🔥 [MATCHING] CRITICAL: Matching completed successfully`)
+      } catch (matchingError) {
+        console.error(`❌ [MATCHING] CRITICAL: Matching failed:`, matchingError)
+        console.error(`❌ [MATCHING] Error stack:`, matchingError.stack)
+        throw matchingError
       }
       
       console.log(`[PRICE MATCHING DEBUG] Received matching result:`, {
@@ -408,9 +455,19 @@ export class PriceMatchingService {
       return outputPath
 
     } catch (error) {
-      console.error(`❌ Job ${jobId} FAILED with error:`, error)
-      console.error(`❌ Error stack:`, error.stack)
-      await this.updateJobStatus(jobId, 'failed', 0, error.message)
+      console.error(`🔥❌ [PROCESSFILE] CRITICAL: Job ${jobId} FAILED with error:`, error)
+      console.error(`🔥❌ [PROCESSFILE] Error type:`, error.constructor.name)
+      console.error(`🔥❌ [PROCESSFILE] Error message:`, error.message)
+      console.error(`🔥❌ [PROCESSFILE] Error stack:`, error.stack)
+      console.error(`🔥❌ [PROCESSFILE] Current time:`, new Date().toISOString())
+      
+      try {
+        await this.updateJobStatus(jobId, 'failed', 0, error.message)
+        console.log(`✅ [PROCESSFILE] Job status updated to failed`)
+      } catch (updateError) {
+        console.error(`❌ [PROCESSFILE] Failed to update job status:`, updateError)
+      }
+      
       throw error
     }
   }
