@@ -160,11 +160,13 @@ export class PriceMatchingService {
 
   async processFile(jobId, inputFilePath, originalFileName, matchingMethod = 'hybrid') {
     try {
-      console.log(`🚀 [PROCESSFILE] *** ENTERING processFile method ***`)
-      console.log(`🚀 [PROCESSFILE] Job ID: ${jobId}`)
-      console.log(`🚀 [PROCESSFILE] Input file path: ${inputFilePath}`)
-      console.log(`🚀 [PROCESSFILE] Original filename: ${originalFileName}`)
-      console.log(`🚀 [PROCESSFILE] Matching method: ${matchingMethod}`)
+      console.log(`🔥🔥🔥 [PROCESSFILE] *** CRITICAL: ENTERING processFile method ***`)
+      console.log(`🔥 [PROCESSFILE] CRITICAL: Job ID: ${jobId}`)
+      console.log(`🔥 [PROCESSFILE] CRITICAL: Input file path: ${inputFilePath}`)
+      console.log(`🔥 [PROCESSFILE] CRITICAL: Original filename: ${originalFileName}`)
+      console.log(`🔥 [PROCESSFILE] CRITICAL: Matching method: ${matchingMethod}`)
+      console.log(`🔥 [PROCESSFILE] CRITICAL: Current time: ${new Date().toISOString()}`)
+      console.log(`🔥 [PROCESSFILE] CRITICAL: Environment: Vercel=${!!process.env.VERCEL}, NodeEnv=${process.env.NODE_ENV}`)
       
       // Initialize API services with improved timeout handling for serverless
       console.log(`🚀 [PROCESSFILE] Starting API services initialization for ${matchingMethod} matching...`)
