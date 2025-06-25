@@ -274,119 +274,26 @@ router.post('/process-base64', async (req, res) => {
       console.log('✅ [VERCEL DEBUG] Job updated with storage info')
     }
 
-    // In Vercel, trigger separate processing function
-    if (process.env.VERCEL) {
-      console.log('🚀 [VERCEL DEBUG] Triggering separate processing function...')
-      
-      // Call the separate processing function
+    // Use the existing working PriceMatchingService directly - no more problematic Vercel function calls!
+    console.log('🚀 [PROCESSING] Starting background processing using existing working system...')
+    setImmediate(async () => {
       try {
-        // Force HTTPS in production, handle local development
-        console.log(`🔧 [VERCEL DEBUG] Protocol selection - VERCEL env: ${!!process.env.VERCEL}, req.protocol: ${req.protocol}`)
-        const protocol = process.env.VERCEL ? 'https' : req.protocol
-        console.log(`🔧 [VERCEL DEBUG] Selected protocol: ${protocol}`)
-        const processingUrl = `${protocol}://${req.get('host')}/api/process`
-        console.log(`📞 [VERCEL DEBUG] Calling processing function: ${processingUrl}`)
-        
-        console.log(`🔄 [VERCEL DEBUG] Starting direct POST to processing function...`)
-        console.log(`🔄 [VERCEL DEBUG] Fetch URL: ${processingUrl}`)
-        console.log(`🔄 [VERCEL DEBUG] Fetch payload:`, { jobId })
-        console.log(`🔄 [VERCEL DEBUG] Fetch options:`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'User-Agent': 'MJDv8-Processing-Trigger'
-          },
-          body: JSON.stringify({ jobId })
-        })
-        
-        // Use async/await for better error handling
-        const response = await fetch(processingUrl, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'User-Agent': 'MJDv8-Processing-Trigger'
-          },
-          body: JSON.stringify({ jobId }),
-          signal: AbortSignal.timeout(30000) // 30 second timeout
-        })
-        
-        console.log(`📨 [VERCEL DEBUG] Processing function responded with status: ${response.status}`)
-        console.log(`📨 [VERCEL DEBUG] Response headers:`, {
-          'content-type': response.headers.get('content-type'),
-          'content-length': response.headers.get('content-length')
-        })
-        
-        if (response.ok) {
-          console.log('✅ [VERCEL DEBUG] Processing function triggered successfully')
-          try {
-            const responseText = await response.text()
-            console.log(`📋 [VERCEL DEBUG] Processing function response: ${responseText.substring(0, 200)}...`)
-          } catch (textError) {
-            console.log('📋 [VERCEL DEBUG] Could not read response text:', textError.message)
-          }
-        } else {
-          console.error(`❌ [VERCEL DEBUG] Processing function returned error status: ${response.status}`)
-          try {
-            const errorText = await response.text()
-            console.error(`❌ [VERCEL DEBUG] Error response: ${errorText.substring(0, 500)}...`)
-          } catch (textError) {
-            console.error('❌ [VERCEL DEBUG] Could not read error response:', textError.message)
-          }
-          
-          // Trigger fallback processing
-          console.log(`🔄 [VERCEL FALLBACK] Processing function failed, attempting direct processing...`)
-          setImmediate(async () => {
-            try {
-              console.log(`🔄 [VERCEL FALLBACK] Starting direct processing for job ${jobId}`)
-              await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
-              console.log(`✅ [VERCEL FALLBACK] Direct processing completed for job ${jobId}`)
-            } catch (fallbackError) {
-              console.error(`❌ [VERCEL FALLBACK] Direct processing also failed for job ${jobId}:`, fallbackError)
-              await priceMatchingService.updateJobStatus(jobId, 'failed', 0, `Both processing methods failed: ${fallbackError.message}`)
-            }
-          })
+        // Check if job was cancelled before starting
+        if (cancelledJobs.has(jobId)) {
+          console.log(`🛑 [PROCESSING] Job ${jobId} was cancelled before processing started`)
+          return
         }
         
-        console.log('✅ [VERCEL DEBUG] Processing function call completed')
-      } catch (error) {
-        console.error(`❌ [VERCEL DEBUG] Failed to trigger processing function:`, error)
-        console.error(`❌ [VERCEL DEBUG] Error details:`, {
-          name: error.name,
-          message: error.message,
-          code: error.code
-        })
+        console.log(`🔄 [PROCESSING] Background processing started for job ${jobId}`)
         
-        // Trigger fallback processing
-        console.log(`🔄 [VERCEL FALLBACK] Processing function failed, attempting direct processing...`)
-        setImmediate(async () => {
+        // Use the working PriceMatchingService.processFile() method directly
+        await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
+        console.log(`✅ [PROCESSING] Background processing completed for job ${jobId}`)
+        
+        // After processing, upload output to Vercel Blob if it exists
+        const outputPath = await findOutputFile(jobId)
+        if (outputPath) {
           try {
-            console.log(`🔄 [VERCEL FALLBACK] Starting direct processing for job ${jobId}`)
-            await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
-            console.log(`✅ [VERCEL FALLBACK] Direct processing completed for job ${jobId}`)
-          } catch (fallbackError) {
-            console.error(`❌ [VERCEL FALLBACK] Direct processing also failed for job ${jobId}:`, fallbackError)
-            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, `Both processing methods failed: ${fallbackError.message}`)
-          }
-        })
-      }
-    } else {
-      // Local development - use direct processing
-      console.log('🚀 [LOCAL DEBUG] Starting local processing...')
-      setImmediate(async () => {
-        try {
-          // Check if job was cancelled before starting
-          if (cancelledJobs.has(jobId)) {
-            console.log(`🛑 [LOCAL DEBUG] Job ${jobId} was cancelled before processing started`)
-            return
-          }
-          
-          console.log(`🔄 [LOCAL DEBUG] Background processing started for job ${jobId}`)
-          await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
-          console.log(`✅ [LOCAL DEBUG] Background processing completed for job ${jobId}`)
-          
-          // After processing, upload output to Vercel Blob if it exists
-          const outputPath = await findOutputFile(jobId)
-          if (outputPath) {
             const outputBuffer = await fs.readFile(outputPath)
             const outputFileName = path.basename(outputPath)
             const outputStorageResult = await VercelBlobService.uploadFile(
@@ -400,44 +307,47 @@ router.post('/process-base64', async (req, res) => {
             const currentJob = await priceMatchingService.getJobStatus(jobId)
             if (currentJob && !['stopped', 'cancelled', 'failed'].includes(currentJob.status)) {
               await priceMatchingService.supabase
-                .from('ai_matching_jobs')  // Fix table name
+                .from('ai_matching_jobs')
                 .update({ 
                   output_file_blob_key: outputStorageResult.key,
                   output_file_blob_url: outputStorageResult.url 
                 })
                 .eq('id', jobId)
-              console.log(`✅ [LOCAL DEBUG] Output uploaded to storage for job ${jobId}`)
+              console.log(`✅ [PROCESSING] Output uploaded to storage for job ${jobId}`)
             }
-          }
-          
-          // Only clean up from cancellation tracker if job completed successfully
-          const finalJob = await priceMatchingService.getJobStatus(jobId)
-          if (finalJob && finalJob.status === 'completed') {
-            cancelledJobs.delete(jobId)
-          }
-          
-        } catch (error) {
-          console.error(`❌ [LOCAL DEBUG] Background processing failed for job ${jobId}:`, error)
-          console.error(`❌ [LOCAL DEBUG] Error stack:`, error.stack)
-          
-          // Only update status to failed if not already stopped/cancelled
-          try {
-            const currentJob = await priceMatchingService.getJobStatus(jobId)
-            if (currentJob && !['stopped', 'cancelled'].includes(currentJob.status)) {
-              await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
-            }
-          } catch (updateError) {
-            console.error(`❌ [LOCAL DEBUG] Failed to update job status for ${jobId}:`, updateError)
-          }
-          
-          // Only remove from cancellation tracker if job actually failed (not stopped)
-          const finalJob = await priceMatchingService.getJobStatus(jobId)
-          if (finalJob && finalJob.status === 'failed') {
-            cancelledJobs.delete(jobId)
+          } catch (uploadError) {
+            console.error(`⚠️ [PROCESSING] Failed to upload output file for job ${jobId}:`, uploadError)
+            // Don't fail the job just because upload failed
           }
         }
-      })
-    }
+        
+        // Only clean up from cancellation tracker if job completed successfully
+        const finalJob = await priceMatchingService.getJobStatus(jobId)
+        if (finalJob && finalJob.status === 'completed') {
+          cancelledJobs.delete(jobId)
+        }
+        
+      } catch (error) {
+        console.error(`❌ [PROCESSING] Background processing failed for job ${jobId}:`, error)
+        console.error(`❌ [PROCESSING] Error stack:`, error.stack)
+        
+        // Only update status to failed if not already stopped/cancelled
+        try {
+          const currentJob = await priceMatchingService.getJobStatus(jobId)
+          if (currentJob && !['stopped', 'cancelled'].includes(currentJob.status)) {
+            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
+          }
+        } catch (updateError) {
+          console.error(`❌ [PROCESSING] Failed to update job status for ${jobId}:`, updateError)
+        }
+        
+        // Only remove from cancellation tracker if job actually failed (not stopped)
+        const finalJob = await priceMatchingService.getJobStatus(jobId)
+        if (finalJob && finalJob.status === 'failed') {
+          cancelledJobs.delete(jobId)
+        }
+      }
+    })
 
     console.log('✅ [VERCEL DEBUG] Returning success response')
     res.json({ 
