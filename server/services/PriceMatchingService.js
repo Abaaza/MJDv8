@@ -58,32 +58,78 @@ export class PriceMatchingService {
 
   async initializeAPIServices() {
     try {
-      // Fetch API keys from database
-      const { data: settings } = await this.supabase
-        .from('app_settings')
-        .select('cohere_api_key, openai_api_key')
-        .eq('id', 1)
-        .single()
+      console.log('🔑 [API-INIT] Starting API services initialization...')
+      console.log('🔑 [API-INIT] Supabase instance available:', !!this.supabase)
+      
+      // Add timeout protection for the database query
+      const fetchSettings = async () => {
+        console.log('🔑 [API-INIT] Fetching API keys from app_settings table...')
+        const { data: settings, error } = await this.supabase
+          .from('app_settings')
+          .select('cohere_api_key, openai_api_key')
+          .eq('id', 1)
+          .single()
+        
+        if (error) {
+          console.error('🔑 [API-INIT] Database error:', error)
+          throw error
+        }
+        
+        console.log('🔑 [API-INIT] Settings fetched successfully:', {
+          hasCohere: !!settings?.cohere_api_key,
+          hasOpenAI: !!settings?.openai_api_key
+        })
+        
+        return settings
+      }
+
+      // Race the fetch with a timeout
+      console.log('🔑 [API-INIT] Starting database query with 10s timeout...')
+      const settings = await Promise.race([
+        fetchSettings(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Database query timeout after 10s')), 10000)
+        )
+      ])
+
+      console.log('🔑 [API-INIT] Database query completed successfully')
 
       if (settings) {
         // Initialize Cohere if API key is available
         if (settings.cohere_api_key) {
-          this.cohereMatcher = new CohereMatchingService(settings.cohere_api_key)
-          console.log('✅ Cohere API service initialized')
+          console.log('🔑 [API-INIT] Initializing Cohere service...')
+          try {
+            this.cohereMatcher = new CohereMatchingService(settings.cohere_api_key)
+            console.log('✅ Cohere API service initialized')
+          } catch (cohereError) {
+            console.error('🔑 [API-INIT] Cohere initialization failed:', cohereError)
+          }
         } else {
           console.log('⚠️ Cohere API key not configured in admin settings')
         }
 
         // Initialize OpenAI if API key is available
         if (settings.openai_api_key) {
-          this.openAIMatcher = new OpenAIEmbeddingService(settings.openai_api_key)
-          console.log('✅ OpenAI API service initialized')
+          console.log('🔑 [API-INIT] Initializing OpenAI service...')
+          try {
+            this.openAIMatcher = new OpenAIEmbeddingService(settings.openai_api_key)
+            console.log('✅ OpenAI API service initialized')
+          } catch (openaiError) {
+            console.error('🔑 [API-INIT] OpenAI initialization failed:', openaiError)
+          }
         } else {
           console.log('⚠️ OpenAI API key not configured in admin settings')
         }
+      } else {
+        console.log('⚠️ [API-INIT] No settings found in database')
       }
+      
+      console.log('🔑 [API-INIT] API services initialization completed')
     } catch (error) {
-      console.error('Error fetching API keys from database:', error)
+      console.error('❌ [API-INIT] Error initializing API services:', error)
+      console.error('❌ [API-INIT] Error stack:', error.stack)
+      console.log('⚠️ [API-INIT] Continuing without AI services - will use local matching')
+      // Don't throw - allow processing to continue with local matching only
     }
   }
 
