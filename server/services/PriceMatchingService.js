@@ -432,20 +432,49 @@ export class PriceMatchingService {
       quantity: match.quantity,
       matched_price_item_id: match.matched_price_item_id,
       section_header: match.section_header || null,
-      match_mode: match.match_mode || 'ai' // Default to 'ai' for new matches
+      match_mode: match.match_mode || 'ai' // Include match_mode field
     }))
 
-    // Save to database in batches
+    // Save to database in batches with enhanced error handling
     const batchSize = 500
     for (let i = 0; i < dbMatches.length; i += batchSize) {
       const batch = dbMatches.slice(i, i + batchSize)
-      const { error } = await this.supabase
-        .from('match_results')
-        .insert(batch)
+      
+      try {
+        const { error } = await this.supabase
+          .from('match_results')
+          .insert(batch)
 
-      if (error) {
-        console.error('Error saving match results batch:', error)
-        throw new Error(`Failed to save results: ${error.message}`)
+        if (error) {
+          console.error('Error saving match results batch:', error)
+          
+          // If it's a schema cache issue with match_mode, try without it
+          if (error.message && error.message.includes('match_mode')) {
+            console.log('🔄 Schema cache issue detected. Retrying without match_mode field...')
+            const batchWithoutMatchMode = batch.map(item => {
+              const { match_mode, ...itemWithoutMatchMode } = item
+              return itemWithoutMatchMode
+            })
+            
+            const { error: retryError } = await this.supabase
+              .from('match_results')
+              .insert(batchWithoutMatchMode)
+            
+            if (retryError) {
+              throw new Error(`Failed to save results even without match_mode: ${retryError.message}`)
+            } else {
+              console.log('✅ Saved batch successfully without match_mode field')
+              console.log('ℹ️ Note: match_mode will be available after schema cache refresh')
+            }
+          } else {
+            throw new Error(`Failed to save results: ${error.message}`)
+          }
+        } else {
+          console.log(`✅ Saved batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(dbMatches.length/batchSize)} successfully with match_mode`)
+        }
+      } catch (error) {
+        console.error('Critical error saving batch:', error)
+        throw error
       }
     }
 
