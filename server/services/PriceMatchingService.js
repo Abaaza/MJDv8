@@ -431,7 +431,8 @@ export class PriceMatchingService {
       similarity_score: match.similarity_score,
       quantity: match.quantity,
       matched_price_item_id: match.matched_price_item_id,
-      section_header: match.section_header || null
+      section_header: match.section_header || null,
+      match_mode: match.match_mode || 'ai' // Default to 'ai' for new matches
     }))
 
     // Save to database in batches

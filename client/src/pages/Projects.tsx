@@ -28,6 +28,7 @@ interface MatchResult {
   unit?: string
   total_amount?: number
   matched_price_item_id?: string
+  match_mode?: string
 }
 
 export default function Projects() {
@@ -103,7 +104,8 @@ export default function Projects() {
         quantity: result.quantity || 0,
         unit: result.price_items?.unit || '',
         total_amount: (result.quantity || 0) * (result.matched_rate || 0),
-        matched_price_item_id: result.matched_price_item_id
+        matched_price_item_id: result.matched_price_item_id,
+        match_mode: result.match_mode
       })) || []
 
       setMatchResults(resultsWithUnits)
@@ -135,7 +137,8 @@ export default function Projects() {
               matched_description: updates.matched_description || result.matched_description,
               matched_rate: updates.matched_rate || result.matched_rate,
               quantity: updates.quantity || result.quantity,
-              similarity_score: updates.similarity_score || result.similarity_score
+              similarity_score: updates.similarity_score || result.similarity_score,
+              match_mode: updates.match_mode || result.match_mode
             })
             .eq('job_id', editingJob.id)
             .eq('row_number', result.row_number)
@@ -271,7 +274,8 @@ export default function Projects() {
         quantity: result.quantity,
         unit: result.price_items?.unit || '',
         total_amount: (result.quantity || 0) * (result.matched_rate || 0),
-        matched_price_item_id: result.matched_price_item_id
+        matched_price_item_id: result.matched_price_item_id,
+        match_mode: result.match_mode
       })) || []
 
       // Use the export endpoint which creates a properly formatted Excel file
@@ -535,20 +539,52 @@ export default function Projects() {
       <Dialog open={!!editingJob} onOpenChange={() => setEditingJob(null)}>
         <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Match Results - {editingJob?.project_name}</DialogTitle>
-            <DialogDescription>
-              Review and edit the AI matches. Use radio buttons to switch between Cohere AI matches and manual search.
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5" />
+              Edit Match Results - {editingJob?.project_name}
+            </DialogTitle>
+            <DialogDescription className="flex items-center gap-2 text-green-600 dark:text-green-400">
+              <CheckCircle className="h-4 w-4" />
+              Changes are automatically saved as you edit. You can close this dialog anytime.
             </DialogDescription>
           </DialogHeader>
           {loadingResults ? (
-            <div className="text-center py-8">Loading results...</div>
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin mr-2" />
+              <span>Loading results...</span>
+            </div>
           ) : (
-            <EditableMatchResultsTable
-              matchResults={matchResults}
-              onUpdateResult={handleUpdateResult}
-              onDeleteResult={handleDeleteResult}
-              currency="GBP"
-            />
+            <div className="space-y-4">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                      How to use this editor:
+                    </h4>
+                    <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
+                      <ul className="list-disc list-inside space-y-1">
+                        <li><strong>AI Match:</strong> Uses the original AI-generated match</li>
+                        <li><strong>Local Match:</strong> Searches your price list for better matches</li>
+                        <li><strong>Manual Match:</strong> Lets you select any item from your price list</li>
+                        <li><strong>Edit fields:</strong> Click any quantity or rate field to modify values</li>
+                        <li><strong>All changes save automatically</strong> - no need to click save</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <EditableMatchResultsTable
+                matchResults={matchResults}
+                onUpdateResult={handleUpdateResult}
+                onDeleteResult={handleDeleteResult}
+                currency="GBP"
+              />
+            </div>
           )}
         </DialogContent>
       </Dialog>

@@ -240,6 +240,7 @@ export type Database = {
           id: string
           jaccard_score: number | null
           job_id: string
+          match_mode: string
           matched_description: string | null
           matched_price_item_id: string | null
           matched_rate: number | null
@@ -257,6 +258,7 @@ export type Database = {
           id?: string
           jaccard_score?: number | null
           job_id: string
+          match_mode?: string
           matched_description?: string | null
           matched_price_item_id?: string | null
           matched_rate?: number | null
@@ -274,6 +276,7 @@ export type Database = {
           id?: string
           jaccard_score?: number | null
           job_id?: string
+          match_mode?: string
           matched_description?: string | null
           matched_price_item_id?: string | null
           matched_rate?: number | null

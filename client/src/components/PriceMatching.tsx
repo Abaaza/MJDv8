@@ -32,6 +32,7 @@ interface MatchResult {
   total_amount?: number
   matched_price_item_id?: string
   section_header?: string
+  match_mode?: string
 }
 
 export function PriceMatching() {
@@ -194,7 +195,8 @@ export function PriceMatching() {
               matched_description: updates.matched_description || result.matched_description,
               matched_rate: updates.matched_rate || result.matched_rate,
               quantity: updates.quantity || result.quantity,
-              similarity_score: updates.similarity_score || result.similarity_score
+              similarity_score: updates.similarity_score || result.similarity_score,
+              match_mode: updates.match_mode || result.match_mode
             })
             .eq('job_id', currentJob.id)
             .eq('row_number', result.row_number)
@@ -665,7 +667,8 @@ export function PriceMatching() {
         unit: result.price_items?.unit || '',
         total_amount: (result.quantity || 0) * (result.matched_rate || 0),
         matched_price_item_id: result.matched_price_item_id,
-        section_header: result.section_header || null
+        section_header: result.section_header || null,
+        match_mode: result.match_mode || 'ai'
       })) || []
 
       console.log('Transformed results:', resultsWithUnits.length)

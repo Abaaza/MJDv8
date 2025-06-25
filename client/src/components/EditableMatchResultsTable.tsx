@@ -26,6 +26,7 @@ interface MatchResult {
   total_amount?: number
   matched_price_item_id?: string
   section_header?: string
+  match_mode?: string
 }
 
 interface PriceItem {
@@ -102,10 +103,18 @@ export function EditableMatchResultsTable({
   useEffect(() => {
     if (safeMatchResults.length > 0) {
       const newAIMatches = { ...originalAIMatches }
+      const newMatchModes = { ...matchModes }
+      
       safeMatchResults.forEach(r => {
         if (!newAIMatches[r.id]) newAIMatches[r.id] = { ...r }
+        // Initialize match mode from database or default to 'ai'
+        if (!newMatchModes[r.id]) {
+          newMatchModes[r.id] = (r.match_mode as 'ai' | 'local' | 'manual') || 'ai'
+        }
       })
+      
       setOriginalAIMatches(newAIMatches)
+      setMatchModes(newMatchModes)
     }
   }, [safeMatchResults])
 
@@ -177,7 +186,7 @@ export function EditableMatchResultsTable({
 
   const handleFieldChange = (id: string, field: keyof MatchResult, value: string | number) => {
     const currentMode = matchModes[id] || 'ai'
-    let updates: Partial<MatchResult> = { [field]: value }
+    let updates: Partial<MatchResult> = { [field]: value, match_mode: currentMode }
     const result = safeMatchResults.find(r => r.id === id)
 
     if (result && (field === 'quantity' || field === 'matched_rate')) {
@@ -198,9 +207,27 @@ export function EditableMatchResultsTable({
     console.log(`🔄 [MATCH MODE] Changing mode for ${resultId} to: ${mode}`)
     setMatchModes(prev => ({ ...prev, [resultId]: mode }))
     
+    // Save match mode to database immediately
+    try {
+      const { error } = await supabase
+        .from('match_results')
+        .update({ match_mode: mode })
+        .eq('id', resultId)
+      
+      if (error) {
+        console.error('Error saving match mode:', error)
+        toast.error('Failed to save match mode')
+      } else {
+        console.log(`✅ [MATCH MODE] Saved ${mode} mode for ${resultId}`)
+      }
+    } catch (error) {
+      console.error('Error saving match mode:', error)
+      toast.error('Failed to save match mode')
+    }
+    
     if (mode === 'ai') {
       if (originalAIMatches[resultId]) {
-        onUpdateResult(resultId, originalAIMatches[resultId])
+        onUpdateResult(resultId, { ...originalAIMatches[resultId], match_mode: mode })
         toast.success('Restored AI match')
       }
     } else if (mode === 'manual') {
@@ -234,7 +261,8 @@ export function EditableMatchResultsTable({
           if (data.success && data.match) {
             const matchData = { 
               ...data.match, 
-              similarity_score: data.match.similarity_score / 100 // Convert percentage to decimal
+              similarity_score: data.match.similarity_score / 100, // Convert percentage to decimal
+              match_mode: mode
             }
             console.log(`✅ [LOCAL MATCH] Storing local match:`, matchData)
             setLocalMatches(prev => ({ ...prev, [resultId]: matchData }))
@@ -266,7 +294,8 @@ export function EditableMatchResultsTable({
         unit: item.unit,
         total_amount: calculateTotal(result?.quantity, finalRate),
         similarity_score: 1.0,
-        matched_price_item_id: item.id
+        matched_price_item_id: item.id,
+        match_mode: 'manual'
       }
       onUpdateResult(selectedResultId, manualMatchData)
       setOriginalAIMatches(prev => ({ ...prev, [selectedResultId]: { ...prev[selectedResultId], ...manualMatchData } }))
