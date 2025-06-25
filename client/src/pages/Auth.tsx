@@ -127,7 +127,7 @@ export default function Auth() {
           </TabsList>
 
           <TabsContent value="login">
-            <Card>
+            <Card className="bg-transparent border-none shadow-none">
               <CardHeader>
                 <CardTitle>Sign In</CardTitle>
                 <CardDescription>
@@ -176,7 +176,7 @@ export default function Auth() {
           </TabsContent>
 
           <TabsContent value="register">
-            <Card>
+            <Card className="bg-transparent border-none shadow-none">
               <CardHeader>
                 <CardTitle>Request Access</CardTitle>
                 <CardDescription>
