@@ -52,8 +52,8 @@ export class PriceMatchingService {
     this.BATCH_SIZE = 100
     this.MAX_CONCURRENT_BATCHES = 3
     
-    // Initialize API services
-    this.initializeAPIServices()
+    // API services will be initialized when needed
+    // (removed non-awaited call that was causing database overload)
   }
 
   async initializeAPIServices() {
@@ -141,10 +141,12 @@ export class PriceMatchingService {
       console.log(`🚀 [PROCESSFILE] Original filename: ${originalFileName}`)
       console.log(`🚀 [PROCESSFILE] Matching method: ${matchingMethod}`)
       
-      // Ensure API services are initialized
-      console.log(`🚀 [PROCESSFILE] Initializing API services...`)
-      await this.initializeAPIServices()
-      console.log(`🚀 [PROCESSFILE] API services initialized`)
+      // Initialize API services once when actually needed
+      console.log(`🚀 [PROCESSFILE] Initializing API services if needed...`)
+      if (!this.cohereMatcher && !this.openAIMatcher) {
+        await this.initializeAPIServices()
+      }
+      console.log(`🚀 [PROCESSFILE] API services ready (Cohere: ${!!this.cohereMatcher}, OpenAI: ${!!this.openAIMatcher})`)
       
       console.log(`🚀 STARTING PROCESSING: job ${jobId} with file: ${originalFileName}`)
       console.log(`📁 Input file path: ${inputFilePath}`)
