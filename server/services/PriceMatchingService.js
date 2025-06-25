@@ -60,35 +60,50 @@ export class PriceMatchingService {
     try {
       console.log('🔑 [API-INIT] Starting API services initialization...')
       console.log('🔑 [API-INIT] Supabase instance available:', !!this.supabase)
+      console.log('🔑 [API-INIT] Environment:', {
+        isVercel: !!process.env.VERCEL,
+        nodeEnv: process.env.NODE_ENV,
+        hasSupabaseUrl: !!process.env.SUPABASE_URL,
+        hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+      })
       
-      // Add timeout protection for the database query
+      // Add timeout protection for the database query - be more aggressive in serverless
+      const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
+      const timeoutMs = isServerless ? 2000 : 5000 // 2s for serverless, 5s for local
+      
       const fetchSettings = async () => {
         console.log('🔑 [API-INIT] Fetching API keys from app_settings table...')
-        const { data: settings, error } = await this.supabase
-          .from('app_settings')
-          .select('cohere_api_key, openai_api_key')
-          .eq('id', 1)
-          .single()
         
-        if (error) {
-          console.error('🔑 [API-INIT] Database error:', error)
-          throw error
+        try {
+          const { data: settings, error } = await this.supabase
+            .from('app_settings')
+            .select('cohere_api_key, openai_api_key')
+            .eq('id', 1)
+            .single()
+          
+          if (error) {
+            console.error('🔑 [API-INIT] Database error:', error)
+            throw new Error(`Database query failed: ${error.message}`)
+          }
+          
+          console.log('🔑 [API-INIT] Settings fetched successfully:', {
+            hasCohere: !!settings?.cohere_api_key,
+            hasOpenAI: !!settings?.openai_api_key
+          })
+          
+          return settings
+        } catch (dbError) {
+          console.error('🔑 [API-INIT] Supabase query error:', dbError)
+          throw dbError
         }
-        
-        console.log('🔑 [API-INIT] Settings fetched successfully:', {
-          hasCohere: !!settings?.cohere_api_key,
-          hasOpenAI: !!settings?.openai_api_key
-        })
-        
-        return settings
       }
 
-      // Race the fetch with a timeout (short timeout for serverless)
-      console.log('🔑 [API-INIT] Starting database query with 3s timeout...')
+      // Race the fetch with a timeout (aggressive timeout for serverless)
+      console.log(`🔑 [API-INIT] Starting database query with ${timeoutMs}ms timeout...`)
       const settings = await Promise.race([
         fetchSettings(),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Database query timeout after 3s')), 3000)
+          setTimeout(() => reject(new Error(`Database query timeout after ${timeoutMs}ms`)), timeoutMs)
         )
       ])
 
@@ -127,9 +142,40 @@ export class PriceMatchingService {
       console.log('🔑 [API-INIT] API services initialization completed')
     } catch (error) {
       console.error('❌ [API-INIT] Error initializing API services:', error)
-      console.error('❌ [API-INIT] Error stack:', error.stack)
-      console.log('⚠️ [API-INIT] Continuing without AI services - will use local matching')
-      // Don't throw - allow processing to continue with local matching only
+      console.error('❌ [API-INIT] Error type:', error.constructor.name)
+      
+      // Try fallback to environment variables if database fails
+      console.log('🔄 [API-INIT] Attempting fallback to environment variables...')
+      try {
+        const cohereApiKey = process.env.COHERE_API_KEY
+        const openaiApiKey = process.env.OPENAI_API_KEY
+        
+        if (cohereApiKey || openaiApiKey) {
+          console.log('✅ [API-INIT] Found API keys in environment variables')
+          
+          if (cohereApiKey) {
+            console.log('🔑 [API-INIT] Initializing Cohere from environment...')
+            this.cohereMatcher = new CohereMatchingService(cohereApiKey)
+            console.log('✅ Cohere API service initialized from environment')
+          }
+          
+          if (openaiApiKey) {
+            console.log('🔑 [API-INIT] Initializing OpenAI from environment...')
+            this.openAIMatcher = new OpenAIEmbeddingService(openaiApiKey)
+            console.log('✅ OpenAI API service initialized from environment')
+          }
+          
+          console.log('✅ [API-INIT] Fallback initialization completed')
+        } else {
+          console.log('⚠️ [API-INIT] No API keys found in environment variables either')
+          console.log('⚠️ [API-INIT] Will use local matching only')
+        }
+      } catch (fallbackError) {
+        console.error('❌ [API-INIT] Fallback initialization also failed:', fallbackError)
+        console.log('⚠️ [API-INIT] Will use local matching only')
+      }
+      
+      // Don't throw - allow processing to continue with available services
     }
   }
 
@@ -141,15 +187,24 @@ export class PriceMatchingService {
       console.log(`🚀 [PROCESSFILE] Original filename: ${originalFileName}`)
       console.log(`🚀 [PROCESSFILE] Matching method: ${matchingMethod}`)
       
-      // Initialize API services in background (non-blocking)
-      console.log(`🚀 [PROCESSFILE] Starting non-blocking API services initialization...`)
-      if (!this.cohereMatcher && !this.openAIMatcher) {
-        // Don't await - let it initialize in background
-        this.initializeAPIServices().catch(error => {
-          console.error(`⚠️ [PROCESSFILE] Background API init failed:`, error.message)
-        })
+      // Initialize API services with improved timeout handling for serverless
+      console.log(`🚀 [PROCESSFILE] Starting API services initialization for ${matchingMethod} matching...`)
+      
+      // Only initialize if we don't already have the services and we need them
+      if (matchingMethod !== 'local' && (!this.cohereMatcher || !this.openAIMatcher)) {
+        try {
+          console.log(`🚀 [PROCESSFILE] Initializing API services for AI matching...`)
+          await this.initializeAPIServices()
+          console.log(`✅ [PROCESSFILE] API services initialized successfully`)
+        } catch (initError) {
+          console.error(`⚠️ [PROCESSFILE] API initialization failed:`, initError.message)
+          console.log(`🔄 [PROCESSFILE] Falling back to local matching due to API init failure`)
+          matchingMethod = 'local' // Fall back to local if API init fails
+        }
       }
-      console.log(`🚀 [PROCESSFILE] API services status (will update in background): Cohere: ${!!this.cohereMatcher}, OpenAI: ${!!this.openAIMatcher}`)
+      
+      console.log(`🚀 [PROCESSFILE] Final matching method: ${matchingMethod}`)
+      console.log(`🚀 [PROCESSFILE] API services status: Cohere: ${!!this.cohereMatcher}, OpenAI: ${!!this.openAIMatcher}`)
       
       console.log(`🚀 STARTING PROCESSING: job ${jobId} with file: ${originalFileName}`)
       console.log(`📁 Input file path: ${inputFilePath}`)
@@ -308,18 +363,29 @@ export class PriceMatchingService {
       
       if (matchingMethod === 'local') {
         // Use local matching - need to pass updateJobStatus as 5th parameter
+        console.log('🔧 [PROCESSFILE] Using local matching as requested')
         const updateJobStatus = this.updateJobStatus.bind(this)
         matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
-      } else {
-        // Always use hybrid AI matching if both services are available
-        if (this.cohereMatcher && this.openAIMatcher) {
+      } else if (matchingMethod === 'hybrid' || matchingMethod === 'cohere') {
+        // Use hybrid AI matching if both services are available, otherwise fall back
+        if (this.cohereMatcher && this.openAIMatcher && matchingMethod === 'hybrid') {
+          console.log('🔧 [PROCESSFILE] Using hybrid AI matching (Cohere + OpenAI)')
           matchingResult = await this.performHybridAIMatching(extractedItems, priceList, jobId, inputFilePath)
+        } else if (this.cohereMatcher) {
+          console.log('🔧 [PROCESSFILE] Using Cohere AI matching')
+          const updateJobStatus = this.updateJobStatus.bind(this)
+          matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, updateJobStatus)
         } else {
           // If AI services not available, fall back to local matching
-          console.log('⚠️ AI services not configured, using local matching')
+          console.log('⚠️ [PROCESSFILE] AI services not configured, using local matching fallback')
           const updateJobStatus = this.updateJobStatus.bind(this)
           matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
         }
+      } else {
+        // Default fallback
+        console.log('⚠️ [PROCESSFILE] Unknown matching method, using local fallback')
+        const updateJobStatus = this.updateJobStatus.bind(this)
+        matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
       }
       
       console.log(`[PRICE MATCHING DEBUG] Received matching result:`, {
@@ -596,8 +662,18 @@ export class PriceMatchingService {
         console.log(`🔄 [DATABASE] Message: ${message}`)
       }
       
-      // Get current job status for debugging
-      const currentJobStatus = await this.getJobStatus(jobId)
+      // Add timeout protection for database operations (3s max in serverless)
+      const dbOperationWithTimeout = async (operation) => {
+        return Promise.race([
+          operation(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Database operation timeout after 3s')), 3000)
+          )
+        ])
+      }
+      
+      // Get current job status for debugging with timeout
+      const currentJobStatus = await dbOperationWithTimeout(() => this.getJobStatus(jobId))
       console.log(`🔄 [DATABASE] Current job status before update:`, {
         status: currentJobStatus?.status,
         progress: currentJobStatus?.progress,
@@ -620,7 +696,7 @@ export class PriceMatchingService {
       // If we're trying to update a job, first check its current status to prevent overwrites
       if (!finalStates.includes(status)) {
         // For non-final status updates, check if the job is already in a final state
-        const currentJob = await this.getJobStatus(jobId)
+        const currentJob = await dbOperationWithTimeout(() => this.getJobStatus(jobId))
         if (currentJob && finalStates.includes(currentJob.status)) {
           console.log(`🛡️ [DATABASE] Blocking status update for job ${jobId}: current status '${currentJob.status}' is final, ignoring '${status}' update`)
           return false // Don't update if job is already in a final state
@@ -655,14 +731,16 @@ export class PriceMatchingService {
       if (finalStates.includes(status)) {
         console.log(`🛡️ [DATABASE] Final status update for job ${jobId}: ${status}`)
         
-        // Use conditional update to prevent overwriting final states
-        const { data, error } = await this.supabase
-          .from('ai_matching_jobs')
-          .update(updateData)
-          .eq('id', jobId)
-          .not('status', 'in', `(${finalStates.filter(s => s !== status).join(',')})`) // Don't update if already in another final state
-          .select()
-          .single()
+        // Use conditional update to prevent overwriting final states - with timeout protection
+        const { data, error } = await dbOperationWithTimeout(() => 
+          this.supabase
+            .from('ai_matching_jobs')
+            .update(updateData)
+            .eq('id', jobId)
+            .not('status', 'in', `(${finalStates.filter(s => s !== status).join(',')})`) // Don't update if already in another final state
+            .select()
+            .single()
+        )
         
         if (error) {
           console.error('❌ [DATABASE] Error updating job status:', error)
@@ -675,12 +753,14 @@ export class PriceMatchingService {
           return true
         }
       } else {
-        // For non-final states, use regular update with additional protections
-        const { error } = await this.supabase
-          .from('ai_matching_jobs')
-          .update(updateData)
-          .eq('id', jobId)
-          .in('status', ['pending', 'processing']) // Only update if job is in an active state
+        // For non-final states, use regular update with additional protections - with timeout protection
+        const { error } = await dbOperationWithTimeout(() => 
+          this.supabase
+            .from('ai_matching_jobs')
+            .update(updateData)
+            .eq('id', jobId)
+            .in('status', ['pending', 'processing']) // Only update if job is in an active state
+        )
         
         if (error) {
           console.error('❌ [DATABASE] Error updating job status:', error)

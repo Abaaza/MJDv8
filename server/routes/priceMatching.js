@@ -301,7 +301,20 @@ router.post('/process-base64', async (req, res) => {
     const processAsync = async () => {
       try {
         console.log(`🔄 [PROCESSING] Starting async processFile for job ${jobId}`)
-        const result = await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
+        console.log(`🔄 [PROCESSING] Environment check: Vercel=${!!process.env.VERCEL}, NodeEnv=${process.env.NODE_ENV}`)
+        console.log(`🔄 [PROCESSING] File exists: ${await fs.pathExists(tempFilePath)}`)
+        
+        // Add timeout protection for serverless (5 minutes max)
+        const processWithTimeout = async () => {
+          return Promise.race([
+            priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('ProcessFile timeout after 5 minutes')), 5 * 60 * 1000)
+            )
+          ])
+        }
+        
+        const result = await processWithTimeout()
         console.log(`✅ [PROCESSING] processFile completed for job ${jobId}:`, result)
         
         // After processing, upload output to Vercel Blob if it exists
@@ -342,20 +355,32 @@ router.post('/process-base64', async (req, res) => {
         
       } catch (error) {
         console.error(`❌ [PROCESSING] Async processing failed for job ${jobId}:`, error)
+        console.error(`❌ [PROCESSING] Error type:`, error.constructor.name)
+        console.error(`❌ [PROCESSING] Error message:`, error.message)
         console.error(`❌ [PROCESSING] Error stack:`, error.stack)
+        console.error(`❌ [PROCESSING] Current time:`, new Date().toISOString())
         
         // Update job status to failed if not already stopped/cancelled
         try {
+          console.log(`🔄 [PROCESSING] Checking job status before updating to failed...`)
           const currentJob = await priceMatchingService.getJobStatus(jobId)
+          console.log(`🔄 [PROCESSING] Current job status:`, currentJob?.status)
+          
           if (currentJob && !['stopped', 'cancelled'].includes(currentJob.status)) {
-            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
+            console.log(`🔄 [PROCESSING] Updating job status to failed...`)
+            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, `Error: ${error.message}`)
+            console.log(`✅ [PROCESSING] Job status updated to failed`)
+          } else {
+            console.log(`⚠️ [PROCESSING] Job already stopped/cancelled, not updating status`)
           }
         } catch (updateError) {
           console.error(`❌ [PROCESSING] Failed to update job status for ${jobId}:`, updateError)
+          console.error(`❌ [PROCESSING] Update error stack:`, updateError.stack)
         }
         
         // Remove from cancellation tracker on failure  
         cancelledJobs.delete(jobId)
+        console.log(`🧹 [PROCESSING] Removed job ${jobId} from cancellation tracker`)
       }
     }
     
