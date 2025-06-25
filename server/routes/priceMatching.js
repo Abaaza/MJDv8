@@ -620,6 +620,7 @@ router.post('/cancel/:jobId', async (req, res) => {
     
     // Add job to cancellation tracker
     cancelledJobs.add(jobId)
+    console.log(`🛑 Added job ${jobId} to cancellation tracker. Cancelled jobs: [${Array.from(cancelledJobs).join(', ')}]`)
     
     // Update job status to stopped
     console.log(`🛑 Updating job ${jobId} status to 'stopped'...`)

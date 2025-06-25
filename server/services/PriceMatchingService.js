@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js'
 import { ExcelParsingService } from './ExcelParsingService.js'
 import { LocalPriceMatchingService } from './LocalPriceMatchingService.js'
 import { CohereMatchingService } from './CohereMatchingService.js'
+import { OpenAIEmbeddingService } from './OpenAIEmbeddingService.js'
 import { ExcelExportService } from './ExcelExportService.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -38,7 +39,8 @@ export class PriceMatchingService {
     // Initialize services
     this.excelParser = new ExcelParsingService()
     this.localMatcher = new LocalPriceMatchingService()
-    this.cohereMatcher = new CohereMatchingService()
+    this.cohereMatcher = null  // Will be initialized with API key from DB
+    this.openAIMatcher = null  // Will be initialized with API key from DB
     this.exportService = new ExcelExportService()
     
     // Performance optimization: Cache price list
@@ -49,12 +51,50 @@ export class PriceMatchingService {
     // Batch processing configuration
     this.BATCH_SIZE = 100
     this.MAX_CONCURRENT_BATCHES = 3
+    
+    // Initialize API services
+    this.initializeAPIServices()
   }
 
-  async processFile(jobId, inputFilePath, originalFileName, matchingMethod = 'cohere') {
+  async initializeAPIServices() {
     try {
+      // Fetch API keys from database
+      const { data: settings } = await this.supabase
+        .from('app_settings')
+        .select('cohere_api_key, openai_api_key')
+        .eq('id', 1)
+        .single()
+
+      if (settings) {
+        // Initialize Cohere if API key is available
+        if (settings.cohere_api_key) {
+          this.cohereMatcher = new CohereMatchingService(settings.cohere_api_key)
+          console.log('✅ Cohere API service initialized')
+        } else {
+          console.log('⚠️ Cohere API key not configured in admin settings')
+        }
+
+        // Initialize OpenAI if API key is available
+        if (settings.openai_api_key) {
+          this.openAIMatcher = new OpenAIEmbeddingService(settings.openai_api_key)
+          console.log('✅ OpenAI API service initialized')
+        } else {
+          console.log('⚠️ OpenAI API key not configured in admin settings')
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching API keys from database:', error)
+    }
+  }
+
+  async processFile(jobId, inputFilePath, originalFileName, matchingMethod = 'hybrid') {
+    try {
+      // Ensure API services are initialized
+      await this.initializeAPIServices()
+      
       console.log(`🚀 STARTING PROCESSING: job ${jobId} with file: ${originalFileName}`)
       console.log(`📁 Input file path: ${inputFilePath}`)
+      console.log(`🔧 Matching method: ${matchingMethod}`)
       
       // Import cancellation checker
       const { isJobCancelled } = await import('../routes/priceMatching.js')
@@ -74,12 +114,12 @@ export class PriceMatchingService {
       
       // Update job status to processing
       console.log(`📊 Updating job status to processing...`)
-      await this.updateJobStatus(jobId, 'processing', 5, 'Starting file analysis...')
+      await this.updateJobStatus(jobId, 'processing', 0, 'Starting file analysis...')
       console.log(`✅ Job status updated to processing`)
 
-      // Step 1: Extract items from Excel
+      // Step 1: Extract items from Excel (0-10%)
       console.log(`📊 Extracting items from Excel file...`)
-      await this.updateJobStatus(jobId, 'processing', 10, 'Parsing Excel file...')
+      await this.updateJobStatus(jobId, 'processing', 5, 'Parsing Excel file...')
       
       // Store the original input file path in the job record
       console.log(`[PRICE MATCHING DEBUG] Storing original input file path: ${inputFilePath}`)
@@ -119,8 +159,8 @@ export class PriceMatchingService {
         return
       }
       
-      // Update progress after parsing
-      await this.updateJobStatus(jobId, 'processing', 20, `Found ${extractedItems.length} items to match`, {
+      // Update progress after parsing (10%)
+      await this.updateJobStatus(jobId, 'processing', 10, `Found ${extractedItems.length} items to match`, {
         total_items: extractedItems.length,
         matched_items: 0
       })
@@ -142,10 +182,10 @@ export class PriceMatchingService {
 
       // Step 2: Load price list from database
       console.log(`💰 Loading price list from database...`)
-      await this.updateJobStatus(jobId, 'processing', 30, 'Loading price database...')
+      await this.updateJobStatus(jobId, 'processing', 10, 'Loading price database...')
       const priceList = await this.getCachedPriceList()
       console.log(`✅ Loaded ${priceList.length} price items`)
-      await this.updateJobStatus(jobId, 'processing', 45, `Preparing to match against ${priceList.length} price items`)
+      await this.updateJobStatus(jobId, 'processing', 10, `Loaded ${priceList.length} price items`)
 
       if (priceList.length === 0) {
         throw new Error('No price items found in database')
@@ -164,11 +204,19 @@ export class PriceMatchingService {
       let matchingResult
       
       if (matchingMethod === 'local') {
-        // Use local matching
-        matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName)
+        // Use local matching - need to pass updateJobStatus as 5th parameter
+        const updateJobStatus = this.updateJobStatus.bind(this)
+        matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
       } else {
-        // Use Cohere AI matching (default)
-        matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, originalFileName)
+        // Always use hybrid AI matching if both services are available
+        if (this.cohereMatcher && this.openAIMatcher) {
+          matchingResult = await this.performHybridAIMatching(extractedItems, priceList, jobId, inputFilePath)
+        } else {
+          // If AI services not available, fall back to local matching
+          console.log('⚠️ AI services not configured, using local matching')
+          const updateJobStatus = this.updateJobStatus.bind(this)
+          matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
+        }
       }
       
       console.log(`[PRICE MATCHING DEBUG] Received matching result:`, {
@@ -180,21 +228,21 @@ export class PriceMatchingService {
       })
       
       console.log(`✅ Matching completed: ${matchingResult.totalMatched} matches found`)
-      await this.updateJobStatus(jobId, 'processing', 80, `Found ${matchingResult.totalMatched} matches`, {
+      await this.updateJobStatus(jobId, 'processing', 90, `Found ${matchingResult.totalMatched} matches`, {
         matched_items: matchingResult.totalMatched,
         total_items: extractedItems.length
       })
 
-      // Step 4: Save results to database
+      // Step 4: Save results to database (90-95%)
       console.log(`💾 Saving results to database...`)
       await this.saveMatchesToDatabase(jobId, matchingResult.matches)
       console.log(`✅ Results saved to database`)
-      await this.updateJobStatus(jobId, 'processing', 90, 'Saving results...', {
+      await this.updateJobStatus(jobId, 'processing', 95, 'Saving results...', {
         matched_items: matchingResult.totalMatched,
         total_items: extractedItems.length
       })
 
-      // Step 5: Generate output Excel
+      // Step 5: Generate output Excel (95-100%)
       console.log(`📄 Generating output Excel file...`)
       let outputPath = matchingResult.outputPath
       
@@ -401,43 +449,55 @@ export class PriceMatchingService {
   /**
    * Update job status in database
    */
-  async updateJobStatus(jobId, status, progress = null, message = null, extraData = {}) {
+  async updateJobStatus(jobId, status, progress = 0, message = '', extraData = {}) {
     try {
+      // Debug logging to track progress updates
+      console.log(`🔄 [DATABASE] Updating job ${jobId}: status=${status}, progress=${progress}`)
+      if (message) {
+        console.log(`🔄 [DATABASE] Message: ${message}`)
+      }
+      
+      // Special logging for Cohere progress
+      if (message.includes('Cohere:')) {
+        console.log(`🔄 [DATABASE] *** COHERE PROGRESS UPDATE *** ${progress}%: ${message}`)
+      }
+      
+      // Add stack trace for debugging unexpected progress jumps
+      if (progress > 60 && progress < 90 && !message.includes('Matching items')) {
+        console.log('   Stack trace for unexpected progress:', new Error().stack.split('\n').slice(2, 4).join('\n'))
+      }
+      
       const updateData = {
         status,
         updated_at: new Date().toISOString()
       }
-
-      // Properly merge extraData
-      if (extraData && typeof extraData === 'object') {
-        Object.assign(updateData, extraData)
+      
+      if (progress !== undefined) {
+        updateData.progress = Math.min(100, Math.max(0, progress))
       }
-
-      if (progress !== null) {
-        updateData.progress = progress
+      
+      if (message) {
+        updateData.error_message = message
       }
-
-      if (message !== null) {
-        updateData.error_message = message ? message.substring(0, 500) : null
-      }
-
-      console.log(`🔄 Updating job ${jobId}: status=${status}, progress=${progress}`)
-
+      
+      // Merge any extra data
+      Object.assign(updateData, extraData)
+      
       const { error } = await this.supabase
         .from('ai_matching_jobs')
         .update(updateData)
         .eq('id', jobId)
-
+      
       if (error) {
-        console.error(`❌ Failed to update job ${jobId}:`, error)
-        return false
+        console.error('❌ [DATABASE] Error updating job status:', error)
+      } else {
+        // Log successful database updates for Cohere
+        if (message.includes('Cohere:')) {
+          console.log(`✅ [DATABASE] Cohere progress saved: ${progress}%`)
+        }
       }
-
-      return true
-
     } catch (error) {
-      console.error(`❌ Error updating job status for ${jobId}:`, error)
-      return false
+      console.error('Failed to update job status:', error)
     }
   }
 
@@ -499,5 +559,356 @@ export class PriceMatchingService {
       console.error('Error in getJobStatus:', error)
       return null
     }
+  }
+
+  /**
+   * Perform hybrid AI matching using both Cohere and OpenAI
+   */
+  async performHybridAIMatching(boqItems, priceList, jobId, inputFilePath) {
+    console.log('🤖 Starting HYBRID AI matching (Cohere + OpenAI)...')
+    
+    // Create a custom update function that prevents duplicate messages
+    const lastProgressByService = {
+      openai: { message: '', time: 0 },
+      cohere: { message: '', time: 0 },
+      general: { message: '', time: 0 }
+    }
+    
+    const updateJobStatusWithThrottle = async (jobId, status, progress, message, extraData = {}) => {
+      // Determine which service this message is from
+      let serviceKey = 'general'
+      if (message.includes('OpenAI:')) serviceKey = 'openai'
+      else if (message.includes('Cohere:')) serviceKey = 'cohere'
+      
+      // For embedding progress, we want to show every batch, not throttle them
+      const isEmbeddingProgress = message.includes('Computing embeddings') || message.includes('embeddings... batch')
+      
+      // NEVER throttle embedding progress messages - always show them
+      if (isEmbeddingProgress) {
+        await this.updateJobStatus(jobId, status, progress, message, extraData)
+        return
+      }
+      
+      // Only throttle non-embedding messages
+      const now = Date.now()
+      const lastProgress = lastProgressByService[serviceKey]
+      
+      if (message === lastProgress.message && (now - lastProgress.time) < 2000) {
+        return // Skip duplicate
+      }
+      
+      lastProgress.message = message
+      lastProgress.time = now
+      await this.updateJobStatus(jobId, status, progress, message, extraData)
+    }
+    
+    // Pre-compute embeddings for both services
+    await this.updateJobStatus(jobId, 'processing', 10, 'Initializing AI services...')
+    
+    // Create a wrapper that properly tracks embedding progress
+    const createEmbeddingProgressTracker = (serviceType, startProgress, endProgress) => {
+      return {
+        updateJobStatus: async (jobId, status, serviceProgress, message, extraData = {}) => {
+          // Map service's internal progress (0-100) to our range
+          const actualProgress = startProgress + Math.round((serviceProgress / 100) * (endProgress - startProgress))
+          // Add service prefix to message
+          const prefixedMessage = `${serviceType === 'openai' ? 'OpenAI' : 'Cohere'}: ${message}`
+          // Ensure extraData is always an object
+          const safeExtraData = extraData || {}
+          
+          // Log Cohere progress mapping for debugging
+          if (serviceType === 'cohere') {
+            console.log(`📊 [COHERE WRAPPER] Input: ${serviceProgress}% → Output: ${actualProgress}% | Message: "${message}"`)
+            console.log(`📊 [COHERE WRAPPER] About to call updateJobStatus with progress: ${actualProgress}%`)
+          }
+          
+          await updateJobStatusWithThrottle(jobId, status, actualProgress, prefixedMessage, safeExtraData)
+        }
+      }
+    }
+    
+    // OpenAI embedding progress: 10-35%
+    const openaiProgressTracker = createEmbeddingProgressTracker('openai', 10, 35)
+    
+    // Cohere embedding progress: 35-60%
+    const cohereProgressTracker = createEmbeddingProgressTracker('cohere', 35, 60)
+    
+    // Import cancellation checker
+    const { isJobCancelled } = await import('../routes/priceMatching.js')
+    
+    // Pre-compute embeddings sequentially to show clear progress
+    console.log('📊 Computing OpenAI embeddings...')
+    const openaiStart = Date.now()
+    
+    // Check if job was cancelled before OpenAI
+    if (isJobCancelled(jobId)) {
+      console.log(`🛑 Job ${jobId} was cancelled before OpenAI embeddings`)
+      await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+      return { matches: [], totalMatched: 0, averageConfidence: 0, outputPath: null }
+    }
+    
+    await this.openAIMatcher.precomputePriceListEmbeddings(priceList, jobId, openaiProgressTracker)
+    console.log(`✅ OpenAI embeddings completed in ${((Date.now() - openaiStart) / 1000).toFixed(1)}s`)
+    
+    // Check if job was cancelled after OpenAI but before Cohere
+    if (isJobCancelled(jobId)) {
+      console.log(`🛑 Job ${jobId} was cancelled after OpenAI, before Cohere embeddings`)
+      await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+      return { matches: [], totalMatched: 0, averageConfidence: 0, outputPath: null }
+    }
+    
+    console.log('📊 Computing Cohere embeddings...')
+    const cohereStart = Date.now()
+    try {
+      await this.cohereMatcher.precomputePriceListEmbeddings(priceList, jobId, cohereProgressTracker)
+      console.log(`✅ Cohere embeddings completed in ${((Date.now() - cohereStart) / 1000).toFixed(1)}s`)
+    } catch (cohereError) {
+      console.error(`❌ Cohere embeddings failed:`, cohereError);
+      await this.updateJobStatus(jobId, 'failed', 35, `Cohere embeddings failed: ${cohereError.message}`)
+      throw cohereError; // Re-throw to stop processing
+    }
+    
+    // Check if job was cancelled after embeddings but before matching
+    if (isJobCancelled(jobId)) {
+      console.log(`🛑 Job ${jobId} was cancelled after embeddings, before matching`)
+      await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+      return { matches: [], totalMatched: 0, averageConfidence: 0, outputPath: null }
+    }
+    
+    await this.updateJobStatus(jobId, 'processing', 60, 'AI embeddings ready, starting matching...')
+    
+    // Create matching progress trackers (60-90%)
+    let cohereMatchProgress = 0
+    let openaiMatchProgress = 0
+    let cohereMatchCount = 0
+    let openaiMatchCount = 0
+    let lastUpdateTime = 0
+    
+    const createMatchingProgressTracker = (serviceName) => {
+      return async (jobId, status, serviceProgress, message, extraData) => {
+        if (serviceName === 'cohere') {
+          cohereMatchProgress = serviceProgress
+          if (extraData?.matched_items) cohereMatchCount = extraData.matched_items
+        } else {
+          openaiMatchProgress = serviceProgress
+          if (extraData?.matched_items) openaiMatchCount = extraData.matched_items
+        }
+        
+        // Only update if enough time has passed (throttle to every 500ms)
+        const now = Date.now()
+        if (now - lastUpdateTime < 500) return
+        lastUpdateTime = now
+        
+        // Calculate combined progress for matching phase (60-90%)
+        const avgProgress = (cohereMatchProgress + openaiMatchProgress) / 2 // Average of both
+        const actualProgress = 60 + Math.round((avgProgress / 100) * 30)
+        
+        // Show both services' match counts
+        const cohereMsg = cohereMatchCount > 0 ? `Cohere: ${cohereMatchCount}` : ''
+        const openaiMsg = openaiMatchCount > 0 ? `OpenAI: ${openaiMatchCount}` : ''
+        const matchesMsg = [cohereMsg, openaiMsg].filter(m => m).join(', ') || '0'
+        
+        await updateJobStatusWithThrottle(
+          jobId, 
+          status, 
+          actualProgress, 
+          `Matching items... (${matchesMsg} matches found)`,
+          { 
+            ...extraData, 
+            matched_items: Math.max(cohereMatchCount, openaiMatchCount),
+            total_items: extraData?.total_items || 0
+          }
+        )
+      }
+    }
+    
+    const cohereMatchUpdater = createMatchingProgressTracker('cohere')
+    const openaiMatchUpdater = createMatchingProgressTracker('openai')
+    
+    // Run both AI matchers in parallel with coordinated progress
+    console.log('🔄 Running parallel AI matching...')
+    const [cohereResult, openaiResult] = await Promise.all([
+      this.cohereMatcher.matchItems(boqItems, priceList, jobId, cohereMatchUpdater),
+      this.openAIMatcher.matchItems(boqItems, priceList, jobId, openaiMatchUpdater)
+    ])
+    
+    console.log(`📊 Cohere Results: ${cohereResult.totalMatched}/${boqItems.length} matched`)
+    console.log(`📊 OpenAI Results: ${openaiResult.totalMatched}/${boqItems.length} matched`)
+    
+    await this.updateJobStatus(jobId, 'processing', 90, 'Combining AI results...')
+    
+    // Combine results using intelligent merging
+    const hybridMatches = this.combineAIResults(cohereResult.matches, openaiResult.matches)
+    
+    // Calculate final statistics
+    const totalMatched = hybridMatches.filter(m => m.matched).length
+    const avgConfidence = totalMatched > 0
+      ? hybridMatches.filter(m => m.matched).reduce((sum, m) => sum + m.confidence, 0) / totalMatched
+      : 0
+    
+    console.log(`✅ Hybrid matching completed: ${totalMatched}/${boqItems.length} matched`)
+    console.log(`📊 Average confidence: ${(avgConfidence * 100).toFixed(1)}%`)
+    
+    // Extract original filename from inputFilePath
+    const originalFileName = path.basename(inputFilePath)
+    
+    // Generate output file
+    const outputPath = await this.exportService.exportWithOriginalFormat(
+      inputFilePath,
+      hybridMatches,
+      jobId,
+      originalFileName
+    )
+    
+    return {
+      matches: hybridMatches,
+      totalMatched,
+      averageConfidence: Math.round(avgConfidence * 100),
+      outputPath
+    }
+  }
+
+  /**
+   * Intelligently combine results from multiple AI services
+   */
+  combineAIResults(cohereMatches, openaiMatches) {
+    const combinedMatches = []
+    
+    for (let i = 0; i < cohereMatches.length; i++) {
+      const cohereMatch = cohereMatches[i]
+      const openaiMatch = openaiMatches[i]
+      
+      // If both found matches
+      if (cohereMatch.matched && openaiMatch.matched) {
+        // If they matched the same item, this is high confidence
+        if (cohereMatch.matched_price_item_id === openaiMatch.matched_price_item_id) {
+          // Take the average confidence and boost it
+          const avgConfidence = (cohereMatch.confidence + openaiMatch.confidence) / 2
+          const boostedConfidence = Math.min(1, avgConfidence + 0.2) // +20% boost for agreement
+          
+          combinedMatches.push({
+            ...cohereMatch,
+            confidence: boostedConfidence,
+            match_method: 'hybrid_agreement',
+            hybrid_details: {
+              cohere_confidence: cohereMatch.confidence,
+              openai_confidence: openaiMatch.confidence,
+              agreement: true,
+              boost_applied: 0.2
+            }
+          })
+        } else {
+          // Different matches - use weighted decision
+          // Consider: confidence, category match, unit match
+          
+          let cohereScore = cohereMatch.confidence
+          let openaiScore = openaiMatch.confidence
+          
+          // Check unit matching
+          const boqUnit = cohereMatch.unit?.toLowerCase() || ''
+          if (cohereMatch.matched_unit?.toLowerCase() === boqUnit) cohereScore += 0.1
+          if (openaiMatch.matched_unit?.toLowerCase() === boqUnit) openaiScore += 0.1
+          
+          // Check if description contains key terms
+          const description = cohereMatch.description?.toLowerCase() || ''
+          const cohereDesc = cohereMatch.matched_description?.toLowerCase() || ''
+          const openaiDesc = openaiMatch.matched_description?.toLowerCase() || ''
+          
+          // Calculate word overlap
+          const words = description.split(/\s+/).filter(w => w.length > 3)
+          const cohereWords = words.filter(w => cohereDesc.includes(w)).length
+          const openaiWords = words.filter(w => openaiDesc.includes(w)).length
+          
+          cohereScore += cohereWords * 0.05
+          openaiScore += openaiWords * 0.05
+          
+          // Choose the better match
+          if (cohereScore >= openaiScore) {
+            combinedMatches.push({
+              ...cohereMatch,
+              confidence: Math.min(1, cohereScore),
+              match_method: 'hybrid_cohere_selected',
+              hybrid_details: {
+                cohere_confidence: cohereMatch.confidence,
+                openai_confidence: openaiMatch.confidence,
+                cohere_score: cohereScore,
+                openai_score: openaiScore,
+                agreement: false,
+                selected: 'cohere'
+              }
+            })
+          } else {
+            combinedMatches.push({
+              ...openaiMatch,
+              confidence: Math.min(1, openaiScore),
+              match_method: 'hybrid_openai_selected',
+              hybrid_details: {
+                cohere_confidence: cohereMatch.confidence,
+                openai_confidence: openaiMatch.confidence,
+                cohere_score: cohereScore,
+                openai_score: openaiScore,
+                agreement: false,
+                selected: 'openai'
+              }
+            })
+          }
+        }
+      }
+      // If only Cohere found a match
+      else if (cohereMatch.matched && !openaiMatch.matched) {
+        // Slightly reduce confidence since only one model found it
+        combinedMatches.push({
+          ...cohereMatch,
+          confidence: Math.max(0.01, cohereMatch.confidence * 0.9),
+          match_method: 'cohere_only',
+          hybrid_details: {
+            cohere_confidence: cohereMatch.confidence,
+            openai_confidence: 0,
+            single_model: true
+          }
+        })
+      }
+      // If only OpenAI found a match
+      else if (!cohereMatch.matched && openaiMatch.matched) {
+        // Slightly reduce confidence since only one model found it
+        combinedMatches.push({
+          ...openaiMatch,
+          confidence: Math.max(0.01, openaiMatch.confidence * 0.9),
+          match_method: 'openai_only',
+          hybrid_details: {
+            cohere_confidence: 0,
+            openai_confidence: openaiMatch.confidence,
+            single_model: true
+          }
+        })
+      }
+      // Neither found a match - shouldn't happen with our always-match logic
+      else {
+        combinedMatches.push({
+          ...cohereMatch,
+          matched: false,
+          confidence: 0,
+          match_method: 'no_match',
+          hybrid_details: {
+            cohere_confidence: 0,
+            openai_confidence: 0,
+            no_match: true
+          }
+        })
+      }
+    }
+    
+    // Log summary statistics
+    const agreementCount = combinedMatches.filter(m => m.hybrid_details?.agreement).length
+    const cohereOnlyCount = combinedMatches.filter(m => m.match_method === 'cohere_only').length
+    const openaiOnlyCount = combinedMatches.filter(m => m.match_method === 'openai_only').length
+    
+    console.log(`📊 Hybrid Matching Summary:`)
+    console.log(`   - Agreement: ${agreementCount} items (${(agreementCount / combinedMatches.length * 100).toFixed(1)}%)`)
+    console.log(`   - Cohere only: ${cohereOnlyCount} items`)
+    console.log(`   - OpenAI only: ${openaiOnlyCount} items`)
+    console.log(`   - Average confidence: ${(combinedMatches.reduce((sum, m) => sum + m.confidence, 0) / combinedMatches.length * 100).toFixed(1)}%`)
+    
+    return combinedMatches
   }
 } 

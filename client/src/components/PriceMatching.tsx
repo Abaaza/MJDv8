@@ -458,7 +458,7 @@ export function PriceMatching() {
           jobId: jobData.id,
           fileName: selectedFile.name,
           fileData: base64File,
-          matchingMethod: 'cohere'
+          matchingMethod: 'hybrid'
         })
       })
 
@@ -820,24 +820,6 @@ export function PriceMatching() {
             <Label>BoQ File</Label>
             <ExcelUpload onFileSelect={handleFileSelect} disabled={isProcessing} />
           </div>
-          <div className="grid gap-2">
-            <Label>Matching Method</Label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input 
-                  type="radio" 
-                  name="matchingMethod" 
-                  value="cohere" 
-                  checked={true}
-                  disabled={isProcessing}
-                  className="text-primary"
-                />
-                <span className="text-sm">
-                  <strong>Cohere AI</strong> - Advanced AI matching (high accuracy)
-                </span>
-              </label>
-            </div>
-          </div>
           <Button onClick={handleStartMatching} disabled={!selectedFile || !projectName.trim() || !clientNameInput.trim() || isProcessing} size="lg">
             <Play className="h-5 w-5 mr-2" />
             {isProcessing ? 'Processing...' : 'Start AI Matching'}
@@ -883,19 +865,7 @@ export function PriceMatching() {
             <div ref={logContainerRef} className="bg-muted/50 p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs space-y-1 border">
               {log.map((entry, index) => (<p key={index} className={entry.includes('✅') ? 'text-green-500' : entry.includes('❌') ? 'text-red-500' : 'text-muted-foreground'}>{entry}</p>))}
             </div>
-            <Button onClick={downloadResults} variant="outline" size="sm" disabled={isExporting}>
-              {isExporting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Downloading...
-                </>
-              ) : (
-                <>
-                  <Download className="h-4 w-4 mr-2" />
-                  Download Results
-                </>
-              )}
-            </Button>
+            
           </CardContent>
         </Card>
       )}

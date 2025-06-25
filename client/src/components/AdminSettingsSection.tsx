@@ -30,6 +30,7 @@ export const AdminSettingsSection: React.FC = () => {
     company_name: '',
     currency: 'USD',
     cohere_api_key: '',
+    openai_api_key: '',
   });
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export const AdminSettingsSection: React.FC = () => {
         company_name: settings.company_name || '',
         currency: settings.currency || 'USD',
         cohere_api_key: settings.cohere_api_key || '',
+        openai_api_key: settings.openai_api_key || '',
       });
     }
   }, [settings]);
@@ -78,14 +80,14 @@ export const AdminSettingsSection: React.FC = () => {
     }
   };
 
-  const removeApiKey = async (keyType: 'cohere') => {
+  const removeApiKey = async (keyType: 'cohere' | 'openai') => {
     setLoading(true)
     setError('')
     
     try {
       const update = keyType === 'cohere' 
         ? { cohere_api_key: null }
-        : {}
+        : { openai_api_key: null }
 
       const { error } = await supabase
         .from('app_settings')
@@ -97,9 +99,11 @@ export const AdminSettingsSection: React.FC = () => {
       // Update form data
       if (keyType === 'cohere') {
         setFormData(prev => ({ ...prev, cohere_api_key: '' }))
+      } else {
+        setFormData(prev => ({ ...prev, openai_api_key: '' }))
       }
 
-      setSuccess(`${keyType === 'cohere' ? 'Cohere' : ''} API key removed successfully!`)
+      setSuccess(`${keyType === 'cohere' ? 'Cohere' : 'OpenAI'} API key removed successfully!`)
       await fetchSettings()
     } catch (error) {
       setError('Failed to remove API key: ' + error.message)
@@ -121,6 +125,7 @@ export const AdminSettingsSection: React.FC = () => {
           company_name: formData.company_name,
           currency: formData.currency,
           cohere_api_key: formData.cohere_api_key || null,
+          openai_api_key: formData.openai_api_key || null,
         })
         .eq('id', 1)
 
@@ -227,6 +232,46 @@ export const AdminSettingsSection: React.FC = () => {
                       onClick={() => removeApiKey('cohere')}
                       disabled={loading}
                       title="Remove Cohere API Key"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* OpenAI API Key */}
+              <div className="space-y-4 p-4 border rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="openai_api_key" className="text-base font-medium">OpenAI API Key</Label>
+                    <p className="text-sm text-muted-foreground">Used for advanced embeddings with text-embedding-3-large model</p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {settings?.openai_api_key && (
+                      <Badge variant="default" className="bg-green-100 text-green-800">Active</Badge>
+                    )}
+                    {!settings?.openai_api_key && (
+                      <Badge variant="secondary">Not Set</Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="flex space-x-2">
+                  <Input
+                    id="openai_api_key"
+                    type="password"
+                    value={formData.openai_api_key}
+                    onChange={(e) => setFormData({ ...formData, openai_api_key: e.target.value })}
+                    placeholder="sk-..."
+                    className="flex-1"
+                  />
+                  {settings?.openai_api_key && (
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => removeApiKey('openai')}
+                      disabled={loading}
+                      title="Remove OpenAI API Key"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
