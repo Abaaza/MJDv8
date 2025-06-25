@@ -131,23 +131,47 @@ export default function Projects() {
       try {
         const result = matchResults.find(r => r.id === id)
         if (result) {
+          // Create update object with only defined values
+          const updateData: any = {}
+          
+          if (updates.matched_description !== undefined) {
+            updateData.matched_description = updates.matched_description
+          }
+          if (updates.matched_rate !== undefined) {
+            updateData.matched_rate = updates.matched_rate
+          }
+          if (updates.quantity !== undefined) {
+            updateData.quantity = updates.quantity
+          }
+          if (updates.similarity_score !== undefined) {
+            updateData.similarity_score = updates.similarity_score
+          }
+          if (updates.match_mode !== undefined) {
+            updateData.match_mode = updates.match_mode
+          }
+          if (updates.matched_price_item_id !== undefined) {
+            updateData.matched_price_item_id = updates.matched_price_item_id
+          }
+          if (updates.total_amount !== undefined) {
+            updateData.total_amount = updates.total_amount
+          }
+
+          console.log(`🔄 [DATABASE UPDATE] Updating result ${id}:`, updateData)
+
           const { error } = await supabase
             .from('match_results')
-            .update({
-              matched_description: updates.matched_description || result.matched_description,
-              matched_rate: updates.matched_rate || result.matched_rate,
-              quantity: updates.quantity || result.quantity,
-              similarity_score: updates.similarity_score || result.similarity_score,
-              match_mode: updates.match_mode || result.match_mode
-            })
-            .eq('job_id', editingJob.id)
-            .eq('row_number', result.row_number)
+            .update(updateData)
+            .eq('id', id)
 
           if (error) {
             console.error('Error updating result in database:', error)
-            toast.error('Failed to update result')
+            toast.error(`Failed to update result: ${error.message}`)
           } else {
-            toast.success('Result updated successfully')
+            console.log(`✅ [DATABASE UPDATE] Successfully updated result ${id}`)
+            // Only show success toast for manual operations, not automatic saves
+            if (updates.match_mode || updates.matched_description) {
+              toast.success('Result updated successfully')
+            }
           }
         }
       } catch (error) {

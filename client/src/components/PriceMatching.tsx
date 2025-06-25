@@ -189,22 +189,42 @@ export function PriceMatching() {
       try {
         const result = matchResults.find(r => r.id === id)
         if (result) {
+          // Create update object with only defined values
+          const updateData: any = {}
+          
+          if (updates.matched_description !== undefined) {
+            updateData.matched_description = updates.matched_description
+          }
+          if (updates.matched_rate !== undefined) {
+            updateData.matched_rate = updates.matched_rate
+          }
+          if (updates.quantity !== undefined) {
+            updateData.quantity = updates.quantity
+          }
+          if (updates.similarity_score !== undefined) {
+            updateData.similarity_score = updates.similarity_score
+          }
+          if (updates.match_mode !== undefined) {
+            updateData.match_mode = updates.match_mode
+          }
+          if (updates.matched_price_item_id !== undefined) {
+            updateData.matched_price_item_id = updates.matched_price_item_id
+          }
+          if (updates.total_amount !== undefined) {
+            updateData.total_amount = updates.total_amount
+          }
+
+          console.log(`🔄 [PRICE MATCH UPDATE] Updating result ${id}:`, updateData)
+
           const { error } = await supabase
             .from('match_results')
-            .update({
-              matched_description: updates.matched_description || result.matched_description,
-              matched_rate: updates.matched_rate || result.matched_rate,
-              quantity: updates.quantity || result.quantity,
-              similarity_score: updates.similarity_score || result.similarity_score,
-              match_mode: updates.match_mode || result.match_mode
-            })
-            .eq('job_id', currentJob.id)
-            .eq('row_number', result.row_number)
+            .update(updateData)
+            .eq('id', id)
 
           if (error) {
             console.error('Error updating result in database:', error)
           } else {
-            console.log('Result updated in database')
+            console.log(`✅ [PRICE MATCH UPDATE] Successfully updated result ${id}`)
           }
         }
       } catch (error) {
