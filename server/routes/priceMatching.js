@@ -767,8 +767,8 @@ router.post('/export/:jobId', async (req, res) => {
     const { jobId } = req.params
     const { matchResults } = req.body
     
-    console.log(`📊 Export requested for job: ${jobId}`)
-    console.log(`📊 Match results received:`, {
+    console.log(`📊 [EXPORT] Export requested for job: ${jobId}`)
+    console.log(`📊 [EXPORT] Match results received:`, {
       hasMatchResults: !!matchResults,
       isArray: Array.isArray(matchResults),
       length: matchResults?.length || 0
@@ -782,17 +782,23 @@ router.post('/export/:jobId', async (req, res) => {
     const priceMatchingService = getPriceMatchingService()
     const exportService = new ExcelExportService()
     
-    // Get job details to find original file
+    // EXPORT PROTECTION: Get job details but don't allow any status updates
+    console.log(`🛡️ [EXPORT] Reading job status (READ-ONLY operation)`)
     const jobStatus = await priceMatchingService.getJobStatus(jobId)
     
     if (!jobStatus) {
       return res.status(404).json({ error: 'Job not found' })
     }
     
+    // Ensure we're only working with completed jobs for export
+    if (jobStatus.status !== 'completed') {
+      console.log(`⚠️ [EXPORT] Job ${jobId} is not completed (status: ${jobStatus.status}), but allowing export`)
+    }
+    
     // If no match results provided, try to load from database
     let resultsToExport = matchResults
     if (matchResults.length === 0) {
-      console.log(`⚠️ No match results provided, attempting to load from database...`)
+      console.log(`⚠️ [EXPORT] No match results provided, attempting to load from database...`)
       
       // Try to load results from database
       const { data: dbResults, error: dbError } = await priceMatchingService.supabase
@@ -802,7 +808,7 @@ router.post('/export/:jobId', async (req, res) => {
         .order('row_number')
       
       if (!dbError && dbResults && dbResults.length > 0) {
-        console.log(`✅ Loaded ${dbResults.length} results from database`)
+        console.log(`✅ [EXPORT] Loaded ${dbResults.length} results from database`)
         resultsToExport = dbResults.map(result => ({
           id: result.id,
           original_description: result.original_description,
@@ -818,18 +824,18 @@ router.post('/export/:jobId', async (req, res) => {
           match_method: result.match_method || 'cohere'
         }))
       } else {
-        console.log(`⚠️ No results found in database either`)
+        console.log(`⚠️ [EXPORT] No results found in database either`)
       }
     }
     
-    console.log(`📊 Export will process ${resultsToExport.length} results`)
+    console.log(`📊 [EXPORT] Export will process ${resultsToExport.length} results`)
     
     let outputPath = null
     let originalFilePath = null
     
     // Enhanced logic to get the original file from multiple sources with detailed logging
-    console.log(`🔍 Looking for original file for job: ${jobId}`)
-    console.log(`📋 Job status info:`, {
+    console.log(`🔍 [EXPORT] Looking for original file for job: ${jobId}`)
+    console.log(`📋 [EXPORT] Job status info:`, {
       input_file_blob_key: jobStatus.input_file_blob_key ? 'exists' : 'missing',
       original_file_path: jobStatus.original_file_path ? 'exists' : 'missing', 
       original_filename: jobStatus.original_filename
@@ -837,7 +843,7 @@ router.post('/export/:jobId', async (req, res) => {
     
     // 1. Check if we have the input file in Vercel Blob
     if (jobStatus.input_file_blob_key) {
-      console.log(`📥 Attempting to download original file from Blob: ${jobStatus.input_file_blob_key}`)
+      console.log(`📥 [EXPORT] Attempting to download original file from Blob: ${jobStatus.input_file_blob_key}`)
       try {
         const originalFileData = await VercelBlobService.downloadFile(jobStatus.input_file_blob_key)
         
@@ -847,36 +853,36 @@ router.post('/export/:jobId', async (req, res) => {
         originalFilePath = path.join(tempDir, `export-original-${jobId}-${jobStatus.original_filename}`)
         await fs.writeFile(originalFilePath, originalFileData.Body)
         
-        console.log(`✅ Original file downloaded from blob and saved to: ${originalFilePath}`)
-        console.log(`📊 File size: ${originalFileData.Body.length} bytes`)
+        console.log(`✅ [EXPORT] Original file downloaded from blob and saved to: ${originalFilePath}`)
+        console.log(`📊 [EXPORT] File size: ${originalFileData.Body.length} bytes`)
       } catch (blobError) {
-        console.error('❌ Failed to download original file from blob:', blobError)
-        console.error('   Blob key:', jobStatus.input_file_blob_key)
-        console.error('   Error message:', blobError.message)
+        console.error('❌ [EXPORT] Failed to download original file from blob:', blobError)
+        console.error('   [EXPORT] Blob key:', jobStatus.input_file_blob_key)
+        console.error('   [EXPORT] Error message:', blobError.message)
       }
     } else {
-      console.log(`⚠️ No input_file_blob_key found in job status`)
+      console.log(`⚠️ [EXPORT] No input_file_blob_key found in job status`)
     }
     
     // 2. Fallback: Check if original file exists locally  
     if (!originalFilePath && jobStatus.original_file_path) {
-      console.log(`📁 Checking local path: ${jobStatus.original_file_path}`)
+      console.log(`📁 [EXPORT] Checking local path: ${jobStatus.original_file_path}`)
       const localPath = jobStatus.original_file_path
       if (await fs.pathExists(localPath)) {
         originalFilePath = localPath
-        console.log(`✅ Found original file locally: ${originalFilePath}`)
+        console.log(`✅ [EXPORT] Found original file locally: ${originalFilePath}`)
       } else {
-        console.log(`⚠️ Local path doesn't exist: ${localPath}`)
+        console.log(`⚠️ [EXPORT] Local path doesn't exist: ${localPath}`)
       }
     }
     
     // 3. Fallback: Search temp directory for input file (enhanced search)
     if (!originalFilePath) {
-      console.log(`🔍 Searching temp directory for original file...`)
+      console.log(`🔍 [EXPORT] Searching temp directory for original file...`)
       const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
       try {
         const files = await fs.readdir(tempDir)
-        console.log(`📁 Files in temp directory: ${files.length}`)
+        console.log(`📁 [EXPORT] Files in temp directory: ${files.length}`)
         
         // Look for the exact job file first
         let inputFile = files.find(f => f.includes(`job-${jobId}-`) && f.includes(jobStatus.original_filename))
@@ -893,27 +899,27 @@ router.post('/export/:jobId', async (req, res) => {
         
         if (inputFile) {
           originalFilePath = path.join(tempDir, inputFile)
-          console.log(`✅ Found input file in temp directory: ${originalFilePath}`)
+          console.log(`✅ [EXPORT] Found input file in temp directory: ${originalFilePath}`)
           
           // Verify the file exists and is readable
           const stats = await fs.stat(originalFilePath)
-          console.log(`📊 File size: ${stats.size} bytes, modified: ${stats.mtime}`)
+          console.log(`📊 [EXPORT] File size: ${stats.size} bytes, modified: ${stats.mtime}`)
         } else {
-          console.log(`❌ No matching files found in temp directory`)
-          console.log(`   Available files:`, files.slice(0, 10)) // Show first 10 files
+          console.log(`❌ [EXPORT] No matching files found in temp directory`)
+          console.log(`   [EXPORT] Available files:`, files.slice(0, 10)) // Show first 10 files
         }
       } catch (err) {
-        console.error('❌ Error searching temp directory:', err)
+        console.error('❌ [EXPORT] Error searching temp directory:', err)
       }
     }
     
-    console.log(`🔍 Final original file path: ${originalFilePath || 'NOT FOUND'}`)
+    console.log(`🔍 [EXPORT] Final original file path: ${originalFilePath || 'NOT FOUND'}`)
     
     // Export with preserved formatting if original file is available
     if (originalFilePath && await fs.pathExists(originalFilePath)) {
-      console.log(`📄 Creating Excel export with preserved formatting...`)
-      console.log(`   Using original file: ${originalFilePath}`)
-      console.log(`   Processing ${resultsToExport.length} results`)
+      console.log(`📄 [EXPORT] Creating Excel export with preserved formatting...`)
+      console.log(`   [EXPORT] Using original file: ${originalFilePath}`)
+      console.log(`   [EXPORT] Processing ${resultsToExport.length} results`)
       
       try {
         outputPath = await exportService.exportWithOriginalFormat(
@@ -922,9 +928,9 @@ router.post('/export/:jobId', async (req, res) => {
           jobId,
           jobStatus.original_filename
         )
-        console.log(`✅ Format-preserved Excel export completed: ${outputPath}`)
+        console.log(`✅ [EXPORT] Format-preserved Excel export completed: ${outputPath}`)
       } catch (formatError) {
-        console.error('❌ Error in format-preserved export, falling back to basic export:', formatError)
+        console.error('❌ [EXPORT] Error in format-preserved export, falling back to basic export:', formatError)
         outputPath = await exportService.exportToExcel(
           resultsToExport,
           jobId,
@@ -932,10 +938,10 @@ router.post('/export/:jobId', async (req, res) => {
         )
       }
     } else {
-      console.log(`📄 Creating basic Excel export (original file not available)...`)
-      console.log(`   Reason: originalFilePath = ${originalFilePath || 'null'}`)
+      console.log(`📄 [EXPORT] Creating basic Excel export (original file not available)...`)
+      console.log(`   [EXPORT] Reason: originalFilePath = ${originalFilePath || 'null'}`)
       if (originalFilePath) {
-        console.log(`   File exists check: ${await fs.pathExists(originalFilePath)}`)
+        console.log(`   [EXPORT] File exists check: ${await fs.pathExists(originalFilePath)}`)
       }
       outputPath = await exportService.exportToExcel(
         resultsToExport,
@@ -948,7 +954,8 @@ router.post('/export/:jobId', async (req, res) => {
       throw new Error('Failed to create export file')
     }
 
-    console.log(`✅ Export file created: ${outputPath}`)
+    console.log(`✅ [EXPORT] Export file created: ${outputPath}`)
+    console.log(`🛡️ [EXPORT] Export completed successfully without affecting job status`)
     
     // Send the file
     const fileName = path.basename(outputPath)
@@ -960,11 +967,11 @@ router.post('/export/:jobId', async (req, res) => {
     
     // Clean up the export file after sending (optional)
     fileStream.on('end', () => {
-      fs.unlink(outputPath).catch(err => console.error('Error cleaning up export file:', err))
+      fs.unlink(outputPath).catch(err => console.error('[EXPORT] Error cleaning up export file:', err))
     })
 
   } catch (error) {
-    console.error('Export error:', error)
+    console.error('[EXPORT] Export error:', error)
     res.status(500).json({ 
       error: 'Export failed',
       message: error.message 

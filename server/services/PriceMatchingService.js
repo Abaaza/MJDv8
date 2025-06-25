@@ -182,16 +182,15 @@ export class PriceMatchingService {
 
       // Step 2: Load price list from database
       console.log(`💰 Loading price list from database...`)
-      await this.updateJobStatus(jobId, 'processing', 10, 'Loading price database...')
+      // DON'T update progress here to avoid going backwards
       const priceList = await this.getCachedPriceList()
       console.log(`✅ Loaded ${priceList.length} price items`)
-      await this.updateJobStatus(jobId, 'processing', 10, `Loaded ${priceList.length} price items`)
 
       if (priceList.length === 0) {
         throw new Error('No price items found in database')
       }
 
-      // Step 3: Match items
+      // Step 3: Match items (10% onwards - will be handled by matching method)
       console.log(`🔍 Starting price matching...`)
       
       // Check if job was cancelled before expensive matching operation
@@ -228,21 +227,22 @@ export class PriceMatchingService {
       })
       
       console.log(`✅ Matching completed: ${matchingResult.totalMatched} matches found`)
-      await this.updateJobStatus(jobId, 'processing', 90, `Found ${matchingResult.totalMatched} matches`, {
+      
+      // Step 4: Save results to database (86-90%) - Ensure we don't go backwards
+      console.log(`💾 Saving results to database...`)
+      await this.updateJobStatus(jobId, 'processing', 86, `Found ${matchingResult.totalMatched} matches`, {
         matched_items: matchingResult.totalMatched,
         total_items: extractedItems.length
       })
-
-      // Step 4: Save results to database (90-95%)
-      console.log(`💾 Saving results to database...`)
+      
       await this.saveMatchesToDatabase(jobId, matchingResult.matches)
       console.log(`✅ Results saved to database`)
-      await this.updateJobStatus(jobId, 'processing', 95, 'Saving results...', {
+      await this.updateJobStatus(jobId, 'processing', 90, 'Saving results...', {
         matched_items: matchingResult.totalMatched,
         total_items: extractedItems.length
       })
 
-      // Step 5: Generate output Excel (95-100%)
+      // Step 5: Generate output Excel (90-95%)
       console.log(`📄 Generating output Excel file...`)
       let outputPath = matchingResult.outputPath
       
@@ -258,12 +258,17 @@ export class PriceMatchingService {
         console.log(`✅ Created output file: ${outputPath}`)
       }
 
-      // Step 6: Update job with final statistics
+      // Step 6: Update job with final statistics (95-100%)
       console.log(`[PRICE MATCHING DEBUG] Updating job with final stats:`, {
         matched_items: matchingResult.totalMatched,
         total_items: extractedItems.length,
         confidence_score: matchingResult.averageConfidence,
         output_file_path: outputPath
+      })
+      
+      await this.updateJobStatus(jobId, 'processing', 95, 'Finalizing results...', {
+        matched_items: matchingResult.totalMatched,
+        total_items: extractedItems.length
       })
       
       const { error: updateError } = await this.supabase
@@ -478,6 +483,14 @@ export class PriceMatchingService {
           console.log(`🛡️ [DATABASE] Blocking status update for job ${jobId}: current status '${currentJob.status}' is final, ignoring '${status}' update`)
           return false // Don't update if job is already in a final state
         }
+        
+        // Additional protection: Don't allow progress to go backwards on active jobs
+        if (currentJob && currentJob.status === 'processing' && typeof currentJob.progress === 'number') {
+          if (progress < currentJob.progress && !message.includes('Computing embeddings')) {
+            console.log(`🛡️ [DATABASE] Blocking backward progress for job ${jobId}: ${progress}% < ${currentJob.progress}%`)
+            return false
+          }
+        }
       }
       
       const updateData = {
@@ -520,11 +533,12 @@ export class PriceMatchingService {
           return true
         }
       } else {
-        // For non-final states, use regular update
+        // For non-final states, use regular update with additional protections
         const { error } = await this.supabase
           .from('ai_matching_jobs')
           .update(updateData)
           .eq('id', jobId)
+          .in('status', ['pending', 'processing']) // Only update if job is in an active state
         
         if (error) {
           console.error('❌ [DATABASE] Error updating job status:', error)
@@ -609,14 +623,28 @@ export class PriceMatchingService {
   async performHybridAIMatching(boqItems, priceList, jobId, inputFilePath) {
     console.log('🤖 Starting HYBRID AI matching (Cohere + OpenAI)...')
     
-    // Create a custom update function that prevents duplicate messages
+    // Track current progress to ensure monotonic increases
+    let currentProgress = 10
+    
+    // Create a custom update function that prevents duplicate messages and ensures monotonic progress
     const lastProgressByService = {
-      openai: { message: '', time: 0 },
-      cohere: { message: '', time: 0 },
-      general: { message: '', time: 0 }
+      openai: { message: '', time: 0, progress: 0 },
+      cohere: { message: '', time: 0, progress: 0 },
+      general: { message: '', time: 0, progress: 0 }
     }
     
     const updateJobStatusWithThrottle = async (jobId, status, progress, message, extraData = {}) => {
+      // Ensure progress never goes backward
+      if (progress <= currentProgress && !message.includes('Computing embeddings')) {
+        console.log(`🛡️ [PROGRESS] Blocking backward progress: ${progress}% <= ${currentProgress}%`)
+        return
+      }
+      
+      // Update current progress
+      if (progress > currentProgress) {
+        currentProgress = progress
+      }
+      
       // Determine which service this message is from
       let serviceKey = 'general'
       if (message.includes('OpenAI:')) serviceKey = 'openai'
@@ -641,39 +669,41 @@ export class PriceMatchingService {
       
       lastProgress.message = message
       lastProgress.time = now
+      lastProgress.progress = progress
       await this.updateJobStatus(jobId, status, progress, message, extraData)
     }
     
     // Pre-compute embeddings for both services
     await this.updateJobStatus(jobId, 'processing', 10, 'Initializing AI services...')
     
-    // Create a wrapper that properly tracks embedding progress
+    // Create a wrapper that properly tracks embedding progress with FIXED ranges
     const createEmbeddingProgressTracker = (serviceType, startProgress, endProgress) => {
       return {
         updateJobStatus: async (jobId, status, serviceProgress, message, extraData = {}) => {
           // Map service's internal progress (0-100) to our range
           const actualProgress = startProgress + Math.round((serviceProgress / 100) * (endProgress - startProgress))
+          // Ensure we don't exceed the end progress
+          const clampedProgress = Math.min(actualProgress, endProgress)
+          
           // Add service prefix to message
           const prefixedMessage = `${serviceType === 'openai' ? 'OpenAI' : 'Cohere'}: ${message}`
           // Ensure extraData is always an object
           const safeExtraData = extraData || {}
           
-          // Log Cohere progress mapping for debugging
-          if (serviceType === 'cohere') {
-            console.log(`📊 [COHERE WRAPPER] Input: ${serviceProgress}% → Output: ${actualProgress}% | Message: "${message}"`)
-            console.log(`📊 [COHERE WRAPPER] About to call updateJobStatus with progress: ${actualProgress}%`)
-          }
+          // Log progress mapping for debugging
+          console.log(`📊 [${serviceType.toUpperCase()} WRAPPER] ${serviceProgress}% → ${clampedProgress}% | ${message}`)
           
-          await updateJobStatusWithThrottle(jobId, status, actualProgress, prefixedMessage, safeExtraData)
+          await updateJobStatusWithThrottle(jobId, status, clampedProgress, prefixedMessage, safeExtraData)
         }
       }
     }
     
-    // OpenAI embedding progress: 10-35%
-    const openaiProgressTracker = createEmbeddingProgressTracker('openai', 10, 35)
+    // FIXED progress ranges to prevent overlaps:
+    // OpenAI embedding progress: 10-30%
+    const openaiProgressTracker = createEmbeddingProgressTracker('openai', 10, 30)
     
-    // Cohere embedding progress: 35-60%
-    const cohereProgressTracker = createEmbeddingProgressTracker('cohere', 35, 60)
+    // Cohere embedding progress: 30-50%
+    const cohereProgressTracker = createEmbeddingProgressTracker('cohere', 30, 50)
     
     // Import cancellation checker
     const { isJobCancelled } = await import('../routes/priceMatching.js')
@@ -691,6 +721,9 @@ export class PriceMatchingService {
     
     await this.openAIMatcher.precomputePriceListEmbeddings(priceList, jobId, openaiProgressTracker)
     console.log(`✅ OpenAI embeddings completed in ${((Date.now() - openaiStart) / 1000).toFixed(1)}s`)
+    
+    // Update to exactly 30% after OpenAI completion
+    await updateJobStatusWithThrottle(jobId, 'processing', 30, 'OpenAI embeddings completed')
     
     // Check if job was cancelled after OpenAI but before Cohere
     if (isJobCancelled(jobId)) {
@@ -710,6 +743,9 @@ export class PriceMatchingService {
       throw cohereError; // Re-throw to stop processing
     }
     
+    // Update to exactly 50% after Cohere completion
+    await updateJobStatusWithThrottle(jobId, 'processing', 50, 'Cohere embeddings completed')
+    
     // Check if job was cancelled after embeddings but before matching
     if (isJobCancelled(jobId)) {
       console.log(`🛑 Job ${jobId} was cancelled after embeddings, before matching`)
@@ -717,9 +753,9 @@ export class PriceMatchingService {
       return { matches: [], totalMatched: 0, averageConfidence: 0, outputPath: null }
     }
     
-    await this.updateJobStatus(jobId, 'processing', 60, 'AI embeddings ready, starting matching...')
+    await updateJobStatusWithThrottle(jobId, 'processing', 55, 'AI embeddings ready, starting matching...')
     
-    // Create matching progress trackers (60-90%)
+    // Create matching progress trackers (55-85%) - FIXED range
     let cohereMatchProgress = 0
     let openaiMatchProgress = 0
     let cohereMatchCount = 0
@@ -741,9 +777,12 @@ export class PriceMatchingService {
         if (now - lastUpdateTime < 500) return
         lastUpdateTime = now
         
-        // Calculate combined progress for matching phase (60-90%)
+        // Calculate combined progress for matching phase (55-85%)
         const avgProgress = (cohereMatchProgress + openaiMatchProgress) / 2 // Average of both
-        const actualProgress = 60 + Math.round((avgProgress / 100) * 30)
+        const actualProgress = 55 + Math.round((avgProgress / 100) * 30) // Map to 55-85% range
+        
+        // Ensure monotonic progress
+        if (actualProgress <= currentProgress) return
         
         // Show both services' match counts
         const cohereMsg = cohereMatchCount > 0 ? `Cohere: ${cohereMatchCount}` : ''
@@ -777,7 +816,7 @@ export class PriceMatchingService {
     console.log(`📊 Cohere Results: ${cohereResult.totalMatched}/${boqItems.length} matched`)
     console.log(`📊 OpenAI Results: ${openaiResult.totalMatched}/${boqItems.length} matched`)
     
-    await this.updateJobStatus(jobId, 'processing', 90, 'Combining AI results...')
+    await updateJobStatusWithThrottle(jobId, 'processing', 85, 'Combining AI results...')
     
     // Combine results using intelligent merging
     const hybridMatches = this.combineAIResults(cohereResult.matches, openaiResult.matches)
@@ -801,6 +840,9 @@ export class PriceMatchingService {
       jobId,
       originalFileName
     )
+    
+    // Final progress update to 85% (will be increased to 90% by main processFile method)
+    await updateJobStatusWithThrottle(jobId, 'processing', 85, 'Hybrid AI matching completed')
     
     return {
       matches: hybridMatches,
