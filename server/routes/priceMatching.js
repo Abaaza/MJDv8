@@ -274,108 +274,115 @@ router.post('/process-base64', async (req, res) => {
       console.log('✅ [VERCEL DEBUG] Job updated with storage info')
     }
 
-    // SERVERLESS SOLUTION: Process synchronously to avoid container shutdown issues
-    console.log('🚀 [PROCESSING] Starting SYNCHRONOUS processing for Vercel serverless...')
+    // HYBRID SOLUTION: Start processing then return response to avoid Vercel timeout
+    console.log('🚀 [PROCESSING] Starting HYBRID processing for Vercel serverless...')
     
-    try {
-      // Check if job was cancelled before starting
-      if (cancelledJobs.has(jobId)) {
-        console.log(`🛑 [PROCESSING] Job ${jobId} was cancelled before processing started`)
-        return res.status(200).json({ 
-          success: true, 
-          message: 'Job was cancelled',
-          jobId,
-          status: 'cancelled'
-        })
-      }
-      
-      console.log(`🔄 [PROCESSING] Starting synchronous processing for job ${jobId}`)
-      console.log(`🔄 [PROCESSING] About to call processFile with:`, {
-        jobId,
-        tempFilePath,
-        fileName,
-        matchingMethod,
-        fileExists: await fs.pathExists(tempFilePath)
-      })
-      
-      // Use the working PriceMatchingService.processFile() method directly - SYNCHRONOUSLY
-      console.log(`🔄 [PROCESSING] Calling priceMatchingService.processFile() SYNCHRONOUSLY...`)
-      const result = await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
-      console.log(`✅ [PROCESSING] processFile returned:`, result)
-      console.log(`✅ [PROCESSING] Synchronous processing completed for job ${jobId}`)
-      
-      // After processing, upload output to Vercel Blob if it exists
-      const outputPath = await findOutputFile(jobId)
-      if (outputPath) {
-        try {
-          const outputBuffer = await fs.readFile(outputPath)
-          const outputFileName = path.basename(outputPath)
-          const outputStorageResult = await VercelBlobService.uploadFile(
-            outputBuffer,
-            outputFileName,
-            jobId,
-            'output'
-          )
-          
-          // Update job with output storage information - but only if not cancelled/stopped
-          const currentJob = await priceMatchingService.getJobStatus(jobId)
-          if (currentJob && !['stopped', 'cancelled', 'failed'].includes(currentJob.status)) {
-            await priceMatchingService.supabase
-              .from('ai_matching_jobs')
-              .update({ 
-                output_file_blob_key: outputStorageResult.key,
-                output_file_blob_url: outputStorageResult.url 
-              })
-              .eq('id', jobId)
-            console.log(`✅ [PROCESSING] Output uploaded to storage for job ${jobId}`)
-          }
-        } catch (uploadError) {
-          console.error(`⚠️ [PROCESSING] Failed to upload output file for job ${jobId}:`, uploadError)
-          // Don't fail the job just because upload failed
-        }
-      }
-      
-      // Clean up from cancellation tracker if job completed successfully
-      const finalJob = await priceMatchingService.getJobStatus(jobId)
-      if (finalJob && finalJob.status === 'completed') {
-        cancelledJobs.delete(jobId)
-      }
-      
-      console.log('✅ [VERCEL DEBUG] Processing completed, returning success response')
-      res.json({ 
+    // Check if job was cancelled before starting
+    if (cancelledJobs.has(jobId)) {
+      console.log(`🛑 [PROCESSING] Job ${jobId} was cancelled before processing started`)
+      return res.status(200).json({ 
         success: true, 
-        message: `Processing completed using ${matchingMethod}`,
+        message: 'Job was cancelled',
         jobId,
-        matchingMethod,
-        storageKey: storageResult.key,
-        status: finalJob?.status || 'completed',
-        progress: finalJob?.progress || 100
-      })
-      
-    } catch (error) {
-      console.error(`❌ [PROCESSING] Synchronous processing failed for job ${jobId}:`, error)
-      console.error(`❌ [PROCESSING] Error stack:`, error.stack)
-      
-      // Update job status to failed if not already stopped/cancelled
-      try {
-        const currentJob = await priceMatchingService.getJobStatus(jobId)
-        if (currentJob && !['stopped', 'cancelled'].includes(currentJob.status)) {
-          await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
-        }
-      } catch (updateError) {
-        console.error(`❌ [PROCESSING] Failed to update job status for ${jobId}:`, updateError)
-      }
-      
-      // Remove from cancellation tracker on failure
-      cancelledJobs.delete(jobId)
-      
-      res.status(500).json({ 
-        success: false,
-        error: 'Processing failed',
-        message: error.message,
-        jobId
+        status: 'cancelled'
       })
     }
+    
+    console.log(`🔄 [PROCESSING] Starting hybrid processing for job ${jobId}`)
+    console.log(`🔄 [PROCESSING] About to call processFile with:`, {
+      jobId,
+      tempFilePath,
+      fileName,
+      matchingMethod,
+      fileExists: await fs.pathExists(tempFilePath)
+    })
+    
+    // Start processing asynchronously but with immediate status update to "processing"
+    const processAsync = async () => {
+      try {
+        console.log(`🔄 [PROCESSING] Starting async processFile for job ${jobId}`)
+        const result = await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
+        console.log(`✅ [PROCESSING] processFile completed for job ${jobId}:`, result)
+        
+        // After processing, upload output to Vercel Blob if it exists
+        const outputPath = await findOutputFile(jobId)
+        if (outputPath) {
+          try {
+            const outputBuffer = await fs.readFile(outputPath)
+            const outputFileName = path.basename(outputPath)
+            const outputStorageResult = await VercelBlobService.uploadFile(
+              outputBuffer,
+              outputFileName,
+              jobId,
+              'output'
+            )
+            
+            // Update job with output storage information - but only if not cancelled/stopped
+            const currentJob = await priceMatchingService.getJobStatus(jobId)
+            if (currentJob && !['stopped', 'cancelled', 'failed'].includes(currentJob.status)) {
+              await priceMatchingService.supabase
+                .from('ai_matching_jobs')
+                .update({ 
+                  output_file_blob_key: outputStorageResult.key,
+                  output_file_blob_url: outputStorageResult.url 
+                })
+                .eq('id', jobId)
+              console.log(`✅ [PROCESSING] Output uploaded to storage for job ${jobId}`)
+            }
+          } catch (uploadError) {
+            console.error(`⚠️ [PROCESSING] Failed to upload output file for job ${jobId}:`, uploadError)
+          }
+        }
+        
+        // Clean up from cancellation tracker if job completed successfully
+        const finalJob = await priceMatchingService.getJobStatus(jobId)
+        if (finalJob && finalJob.status === 'completed') {
+          cancelledJobs.delete(jobId)
+        }
+        
+      } catch (error) {
+        console.error(`❌ [PROCESSING] Async processing failed for job ${jobId}:`, error)
+        console.error(`❌ [PROCESSING] Error stack:`, error.stack)
+        
+        // Update job status to failed if not already stopped/cancelled
+        try {
+          const currentJob = await priceMatchingService.getJobStatus(jobId)
+          if (currentJob && !['stopped', 'cancelled'].includes(currentJob.status)) {
+            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
+          }
+        } catch (updateError) {
+          console.error(`❌ [PROCESSING] Failed to update job status for ${jobId}:`, updateError)
+        }
+        
+        // Remove from cancellation tracker on failure  
+        cancelledJobs.delete(jobId)
+      }
+    }
+    
+    // Update job status to processing immediately to show it started
+    try {
+      await priceMatchingService.updateJobStatus(jobId, 'processing', 0, 'Processing started...')
+      console.log(`✅ [PROCESSING] Job ${jobId} status updated to processing`)
+    } catch (statusError) {
+      console.error(`❌ [PROCESSING] Failed to update initial status for job ${jobId}:`, statusError)
+    }
+    
+    // Start the async processing (don't await it to avoid timeout)
+    processAsync().catch(error => {
+      console.error(`❌ [PROCESSING] Unhandled error in processAsync for job ${jobId}:`, error)
+    })
+    
+    // Return success response immediately to avoid timeout
+    console.log('✅ [VERCEL DEBUG] Returning immediate success response to avoid timeout')
+    res.json({ 
+      success: true, 
+      message: `Processing started using ${matchingMethod}`,
+      jobId,
+      matchingMethod,
+      storageKey: storageResult.key,
+      status: 'processing',
+      note: 'Job is processing in background, check status for updates'
+    })
 
   } catch (error) {
     console.error('❌ [VERCEL DEBUG] Process base64 endpoint error:', error)
