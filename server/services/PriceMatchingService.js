@@ -203,7 +203,29 @@ export class PriceMatchingService {
         console.log('[PRICE MATCHING DEBUG] Successfully stored original file path and blob key')
       }
       
-      const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
+      // Add timeout protection for Excel parsing (60 seconds max)
+      console.log(`📊 [EXCEL-PARSE] Starting Excel parsing with 60s timeout...`)
+      const parseExcelWithTimeout = async () => {
+        return new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Excel parsing timeout after 60s'))
+          }, 60000)
+          
+          this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
+            .then(result => {
+              clearTimeout(timeout)
+              console.log(`✅ [EXCEL-PARSE] Excel parsing completed successfully`)
+              resolve(result)
+            })
+            .catch(error => {
+              clearTimeout(timeout)
+              console.error(`❌ [EXCEL-PARSE] Excel parsing failed:`, error)
+              reject(error)
+            })
+        })
+      }
+      
+      const extractedItems = await parseExcelWithTimeout()
       console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
       
       // Check if job was cancelled after parsing
@@ -237,7 +259,30 @@ export class PriceMatchingService {
       // Step 2: Load price list from database
       console.log(`💰 Loading price list from database...`)
       // DON'T update progress here to avoid going backwards
-      const priceList = await this.getCachedPriceList()
+      
+      // Add timeout protection for price list loading (30 seconds max)
+      console.log(`💰 [PRICELIST] Starting price list loading with 30s timeout...`)
+      const loadPriceListWithTimeout = async () => {
+        return new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Price list loading timeout after 30s'))
+          }, 30000)
+          
+          this.getCachedPriceList()
+            .then(result => {
+              clearTimeout(timeout)
+              console.log(`✅ [PRICELIST] Price list loading completed successfully`)
+              resolve(result)
+            })
+            .catch(error => {
+              clearTimeout(timeout)
+              console.error(`❌ [PRICELIST] Price list loading failed:`, error)
+              reject(error)
+            })
+        })
+      }
+      
+      const priceList = await loadPriceListWithTimeout()
       console.log(`✅ Loaded ${priceList.length} price items`)
 
       if (priceList.length === 0) {
