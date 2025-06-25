@@ -67,45 +67,24 @@ export class PriceMatchingService {
         hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
       })
       
-      // Add timeout protection for the database query - generous timeout for Vercel Pro (300s total)
-      const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
-      const timeoutMs = isServerless ? 30000 : 10000 // 30s for serverless, 10s for local
+      // Simple database query - let Vercel handle timeout naturally
+      console.log('🔑 [API-INIT] Fetching API keys from app_settings table...')
       
-      const fetchSettings = async () => {
-        console.log('🔑 [API-INIT] Fetching API keys from app_settings table...')
-        
-        try {
-          const { data: settings, error } = await this.supabase
-            .from('app_settings')
-            .select('cohere_api_key, openai_api_key')
-            .eq('id', 1)
-            .single()
-          
-          if (error) {
-            console.error('🔑 [API-INIT] Database error:', error)
-            throw new Error(`Database query failed: ${error.message}`)
-          }
-          
-          console.log('🔑 [API-INIT] Settings fetched successfully:', {
-            hasCohere: !!settings?.cohere_api_key,
-            hasOpenAI: !!settings?.openai_api_key
-          })
-          
-          return settings
-        } catch (dbError) {
-          console.error('🔑 [API-INIT] Supabase query error:', dbError)
-          throw dbError
-        }
+      const { data: settings, error } = await this.supabase
+        .from('app_settings')
+        .select('cohere_api_key, openai_api_key')
+        .eq('id', 1)
+        .single()
+      
+      if (error) {
+        console.error('🔑 [API-INIT] Database error:', error)
+        throw new Error(`Database query failed: ${error.message}`)
       }
-
-      // Race the fetch with a timeout (aggressive timeout for serverless)
-      console.log(`🔑 [API-INIT] Starting database query with ${timeoutMs}ms timeout...`)
-      const settings = await Promise.race([
-        fetchSettings(),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`Database query timeout after ${timeoutMs}ms`)), timeoutMs)
-        )
-      ])
+      
+      console.log('🔑 [API-INIT] Settings fetched successfully:', {
+        hasCohere: !!settings?.cohere_api_key,
+        hasOpenAI: !!settings?.openai_api_key
+      })
 
       console.log('🔑 [API-INIT] Database query completed successfully')
 
@@ -263,31 +242,9 @@ export class PriceMatchingService {
         console.log('[PRICE MATCHING DEBUG] Successfully stored original file path and blob key')
       }
       
-      // Add timeout protection for Excel parsing (generous timeout for Vercel Pro)
-      const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
-      const parseTimeoutMs = isServerless ? 120000 : 60000 // 120s for serverless, 60s for local
-      console.log(`📊 [EXCEL-PARSE] Starting Excel parsing with ${parseTimeoutMs}ms timeout...`)
-      const parseExcelWithTimeout = async () => {
-        return new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error(`Excel parsing timeout after ${parseTimeoutMs}ms`))
-          }, parseTimeoutMs)
-          
-          this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
-            .then(result => {
-              clearTimeout(timeout)
-              console.log(`✅ [EXCEL-PARSE] Excel parsing completed successfully`)
-              resolve(result)
-            })
-            .catch(error => {
-              clearTimeout(timeout)
-              console.error(`❌ [EXCEL-PARSE] Excel parsing failed:`, error)
-              reject(error)
-            })
-        })
-      }
-      
-      const extractedItems = await parseExcelWithTimeout()
+      // Parse Excel file directly - let Vercel handle timeout naturally
+      console.log(`📊 [EXCEL-PARSE] Starting Excel parsing...`)
+      const extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
       console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
       
       // Check if job was cancelled after parsing
@@ -322,30 +279,9 @@ export class PriceMatchingService {
       console.log(`💰 Loading price list from database...`)
       // DON'T update progress here to avoid going backwards
       
-      // Add timeout protection for price list loading (generous timeout for Vercel Pro)
-      const pricelistTimeoutMs = isServerless ? 90000 : 30000 // 90s for serverless, 30s for local
-      console.log(`💰 [PRICELIST] Starting price list loading with ${pricelistTimeoutMs}ms timeout...`)
-      const loadPriceListWithTimeout = async () => {
-        return new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error(`Price list loading timeout after ${pricelistTimeoutMs}ms`))
-          }, pricelistTimeoutMs)
-          
-          this.getCachedPriceList()
-            .then(result => {
-              clearTimeout(timeout)
-              console.log(`✅ [PRICELIST] Price list loading completed successfully`)
-              resolve(result)
-            })
-            .catch(error => {
-              clearTimeout(timeout)
-              console.error(`❌ [PRICELIST] Price list loading failed:`, error)
-              reject(error)
-            })
-        })
-      }
-      
-      const priceList = await loadPriceListWithTimeout()
+      // Load price list directly - let Vercel handle timeout naturally
+      console.log(`💰 [PRICELIST] Starting price list loading...`)
+      const priceList = await this.getCachedPriceList()
       console.log(`✅ Loaded ${priceList.length} price items`)
 
       if (priceList.length === 0) {
@@ -665,21 +601,8 @@ export class PriceMatchingService {
         console.log(`🔄 [DATABASE] Message: ${message}`)
       }
       
-      // Add timeout protection for database operations (generous timeout for Vercel Pro)
-      const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME
-      const dbTimeoutMs = isServerless ? 60000 : 10000 // 60s for serverless, 10s for local
-      
-      const dbOperationWithTimeout = async (operation) => {
-        return Promise.race([
-          operation(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(`Database operation timeout after ${dbTimeoutMs}ms`)), dbTimeoutMs)
-          )
-        ])
-      }
-      
-      // Get current job status for debugging with timeout
-      const currentJobStatus = await dbOperationWithTimeout(() => this.getJobStatus(jobId))
+      // Get current job status for debugging
+      const currentJobStatus = await this.getJobStatus(jobId)
       console.log(`🔄 [DATABASE] Current job status before update:`, {
         status: currentJobStatus?.status,
         progress: currentJobStatus?.progress,
@@ -702,7 +625,7 @@ export class PriceMatchingService {
       // If we're trying to update a job, first check its current status to prevent overwrites
       if (!finalStates.includes(status)) {
         // For non-final status updates, check if the job is already in a final state
-        const currentJob = await dbOperationWithTimeout(() => this.getJobStatus(jobId))
+        const currentJob = await this.getJobStatus(jobId)
         if (currentJob && finalStates.includes(currentJob.status)) {
           console.log(`🛡️ [DATABASE] Blocking status update for job ${jobId}: current status '${currentJob.status}' is final, ignoring '${status}' update`)
           return false // Don't update if job is already in a final state
@@ -737,16 +660,14 @@ export class PriceMatchingService {
       if (finalStates.includes(status)) {
         console.log(`🛡️ [DATABASE] Final status update for job ${jobId}: ${status}`)
         
-        // Use conditional update to prevent overwriting final states - with timeout protection
-        const { data, error } = await dbOperationWithTimeout(() => 
-          this.supabase
-            .from('ai_matching_jobs')
-            .update(updateData)
-            .eq('id', jobId)
-            .not('status', 'in', `(${finalStates.filter(s => s !== status).join(',')})`) // Don't update if already in another final state
-            .select()
-            .single()
-        )
+        // Use conditional update to prevent overwriting final states
+        const { data, error } = await this.supabase
+          .from('ai_matching_jobs')
+          .update(updateData)
+          .eq('id', jobId)
+          .not('status', 'in', `(${finalStates.filter(s => s !== status).join(',')})`) // Don't update if already in another final state
+          .select()
+          .single()
         
         if (error) {
           console.error('❌ [DATABASE] Error updating job status:', error)
@@ -759,14 +680,12 @@ export class PriceMatchingService {
           return true
         }
       } else {
-        // For non-final states, use regular update with additional protections - with timeout protection
-        const { error } = await dbOperationWithTimeout(() => 
-          this.supabase
-            .from('ai_matching_jobs')
-            .update(updateData)
-            .eq('id', jobId)
-            .in('status', ['pending', 'processing']) // Only update if job is in an active state
-        )
+        // For non-final states, use regular update with additional protections
+        const { error } = await this.supabase
+          .from('ai_matching_jobs')
+          .update(updateData)
+          .eq('id', jobId)
+          .in('status', ['pending', 'processing']) // Only update if job is in an active state
         
         if (error) {
           console.error('❌ [DATABASE] Error updating job status:', error)

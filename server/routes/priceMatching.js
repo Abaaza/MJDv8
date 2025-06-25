@@ -303,22 +303,10 @@ router.post('/process-base64', async (req, res) => {
         console.log(`🔄 [PROCESSING] Starting async processFile for job ${jobId}`)
         console.log(`🔄 [PROCESSING] Environment check: Vercel=${!!process.env.VERCEL}, NodeEnv=${process.env.NODE_ENV}`)
         console.log(`🔄 [PROCESSING] File exists: ${await fs.pathExists(tempFilePath)}`)
-        console.log(`⏱️ [PROCESSING] Using ${processTimeoutMs}ms timeout (Vercel Pro: 300s available)`)
+        console.log(`⏱️ [PROCESSING] Using Vercel's natural 300s timeout - no artificial limits`)
         
-        // Add timeout protection for Vercel Pro (280s out of 300s available)
-        const isVercel = !!process.env.VERCEL
-        const processTimeoutMs = isVercel ? 280000 : 300000 // 280s for Vercel, 300s for other serverless
-        
-        const processWithTimeout = async () => {
-          return Promise.race([
-            priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error(`ProcessFile timeout after ${processTimeoutMs}ms`)), processTimeoutMs)
-            )
-          ])
-        }
-        
-        const result = await processWithTimeout()
+        // Just call processFile directly - let Vercel handle the 300s timeout naturally
+        const result = await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
         console.log(`✅ [PROCESSING] processFile completed for job ${jobId}:`, result)
         
         // After processing, upload output to Vercel Blob if it exists
