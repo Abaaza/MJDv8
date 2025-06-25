@@ -410,7 +410,7 @@ export function PriceMatching() {
     setMatchResults([])
     
     const timestamp1 = new Date().toLocaleTimeString()
-    setLog([`[${timestamp1}] Starting price matching process...`])
+    setLog([`[${timestamp1}] 🚀 Starting AI-powered price matching process...`])
 
     try {
       const clientId = await createOrGetClient()
@@ -444,7 +444,7 @@ export function PriceMatching() {
       console.log('Job created successfully:', jobData.id)
       setCurrentJob(jobData)
       const timestamp2 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp2}] Created matching job: ${jobData.id}`])
+      setLog(prev => [...prev, `[${timestamp2}] ✅ Created AI matching job: ${jobData.id}`])
 
       console.log('Converting file to base64...')
       
@@ -468,7 +468,7 @@ export function PriceMatching() {
       const base64File = await convertFileToBase64(selectedFile)
 
       const timestamp3 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp3}] Uploading file and starting processing...`])
+      setLog(prev => [...prev, `[${timestamp3}] 📤 Uploading ${selectedFile.name} to Vercel serverless...`])
 
       console.log('Calling Node.js backend...')
       const response = await fetch(apiEndpoint('/price-matching/process-base64'), {
@@ -493,7 +493,7 @@ export function PriceMatching() {
 
       console.log('Processing started successfully')
       const timestamp4 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp4}] Processing started successfully`])
+      setLog(prev => [...prev, `[${timestamp4}] 🚀 Processing started on Vercel serverless (300s max) with hybrid AI matching`])
       startPolling(jobData.id)
 
     } catch (error) {
@@ -582,14 +582,42 @@ export function PriceMatching() {
         })
         setCurrentJob(data)
 
-        if (data.status === 'processing') {
+        if (data.status === 'pending') {
           const timestamp = new Date().toLocaleTimeString()
-          const progressMessage = data.error_message || `${data.progress || 0}% - Processing...`
-          
           setLog(prev => {
             const lastMessage = prev[prev.length - 1]
-            if (!lastMessage || !lastMessage.includes(progressMessage)) {
-              return [...prev, `[${timestamp}] ${progressMessage}`]
+            const pendingMessage = `[${timestamp}] ⏳ Job pending - waiting for Vercel serverless to initialize...`
+            
+            if (!lastMessage || !lastMessage.includes('pending')) {
+              return [...prev, pendingMessage]
+            }
+            return prev
+          })
+        } else if (data.status === 'processing') {
+          const timestamp = new Date().toLocaleTimeString()
+          
+          // Show detailed server progress messages
+          let progressMessage = ''
+          if (data.error_message && data.error_message !== 'null' && data.error_message.trim()) {
+            // Use the actual server message from Vercel
+            progressMessage = `${data.error_message} (${data.progress || 0}%)`
+          } else {
+            progressMessage = `${data.progress || 0}% - Processing...`
+          }
+          
+          // Add item counts if available
+          if (data.total_items && data.total_items > 0) {
+            const matched = data.matched_items || 0
+            progressMessage += ` | ${matched}/${data.total_items} items`
+          }
+          
+          // Only add if this message is different from the last one
+          setLog(prev => {
+            const lastMessage = prev[prev.length - 1]
+            const newLogEntry = `[${timestamp}] ${progressMessage}`
+            
+            if (!lastMessage || !lastMessage.includes(progressMessage.split('(')[0].trim())) {
+              return [...prev, newLogEntry]
             }
             return prev
           })
@@ -600,9 +628,10 @@ export function PriceMatching() {
             : 0
           
           setLog(prev => [...prev, 
-            `[${timestamp}] ✅ Completed!`,
-            `[${timestamp}] 📊 Results: ${data.matched_items}/${data.total_items} items matched (${successRate}% success rate)`,
-            `[${timestamp}] 📈 Average confidence: ${data.confidence_score || 0}%`
+            `[${timestamp}] ✅ Processing completed successfully!`,
+            `[${timestamp}] 📊 Final Results: ${data.matched_items}/${data.total_items} items matched (${successRate}% success rate)`,
+            `[${timestamp}] 📈 Average confidence score: ${data.confidence_score || 0}%`,
+            `[${timestamp}] 🎉 AI matching using ${data.confidence_score > 80 ? 'hybrid AI' : 'Cohere AI'} completed`
           ])
           setIsProcessing(false)
           isProcessingRef.current = false
