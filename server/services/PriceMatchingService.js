@@ -467,6 +467,19 @@ export class PriceMatchingService {
         console.log('   Stack trace for unexpected progress:', new Error().stack.split('\n').slice(2, 4).join('\n'))
       }
       
+      // Define final states that should not be overwritten
+      const finalStates = ['stopped', 'completed', 'failed', 'cancelled']
+      
+      // If we're trying to update a job, first check its current status to prevent overwrites
+      if (!finalStates.includes(status)) {
+        // For non-final status updates, check if the job is already in a final state
+        const currentJob = await this.getJobStatus(jobId)
+        if (currentJob && finalStates.includes(currentJob.status)) {
+          console.log(`🛡️ [DATABASE] Blocking status update for job ${jobId}: current status '${currentJob.status}' is final, ignoring '${status}' update`)
+          return false // Don't update if job is already in a final state
+        }
+      }
+      
       const updateData = {
         status,
         updated_at: new Date().toISOString()
@@ -483,21 +496,50 @@ export class PriceMatchingService {
       // Merge any extra data
       Object.assign(updateData, extraData)
       
-      const { error } = await this.supabase
-        .from('ai_matching_jobs')
-        .update(updateData)
-        .eq('id', jobId)
-      
-      if (error) {
-        console.error('❌ [DATABASE] Error updating job status:', error)
+      // For final states, use a more robust update that prevents overwrites
+      if (finalStates.includes(status)) {
+        console.log(`🛡️ [DATABASE] Final status update for job ${jobId}: ${status}`)
+        
+        // Use conditional update to prevent overwriting final states
+        const { data, error } = await this.supabase
+          .from('ai_matching_jobs')
+          .update(updateData)
+          .eq('id', jobId)
+          .not('status', 'in', `(${finalStates.filter(s => s !== status).join(',')})`) // Don't update if already in another final state
+          .select()
+          .single()
+        
+        if (error) {
+          console.error('❌ [DATABASE] Error updating job status:', error)
+          return false
+        } else if (!data) {
+          console.log(`ℹ️ [DATABASE] Job ${jobId} was not updated - likely already in a final state`)
+          return false
+        } else {
+          console.log(`✅ [DATABASE] Final status update successful for job ${jobId}: ${status}`)
+          return true
+        }
       } else {
-        // Log successful database updates for Cohere
-        if (message.includes('Cohere:')) {
-          console.log(`✅ [DATABASE] Cohere progress saved: ${progress}%`)
+        // For non-final states, use regular update
+        const { error } = await this.supabase
+          .from('ai_matching_jobs')
+          .update(updateData)
+          .eq('id', jobId)
+        
+        if (error) {
+          console.error('❌ [DATABASE] Error updating job status:', error)
+          return false
+        } else {
+          // Log successful database updates for Cohere
+          if (message.includes('Cohere:')) {
+            console.log(`✅ [DATABASE] Cohere progress saved: ${progress}%`)
+          }
+          return true
         }
       }
     } catch (error) {
       console.error('Failed to update job status:', error)
+      return false
     }
   }
 

@@ -6,14 +6,28 @@ import { fileURLToPath } from 'url'
 import { PriceMatchingService } from '../services/PriceMatchingService.js'
 import { ExcelExportService } from '../services/ExcelExportService.js'
 import VercelBlobService from '../services/VercelBlobService.js'
+import { v4 as uuidv4 } from 'uuid'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const router = express.Router()
 
-// Global job cancellation tracker
+// Set to track cancelled jobs (in-memory, will reset on server restart)
 const cancelledJobs = new Set()
+
+// Cleanup function to prevent memory leaks
+function cleanupOldCancelledJobs() {
+  // In a production system, you might want to persist this data
+  // For now, we'll just log the cleanup
+  const currentSize = cancelledJobs.size
+  if (currentSize > 100) { // Arbitrary threshold
+    console.log(`🧹 Cancelled jobs set getting large (${currentSize} items), consider restarting server`)
+  }
+}
+
+// Run cleanup every hour
+setInterval(cleanupOldCancelledJobs, 60 * 60 * 1000)
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage() // Use memory storage for Vercel Blob uploads
@@ -42,55 +56,66 @@ function getPriceMatchingService() {
 // Process price matching with file upload
 router.post('/process', upload.single('file'), async (req, res) => {
   try {
-    const { jobId, matchingMethod = 'cohere' } = req.body
-    
+    console.log('🚀 Process endpoint called with:', {
+      hasFile: !!req.file,
+      matchingMethod: req.body.matchingMethod,
+      projectName: req.body.projectName
+    })
+
+    const matchingMethod = req.body.matchingMethod || 'cohere'
+    const { projectName, clientName, userId } = req.body
+
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' })
     }
-    
-    if (!jobId) {
-      return res.status(400).json({ error: 'Job ID is required' })
+
+    if (!projectName || !clientName || !userId) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: projectName, clientName, userId' 
+      })
     }
 
-    console.log(`Starting price matching for job: ${jobId} using ${matchingMethod}`)
-    console.log(`File: ${req.file.originalname}`)
+    const jobId = uuidv4()
+    console.log(`✅ Generated job ID: ${jobId}`)
 
-    // Upload file to Vercel Blob
+    // Save uploaded file to temporary location
+    const tempDir = path.join(__dirname, '..', 'temp')
+    await fs.ensureDir(tempDir)
+    const tempFilePath = path.join(tempDir, `job-${jobId}-${req.file.originalname}`)
+    await fs.writeFile(tempFilePath, req.file.buffer)
+    console.log(`✅ File saved to: ${tempFilePath}`)
+
+    // Upload to Vercel Blob first
     const storageResult = await VercelBlobService.uploadFile(
       req.file.buffer,
       req.file.originalname,
       jobId,
       'input'
     )
+    console.log(`✅ File uploaded to storage: ${storageResult.key}`)
 
-    console.log(`File uploaded to storage: ${storageResult.key}`)
-
-    // Save to temp directory for processing - handle Windows vs Linux paths
-    const tempDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '..', 'temp')
-    await fs.ensureDir(tempDir) // Ensure directory exists
-    const tempFilePath = path.join(tempDir, `job-${jobId}-${req.file.originalname}`)
-    await fs.writeFile(tempFilePath, req.file.buffer)
-
-    // Create service instance when needed (after dotenv is loaded)
+    // Create service instance
     const priceMatchingService = getPriceMatchingService()
 
-    // Create matching job record
+    // Create matching job record with PROCESSING status directly to avoid race condition
     const { data: jobData, error: jobError } = await priceMatchingService.supabase
       .from('ai_matching_jobs')
       .insert({
         id: jobId,
         user_id: userId,
+        project_name: projectName,
+        client_name: clientName,
         original_filename: req.file.originalname,
         input_file_blob_key: storageResult.key,
         input_file_blob_url: storageResult.url,
-        status: 'pending',
-        progress: 0,
+        status: 'processing', // Start directly in processing to avoid pending->processing race condition
+        progress: 1,
+        error_message: 'Initializing...',
         created_at: new Date().toISOString(),
         // Initialize these fields to prevent null issues
         matched_items: 0,
         total_items: 0,
-        confidence_score: 0,
-        error_message: null
+        confidence_score: 0
       })
       .select()
       .single()
@@ -100,21 +125,7 @@ router.post('/process', upload.single('file'), async (req, res) => {
       throw new Error('Failed to create job record')
     }
 
-    console.log(`✅ Created job record: ${jobId}`)
-    
-    // Immediately update job status to show it's starting
-    const { error: updateError } = await priceMatchingService.supabase
-      .from('ai_matching_jobs')
-      .update({
-        status: 'processing',
-        progress: 1,
-        error_message: 'Initializing...'
-      })
-      .eq('id', jobId)
-    
-    if (updateError) {
-      console.error(`❌ Failed to update initial job status: ${updateError.message}`)
-    }
+    console.log(`✅ Created job record with processing status: ${jobId}`)
 
     // Start processing in background with proper error handling - DON'T AWAIT
     setImmediate(async () => {
@@ -139,30 +150,44 @@ router.post('/process', upload.single('file'), async (req, res) => {
             'output'
           )
           
-          // Update job with output storage information
-          await priceMatchingService.supabase
-            .from('matching_jobs')
-            .update({ 
-              output_file_s3_key: outputStorageResult.key,
-              output_file_s3_url: outputStorageResult.url 
-            })
-            .eq('id', jobId)
+          // Update job with output storage information - but only if not cancelled/stopped
+          const currentJob = await priceMatchingService.getJobStatus(jobId)
+          if (currentJob && !['stopped', 'cancelled', 'failed'].includes(currentJob.status)) {
+            await priceMatchingService.supabase
+              .from('ai_matching_jobs')
+              .update({ 
+                output_file_blob_key: outputStorageResult.key,
+                output_file_blob_url: outputStorageResult.url 
+              })
+              .eq('id', jobId)
+          }
         }
         
-        // Clean up completed job from cancellation tracker
-        cancelledJobs.delete(jobId)
-              } catch (error) {
-          console.error(`Background processing failed for job ${jobId}:`, error)
-          // Update job status to failed
-          try {
-            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
-          } catch (updateError) {
-            console.error(`Failed to update job status for ${jobId}:`, updateError)
-          }
-          
-          // Clean up failed job from cancellation tracker
+        // Only clean up from cancellation tracker if job completed successfully
+        const finalJob = await priceMatchingService.getJobStatus(jobId)
+        if (finalJob && finalJob.status === 'completed') {
           cancelledJobs.delete(jobId)
         }
+        
+      } catch (error) {
+        console.error(`Background processing failed for job ${jobId}:`, error)
+        
+        // Only update status to failed if not already stopped/cancelled
+        try {
+          const currentJob = await priceMatchingService.getJobStatus(jobId)
+          if (currentJob && !['stopped', 'cancelled'].includes(currentJob.status)) {
+            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
+          }
+        } catch (updateError) {
+          console.error(`Failed to update job status for ${jobId}:`, updateError)
+        }
+        
+        // Only remove from cancellation tracker if job actually failed (not stopped)
+        const finalJob = await priceMatchingService.getJobStatus(jobId)
+        if (finalJob && finalJob.status === 'failed') {
+          cancelledJobs.delete(jobId)
+        }
+      }
     })
 
     res.json({ 
@@ -378,31 +403,45 @@ router.post('/process-base64', async (req, res) => {
               'output'
             )
             
-            // Update job with output storage information
-            await priceMatchingService.supabase
-              .from('ai_matching_jobs')  // Fix table name
-              .update({ 
-                output_file_blob_key: outputStorageResult.key,
-                output_file_blob_url: outputStorageResult.url 
-              })
-              .eq('id', jobId)
-            console.log(`✅ [LOCAL DEBUG] Output uploaded to storage for job ${jobId}`)
+            // Update job with output storage information - but only if not cancelled/stopped
+            const currentJob = await priceMatchingService.getJobStatus(jobId)
+            if (currentJob && !['stopped', 'cancelled', 'failed'].includes(currentJob.status)) {
+              await priceMatchingService.supabase
+                .from('ai_matching_jobs')  // Fix table name
+                .update({ 
+                  output_file_blob_key: outputStorageResult.key,
+                  output_file_blob_url: outputStorageResult.url 
+                })
+                .eq('id', jobId)
+              console.log(`✅ [LOCAL DEBUG] Output uploaded to storage for job ${jobId}`)
+            }
           }
           
-          // Clean up completed job from cancellation tracker
-          cancelledJobs.delete(jobId)
+          // Only clean up from cancellation tracker if job completed successfully
+          const finalJob = await priceMatchingService.getJobStatus(jobId)
+          if (finalJob && finalJob.status === 'completed') {
+            cancelledJobs.delete(jobId)
+          }
+          
         } catch (error) {
           console.error(`❌ [LOCAL DEBUG] Background processing failed for job ${jobId}:`, error)
           console.error(`❌ [LOCAL DEBUG] Error stack:`, error.stack)
-          // Update job status to failed
+          
+          // Only update status to failed if not already stopped/cancelled
           try {
-            await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
+            const currentJob = await priceMatchingService.getJobStatus(jobId)
+            if (currentJob && !['stopped', 'cancelled'].includes(currentJob.status)) {
+              await priceMatchingService.updateJobStatus(jobId, 'failed', 0, error.message)
+            }
           } catch (updateError) {
             console.error(`❌ [LOCAL DEBUG] Failed to update job status for ${jobId}:`, updateError)
           }
           
-          // Clean up failed job from cancellation tracker
-          cancelledJobs.delete(jobId)
+          // Only remove from cancellation tracker if job actually failed (not stopped)
+          const finalJob = await priceMatchingService.getJobStatus(jobId)
+          if (finalJob && finalJob.status === 'failed') {
+            cancelledJobs.delete(jobId)
+          }
         }
       })
     }
@@ -609,8 +648,10 @@ router.post('/cancel/:jobId', async (req, res) => {
       return res.status(404).json({ error: 'Job not found' })
     }
     
-    // Only allow stopping jobs that are in progress
-    if (currentJob.status !== 'processing' && currentJob.status !== 'pending') {
+    console.log(`🔍 Current job status: ${currentJob.status}`)
+    
+    // Allow stopping jobs that are processing or pending
+    if (!['processing', 'pending'].includes(currentJob.status)) {
       console.log(`⚠️ Job ${jobId} is in ${currentJob.status} state, cannot stop`)
       return res.status(400).json({ 
         error: `Cannot stop job in ${currentJob.status} state`,
@@ -618,32 +659,96 @@ router.post('/cancel/:jobId', async (req, res) => {
       })
     }
     
-    // Add job to cancellation tracker
+    // Add job to cancellation tracker FIRST to prevent race conditions
     cancelledJobs.add(jobId)
     console.log(`🛑 Added job ${jobId} to cancellation tracker. Cancelled jobs: [${Array.from(cancelledJobs).join(', ')}]`)
     
-    // Update job status to stopped
+    // Update job status to stopped with protection against concurrent updates
     console.log(`🛑 Updating job ${jobId} status to 'stopped'...`)
-    const updateSuccess = await priceMatchingService.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
     
-    if (updateSuccess) {
-      console.log(`✅ Job ${jobId} status successfully updated to 'stopped'`)
-      
-      // Double-check by reading the status back
-      const updatedJob = await priceMatchingService.getJobStatus(jobId)
-      console.log(`🔍 Verification: Job ${jobId} current status in database: '${updatedJob?.status}'`)
-    } else {
-      console.error(`❌ Failed to update job ${jobId} status to 'stopped'`)
+    const { data: updatedJob, error: updateError } = await priceMatchingService.supabase
+      .from('ai_matching_jobs')
+      .update({
+        status: 'stopped',
+        progress: 0,
+        error_message: 'Job stopped by user',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', jobId)
+      .eq('status', currentJob.status) // Only update if status hasn't changed
+      .select()
+      .single()
+    
+    if (updateError) {
+      console.error(`❌ Failed to update job ${jobId} status:`, updateError)
+      // Remove from cancellation tracker if update failed
+      cancelledJobs.delete(jobId)
+      return res.status(500).json({ 
+        error: 'Failed to stop job',
+        message: updateError.message
+      })
     }
     
-    console.log(`✅ Job ${jobId} stopped successfully`)
-    console.log(`🛑 Added job ${jobId} to cancellation tracker`)
+    if (!updatedJob) {
+      console.log(`⚠️ Job ${jobId} status was changed by another process, retrying...`)
+      
+      // Check current status again
+      const retryJob = await priceMatchingService.getJobStatus(jobId)
+      if (retryJob && ['processing', 'pending'].includes(retryJob.status)) {
+        // Try one more time
+        const { data: retryUpdatedJob, error: retryUpdateError } = await priceMatchingService.supabase
+          .from('ai_matching_jobs')
+          .update({
+            status: 'stopped',
+            progress: 0,
+            error_message: 'Job stopped by user',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', jobId)
+          .eq('status', retryJob.status)
+          .select()
+          .single()
+          
+        if (retryUpdateError || !retryUpdatedJob) {
+          console.error(`❌ Retry failed to update job ${jobId} status`)
+          cancelledJobs.delete(jobId)
+          return res.status(500).json({ 
+            error: 'Failed to stop job - status was changed by another process',
+            currentStatus: retryJob?.status
+          })
+        }
+        
+        console.log(`✅ Job ${jobId} stopped successfully on retry`)
+      } else {
+        console.log(`ℹ️ Job ${jobId} is already in final state: ${retryJob?.status}`)
+        // If it's already in a final state, consider it successful
+        if (['completed', 'failed', 'stopped'].includes(retryJob?.status)) {
+          return res.json({ 
+            success: true, 
+            message: `Job was already ${retryJob.status}`,
+            jobId: jobId,
+            previousStatus: currentJob.status,
+            currentStatus: retryJob.status
+          })
+        }
+      }
+    } else {
+      console.log(`✅ Job ${jobId} status successfully updated to 'stopped'`)
+    }
+    
+    // Verify the update was successful
+    const verificationJob = await priceMatchingService.getJobStatus(jobId)
+    console.log(`🔍 Verification: Job ${jobId} current status in database: '${verificationJob?.status}'`)
+    
+    // Don't remove from cancellation tracker - keep it there to prevent any background processing
+    // The job will be cleaned up when it's actually processed or when the server restarts
     
     res.json({ 
       success: true, 
       message: 'Job stopped successfully',
       jobId: jobId,
-      previousStatus: currentJob.status
+      previousStatus: currentJob.status,
+      currentStatus: 'stopped'
     })
 
   } catch (error) {
@@ -1023,6 +1128,29 @@ router.get('/test-admin-settings', async (req, res) => {
 // Export cancellation checker for other services
 export function isJobCancelled(jobId) {
   return cancelledJobs.has(jobId)
+}
+
+// Enhanced cancellation checker that also checks database status
+export async function isJobCancelledOrStopped(jobId) {
+  // First check in-memory cancellation tracker
+  if (cancelledJobs.has(jobId)) {
+    return true
+  }
+  
+  // Then check database status
+  try {
+    const priceMatchingService = getPriceMatchingService()
+    const jobStatus = await priceMatchingService.getJobStatus(jobId)
+    if (jobStatus && ['stopped', 'cancelled', 'failed'].includes(jobStatus.status)) {
+      // Add to cancellation tracker if we find it's stopped in database
+      cancelledJobs.add(jobId)
+      return true
+    }
+  } catch (error) {
+    console.error('Error checking job status for cancellation:', error)
+  }
+  
+  return false
 }
 
 // Clean up old cancelled jobs (optional - for memory management)
