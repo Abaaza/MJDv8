@@ -275,8 +275,10 @@ router.post('/process-base64', async (req, res) => {
     }
 
     // Use the existing working PriceMatchingService directly - no more problematic Vercel function calls!
-    console.log('🚀 [PROCESSING] Starting background processing using existing working system...')
-    setImmediate(async () => {
+    console.log('🚀 [PROCESSING] Starting direct processing for Vercel environment...')
+    
+    // Create an async function to handle the processing, but don't wait for it
+    const processFileAsync = async () => {
       try {
         // Check if job was cancelled before starting
         if (cancelledJobs.has(jobId)) {
@@ -362,6 +364,12 @@ router.post('/process-base64', async (req, res) => {
           cancelledJobs.delete(jobId)
         }
       }
+    }
+    
+    // Start the processing but don't wait for it to complete
+    // This allows the response to be returned immediately while processing continues
+    processFileAsync().catch(error => {
+      console.error(`❌ [PROCESSING] Unhandled error in processFileAsync:`, error)
     })
 
     console.log('✅ [VERCEL DEBUG] Returning success response')
