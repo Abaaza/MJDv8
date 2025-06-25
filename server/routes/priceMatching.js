@@ -285,10 +285,25 @@ router.post('/process-base64', async (req, res) => {
         }
         
         console.log(`🔄 [PROCESSING] Background processing started for job ${jobId}`)
+        console.log(`🔄 [PROCESSING] About to call processFile with:`, {
+          jobId,
+          tempFilePath,
+          fileName,
+          matchingMethod,
+          fileExists: await fs.pathExists(tempFilePath)
+        })
         
         // Use the working PriceMatchingService.processFile() method directly
-        await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
-        console.log(`✅ [PROCESSING] Background processing completed for job ${jobId}`)
+        console.log(`🔄 [PROCESSING] Calling priceMatchingService.processFile()...`)
+        try {
+          const result = await priceMatchingService.processFile(jobId, tempFilePath, fileName, matchingMethod)
+          console.log(`✅ [PROCESSING] processFile returned:`, result)
+          console.log(`✅ [PROCESSING] Background processing completed for job ${jobId}`)
+        } catch (processFileError) {
+          console.error(`❌ [PROCESSING] processFile threw an error:`, processFileError)
+          console.error(`❌ [PROCESSING] processFile error stack:`, processFileError.stack)
+          throw processFileError // Re-throw to be caught by the outer catch
+        }
         
         // After processing, upload output to Vercel Blob if it exists
         const outputPath = await findOutputFile(jobId)

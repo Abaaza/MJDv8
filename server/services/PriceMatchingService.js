@@ -89,8 +89,16 @@ export class PriceMatchingService {
 
   async processFile(jobId, inputFilePath, originalFileName, matchingMethod = 'hybrid') {
     try {
+      console.log(`🚀 [PROCESSFILE] *** ENTERING processFile method ***`)
+      console.log(`🚀 [PROCESSFILE] Job ID: ${jobId}`)
+      console.log(`🚀 [PROCESSFILE] Input file path: ${inputFilePath}`)
+      console.log(`🚀 [PROCESSFILE] Original filename: ${originalFileName}`)
+      console.log(`🚀 [PROCESSFILE] Matching method: ${matchingMethod}`)
+      
       // Ensure API services are initialized
+      console.log(`🚀 [PROCESSFILE] Initializing API services...`)
       await this.initializeAPIServices()
+      console.log(`🚀 [PROCESSFILE] API services initialized`)
       
       console.log(`🚀 STARTING PROCESSING: job ${jobId} with file: ${originalFileName}`)
       console.log(`📁 Input file path: ${inputFilePath}`)
@@ -487,10 +495,18 @@ export class PriceMatchingService {
   async updateJobStatus(jobId, status, progress = 0, message = '', extraData = {}) {
     try {
       // Debug logging to track progress updates
-      console.log(`🔄 [DATABASE] Updating job ${jobId}: status=${status}, progress=${progress}`)
+      console.log(`🔄 [DATABASE] ENTERING updateJobStatus for job ${jobId}: status=${status}, progress=${progress}`)
       if (message) {
         console.log(`🔄 [DATABASE] Message: ${message}`)
       }
+      
+      // Get current job status for debugging
+      const currentJobStatus = await this.getJobStatus(jobId)
+      console.log(`🔄 [DATABASE] Current job status before update:`, {
+        status: currentJobStatus?.status,
+        progress: currentJobStatus?.progress,
+        updated_at: currentJobStatus?.updated_at
+      })
       
       // Special logging for Cohere progress
       if (message.includes('Cohere:')) {
