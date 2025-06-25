@@ -192,11 +192,15 @@ export class LocalPriceMatchingService {
           console.log(`📊 Processing item ${i + 1}/${items.length}`)
         }
         
-        // Update progress
-        const progress = Math.round((i / items.length) * 100)
+        // Update progress with item counts
+        const progress = Math.round(45 + ((i / items.length) * 40)) // Progress from 45% to 85%
+        const currentMatches = matches.length // All matches count since we always return a match
         if (updateJobStatus) {
           await updateJobStatus(jobId, 'processing', progress, 
-            `Matching items... ${i + 1}/${items.length} (${matches.filter(m => m.matched).length} matches found)`)
+            `Local matching: ${i + 1}/${items.length} items processed (${currentMatches} matches found)`, {
+              total_items: items.length,
+              matched_items: currentMatches
+            })
         }
         
         // Find best match with enhanced algorithm - try category first, then all items
