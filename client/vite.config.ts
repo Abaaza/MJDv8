@@ -47,7 +47,7 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "dist",
       sourcemap: mode === 'development',
-      minify: mode === 'production' ? 'terser' : false,
+      minify: mode === 'production' ? 'esbuild' : false,
       target: 'es2015',
       cssCodeSplit: true,
       chunkSizeWarningLimit: 1000,
@@ -89,12 +89,6 @@ export default defineConfig(({ mode }) => {
             }
             return `${extType}/[name]-[hash][extname]`;
           },
-        },
-      },
-      terserOptions: {
-        compress: {
-          drop_console: true,
-          drop_debugger: true,
         },
       },
     },
