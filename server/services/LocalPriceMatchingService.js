@@ -200,11 +200,18 @@ export class LocalPriceMatchingService {
         const shouldUpdate = (i + 1) % 10 === 0 || (i + 1) === items.length || progress % 5 === 0
         
         if (updateJobStatus && shouldUpdate) {
-          await updateJobStatus(jobId, 'processing', progress, 
+          const updateResult = await updateJobStatus(jobId, 'processing', progress, 
             `Local matching: ${i + 1}/${items.length} items processed (${currentMatches} matches found)`, {
               total_items: items.length,
               matched_items: currentMatches
             })
+          
+          // Log if the database update failed
+          if (!updateResult) {
+            console.error(`❌ [LOCAL MATCH] Failed to update progress for item ${i + 1}/${items.length}`)
+          } else {
+            console.log(`✅ [LOCAL MATCH] Progress updated: ${progress}% (${currentMatches} matches)`)
+          }
           
           // Add a small delay to ensure frontend polling can catch this update
           await new Promise(resolve => setTimeout(resolve, 100))

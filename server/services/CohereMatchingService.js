@@ -235,14 +235,18 @@ export class CohereMatchingService {
           console.log(`🔄 [COHERE] Updating progress: batch ${currentBatch}/${totalBatches} = ${batchProgress}% of embedding phase`);
           
           // Call the wrapper with correct parameter order: (jobId, status, serviceProgress, message, extraData)
-          await pmService.updateJobStatus(
+          const embeddingUpdateResult = await pmService.updateJobStatus(
             jobId, 
             'processing', 
             batchProgress, 
             `Cohere: Computing embeddings batch ${currentBatch}/${totalBatches} (${Math.min(i + batch.length, priceItems.length)}/${priceItems.length} items)`
           );
           
-          console.log(`✅ [COHERE] Progress update sent to wrapper`);
+          if (!embeddingUpdateResult) {
+            console.error(`❌ [COHERE EMBEDDING] Failed to update progress for batch ${currentBatch}/${totalBatches}`)
+          } else {
+            console.log(`✅ [COHERE EMBEDDING] Progress update successful: ${batchProgress}%`)
+          }
         }
         
         console.log(`📊 [COHERE] Progress: ${Math.round((currentBatch / totalBatches) * 100)}% (${i + batch.length}/${priceItems.length} items)`);
@@ -407,7 +411,7 @@ export class CohereMatchingService {
           // Update progress AFTER processing the batch
           const matchingProgress = Math.round((currentBatch / totalBatches) * 100)
           
-          await updateJobStatus(
+          const updateResult = await updateJobStatus(
             jobId, 
             'processing', 
             matchingProgress, 
@@ -417,6 +421,13 @@ export class CohereMatchingService {
               matched_items: matchedCount
             }
           )
+          
+          // Log if the database update failed
+          if (!updateResult) {
+            console.error(`❌ [COHERE MATCH] Failed to update progress for batch ${currentBatch}/${totalBatches}`)
+          } else {
+            console.log(`✅ [COHERE MATCH] Progress updated: ${matchingProgress}% (${matchedCount} matches)`)
+          }
           
           // Add a small delay to ensure frontend polling can catch this update
           await new Promise(resolve => setTimeout(resolve, 150))

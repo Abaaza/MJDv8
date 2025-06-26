@@ -739,20 +739,30 @@ export class PriceMatchingService {
           return true
         }
       } else {
-        // For non-final states, use regular update with additional protections
-        const { error } = await this.supabase
+        // For non-final states, use regular update with enhanced error logging
+        console.log(`🔄 [DATABASE] Attempting to update job ${jobId} with data:`, JSON.stringify(updateData, null, 2))
+        
+        const { data, error } = await this.supabase
           .from('ai_matching_jobs')
           .update(updateData)
           .eq('id', jobId)
-          .in('status', ['pending', 'processing']) // Only update if job is in an active state
+          .select()
+          .single()
         
         if (error) {
           console.error('❌ [DATABASE] Error updating job status:', error)
+          console.error('❌ [DATABASE] Update data was:', JSON.stringify(updateData, null, 2))
+          console.error('❌ [DATABASE] Job ID was:', jobId)
+          return false
+        } else if (!data) {
+          console.warn(`⚠️ [DATABASE] Job ${jobId} update returned no data - job may not exist or conditions not met`)
+          console.log(`⚠️ [DATABASE] Attempted update:`, JSON.stringify(updateData, null, 2))
           return false
         } else {
-          // Log successful database updates for Cohere
-          if (message.includes('Cohere:')) {
-            console.log(`✅ [DATABASE] Cohere progress saved: ${progress}%`)
+          // Log all successful database updates with more detail
+          console.log(`✅ [DATABASE] Successfully updated job ${jobId}: ${status} ${progress}% - "${message}"`)
+          if (message.includes('Cohere:') || message.includes('Local matching:')) {
+            console.log(`✅ [DATABASE] Progress message saved: ${message}`)
           }
           return true
         }
