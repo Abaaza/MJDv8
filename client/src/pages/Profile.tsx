@@ -207,7 +207,7 @@ export default function Profile() {
           <p className="text-muted-foreground">Manage your account settings and preferences</p>
         </div>
         <Button onClick={updateProfile} disabled={saving} size="lg">
-          {saving ? 'Updating...' : 'Update Profile'}
+          {saving ? 'Updating....' : 'Update Profile'}
         </Button>
       </div>
 
