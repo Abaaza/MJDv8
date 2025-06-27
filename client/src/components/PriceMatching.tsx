@@ -48,6 +48,12 @@ export function PriceMatching() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [currentJob, setCurrentJob] = useState<MatchingJob | null>(null)
   const [log, setLog] = useState<string[]>([])
+  const [logs, setLogs] = useState<
+    Array<{ message: string; timestamp: string; icon: string }>
+  >([])
+  const [displayedMessages, setDisplayedMessages] = useState<Set<string>>(
+    new Set()
+  )
   const [matchResults, setMatchResults] = useState<MatchResult[]>([])
   const [isExporting, setIsExporting] = useState(false)
   // Always use Cohere AI for matching
@@ -61,7 +67,20 @@ export function PriceMatching() {
     if (logContainerRef.current) {
       logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
     }
-  }, [log])
+  }, [log, logs])
+
+  const addLogMessage = (message: string, icon: string = "📊") => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = { message, timestamp, icon };
+
+    setLogs((prev) => {
+      // Prevent duplicate consecutive messages
+      if (prev.length > 0 && prev[prev.length - 1].message === message) {
+        return prev;
+      }
+      return [...prev, logEntry];
+    });
+  };
 
   // Filter clients based on input
   const handleClientNameChange = (value: string) => {
@@ -407,10 +426,11 @@ export function PriceMatching() {
     clearPollInterval()
     setIsProcessing(true)
     setLog([])
+    setLogs([])
+    setDisplayedMessages(new Set())
     setMatchResults([])
     
-    const timestamp1 = new Date().toLocaleTimeString()
-    setLog([`[${timestamp1}] 🚀 Starting AI-powered price matching process...`])
+    addLogMessage("Starting AI-powered price matching process...", "🚀")
 
     try {
       const clientId = await createOrGetClient()
@@ -443,8 +463,7 @@ export function PriceMatching() {
 
       console.log('Job created successfully:', jobData.id)
       setCurrentJob(jobData)
-      const timestamp2 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp2}] ✅ Created AI matching job: ${jobData.id}`])
+      addLogMessage(`Created AI matching job: ${jobData.id}`, "✅")
 
       console.log('Converting file to base64...')
       
@@ -467,8 +486,7 @@ export function PriceMatching() {
 
       const base64File = await convertFileToBase64(selectedFile)
 
-      const timestamp3 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp3}] 📤 Uploading ${selectedFile.name} to Vercel serverless...`])
+      addLogMessage(`Uploading ${selectedFile.name} to Vercel serverless...`, "📤")
 
       console.log('Calling Node.js backend...')
       const response = await fetch(apiEndpoint('/price-matching/process-base64'), {
@@ -492,15 +510,20 @@ export function PriceMatching() {
       const processData = await response.json()
 
       console.log('Processing started successfully')
-      const timestamp4 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp4}] 🚀 Processing started on Vercel serverless (300s max) with hybrid AI matching`])
+      addLogMessage("Processing started on Vercel serverless (300s max) with hybrid AI matching", "🚀")
+      
+      // Clear previous logs and start fresh polling
+      setLogs([])
+      setDisplayedMessages(new Set())
+      addLogMessage("Job created, starting processing...", "🚀")
+      
+      // Start polling BEFORE upload completes to catch early progress
       startPolling(jobData.id)
 
     } catch (error) {
       console.error('Matching error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      const timestamp5 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp5}] Error: ${errorMessage}`])
+      addLogMessage(`Error: ${errorMessage}`, "❌")
       
       setIsProcessing(false)
       isProcessingRef.current = false
@@ -517,8 +540,7 @@ export function PriceMatching() {
     }
 
     try {
-      const timestamp = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp}] Stopping job...`])
+      addLogMessage("Stopping job...", "🛑")
       
       const response = await fetch(apiEndpoint(`/price-matching/cancel/${currentJob.id}`), {
         method: 'POST',
@@ -543,8 +565,7 @@ export function PriceMatching() {
       // Update job state to show stopped
       setCurrentJob(prev => prev ? { ...prev, status: 'stopped' } : null)
 
-      const timestamp2 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp2}] ✋ Job stopped by user`])
+      addLogMessage("Job stopped by user", "✋")
       
       console.log(`🔍 [STOP DEBUG] Job ${currentJob.id} stopped, current status in state:`, currentJob?.status)
       
@@ -553,13 +574,13 @@ export function PriceMatching() {
     } catch (error) {
       console.error('Stop error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      const timestamp = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp}] Stop error: ${errorMessage}`])
+      addLogMessage(`Stop error: ${errorMessage}`, "❌")
       toast.error(`Failed to stop job: ${errorMessage}`)
     }
   }
 
   const startPolling = (jobId: string) => {
+    console.log(`🔄 Starting live polling for job: ${jobId}`)
     clearPollInterval()
     
     pollIntervalRef.current = setInterval(async () => {
@@ -575,98 +596,76 @@ export function PriceMatching() {
           return
         }
 
-        console.log(`🔍 [POLLING DEBUG] Job ${jobId} polling result:`, { 
-          status: data.status, 
+        // Debug logging
+        console.log(`📊 Polling update:`, {
+          status: data.status,
           progress: data.progress,
-          updated_at: data.updated_at 
+          message: data.error_message,
+          matched: data.matched_items,
+          total: data.total_items,
         })
-        setCurrentJob(data)
 
-        if (data.status === 'pending') {
-          const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => {
-            const lastMessage = prev[prev.length - 1]
-            const pendingMessage = `[${timestamp}] ⏳ Job pending - waiting for Vercel serverless to initialize...`
+        if (data) {
+          setCurrentJob(data)
+
+          // Add server message to logs (with deduplication)
+          if (data.error_message && data.error_message !== 'null' && data.error_message.trim() && !displayedMessages.has(data.error_message)) {
+            let icon = "📊"
+            if (data.error_message.includes("completed")) icon = "✅"
+            else if (data.error_message.includes("failed")) icon = "❌"
+            else if (data.error_message.includes("Cohere:")) icon = "🤖"
+            else if (data.error_message.includes("Local matching:")) icon = "🔧"
+            else if (data.error_message.includes("Excel")) icon = "📄"
+            else if (data.error_message.includes("embeddings")) icon = "🧠"
+            else if (data.error_message.includes("Matching items")) icon = "🔍"
+            else if (data.error_message.includes("pending")) icon = "⏳"
+
+            addLogMessage(data.error_message, icon)
+            setDisplayedMessages((prev) => new Set([...prev, data.error_message]))
+          }
+
+          // Handle final states
+          if (data.status === 'completed') {
+            const successRate = data.total_items > 0 
+              ? Math.round((data.matched_items / data.total_items) * 100)
+              : 0
             
-            if (!lastMessage || !lastMessage.includes('pending')) {
-              return [...prev, pendingMessage]
-            }
-            return prev
-          })
-        } else if (data.status === 'processing') {
-          const timestamp = new Date().toLocaleTimeString()
-          
-          // Show detailed server progress messages
-          let progressMessage = ''
-          if (data.error_message && data.error_message !== 'null' && data.error_message.trim()) {
-            // Use the actual server message from Vercel
-            progressMessage = `${data.error_message} (${data.progress || 0}%)`
-          } else {
-            progressMessage = `${data.progress || 0}% - Processing...`
-          }
-          
-          // Add item counts if available
-          if (data.total_items && data.total_items > 0) {
-            const matched = data.matched_items || 0
-            progressMessage += ` | ${matched}/${data.total_items} items`
-          }
-          
-          // Only add if this message is different from the last one
-          setLog(prev => {
-            const lastMessage = prev[prev.length - 1]
-            const newLogEntry = `[${timestamp}] ${progressMessage}`
+            addLogMessage("Processing completed successfully!", "✅")
+            addLogMessage(`Final Results: ${data.matched_items}/${data.total_items} items matched (${successRate}% success rate)`, "📊")
+            addLogMessage(`Average confidence score: ${data.confidence_score || 0}%`, "📈")
             
-            if (!lastMessage || !lastMessage.includes(progressMessage.split('(')[0].trim())) {
-              return [...prev, newLogEntry]
+            setIsProcessing(false)
+            isProcessingRef.current = false
+            clearPollInterval()
+            
+            await loadMatchResults(jobId)
+            
+            if (data.matched_items > 0) {
+              toast.success(`Processing completed! Matched ${data.matched_items} items with ${successRate}% success rate.`)
+            } else {
+              toast.info(`Processing completed with AI matching.`)
             }
-            return prev
-          })
-        } else if (data.status === 'completed') {
-          const timestamp = new Date().toLocaleTimeString()
-          const successRate = data.total_items > 0 
-            ? Math.round((data.matched_items / data.total_items) * 100)
-            : 0
-          
-          setLog(prev => [...prev, 
-            `[${timestamp}] ✅ Processing completed successfully!`,
-            `[${timestamp}] 📊 Final Results: ${data.matched_items}/${data.total_items} items matched (${successRate}% success rate)`,
-            `[${timestamp}] 📈 Average confidence score: ${data.confidence_score || 0}%`,
-            `[${timestamp}] 🎉 AI matching using ${data.confidence_score > 80 ? 'hybrid AI' : 'Cohere AI'} completed`
-          ])
-          setIsProcessing(false)
-          isProcessingRef.current = false
-          clearPollInterval()
-          
-          await loadMatchResults(jobId)
-          
-          if (data.matched_items > 0) {
-            toast.success(`Processing completed! Matched ${data.matched_items} items with ${successRate}% success rate.`)
-          } else {
-            toast.info(`Processing completed with AI matching.`)
+          } else if (data.status === 'failed') {
+            const errorDetails = data.error_message || 'Unknown error'
+            addLogMessage(`Failed: ${errorDetails}`, "❌")
+            setIsProcessing(false)
+            isProcessingRef.current = false
+            clearPollInterval()
+            
+            toast.error(`Processing failed: ${errorDetails}`)
+          } else if (data.status === 'cancelled' || data.status === 'stopped') {
+            addLogMessage(`Job was ${data.status}`, "✋")
+            setIsProcessing(false)
+            isProcessingRef.current = false
+            clearPollInterval()
+            
+            toast.info(`Job was ${data.status}`)
           }
-          
-        } else if (data.status === 'failed') {
-          const timestamp = new Date().toLocaleTimeString()
-          const errorDetails = data.error_message || 'Unknown error'
-          setLog(prev => [...prev, `[${timestamp}] ❌ Failed: ${errorDetails}`])
-          setIsProcessing(false)
-          isProcessingRef.current = false
-          clearPollInterval()
-          
-          toast.error(`Processing failed: ${errorDetails}`)
-        } else if (data.status === 'cancelled' || data.status === 'stopped') {
-          const timestamp = new Date().toLocaleTimeString()
-          setLog(prev => [...prev, `[${timestamp}] ✋ Job was ${data.status}`])
-          setIsProcessing(false)
-          isProcessingRef.current = false
-          clearPollInterval()
-          
-          toast.info(`Job was ${data.status}`)
         }
       } catch (error) {
         console.error('Polling error:', error)
       }
-    }, 2000)
+    }, 2000) // Poll every 2 seconds
   }
 
   const loadMatchResults = async (jobId: string) => {
@@ -684,8 +683,7 @@ export function PriceMatching() {
 
       if (error) {
         console.error('Error loading match results:', error)
-        const timestamp = new Date().toLocaleTimeString()
-        setLog(prev => [...prev, `[${timestamp}] ⚠️ Could not load results from database: ${error.message}`])
+        addLogMessage(`Could not load results from database: ${error.message}`, "⚠️")
         
         // Show a message that results need to be downloaded
         toast.info('Results processing completed! Use the download button to get your Excel file with matched results.')
@@ -695,8 +693,7 @@ export function PriceMatching() {
       console.log('Match results loaded:', data?.length || 0, 'results')
 
       if (!data || data.length === 0) {
-        const timestamp = new Date().toLocaleTimeString()
-        setLog(prev => [...prev, `[${timestamp}] ℹ️ No results in database - Excel file is ready for download`])
+        addLogMessage("No results in database - Excel file is ready for download", "ℹ️")
         
         // Show a message that results need to be downloaded
         toast.info('Results processing completed! Use the download button to get your Excel file with matched results.')
@@ -723,14 +720,12 @@ export function PriceMatching() {
       console.log('Transformed results:', resultsWithUnits.length)
       setMatchResults(resultsWithUnits)
       
-      const timestamp = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp}] ✅ Loaded ${resultsWithUnits.length} results for review`])
+      addLogMessage(`Loaded ${resultsWithUnits.length} results for review`, "✅")
       
     } catch (error) {
       console.error('Error loading match results:', error)
-      const timestamp = new Date().toLocaleTimeString()
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      setLog(prev => [...prev, `[${timestamp}] ⚠️ Error loading results: ${errorMessage}`])
+      addLogMessage(`Error loading results: ${errorMessage}`, "⚠️")
       
       // Show a message that results need to be downloaded
       toast.info('Results processing completed! Use the download button to get your Excel file with matched results.')
@@ -745,8 +740,7 @@ export function PriceMatching() {
 
     setIsExporting(true)
     try {
-      const timestamp = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp}] Downloading results...`])
+      addLogMessage("Downloading results...", "⬇️")
       
       // Download from Node.js backend
       const response = await fetch(apiEndpoint(`/price-matching/download/${currentJob.id}`))
@@ -776,15 +770,13 @@ export function PriceMatching() {
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
 
-      const timestamp2 = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp2}] Results downloaded successfully`])
+      addLogMessage("Results downloaded successfully", "✅")
       toast.success('Results downloaded successfully')
 
     } catch (error) {
       console.error('Download error:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      const timestamp = new Date().toLocaleTimeString()
-      setLog(prev => [...prev, `[${timestamp}] Download error: ${errorMessage}`])
+      addLogMessage(`Download error: ${errorMessage}`, "❌")
       toast.error('Failed to download results')
     } finally {
       setIsExporting(false)
@@ -915,7 +907,15 @@ export function PriceMatching() {
               <Card><CardContent className="p-4"><p className="text-2xl font-bold">{currentJob.total_items > 0 ? Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100) : 0}%</p><p className="text-xs text-muted-foreground">Success Rate</p></CardContent></Card>
             </div>
             <div ref={logContainerRef} className="bg-muted/50 p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs space-y-1 border">
-              {log.map((entry, index) => (<p key={index} className={entry.includes('✅') ? 'text-green-500' : entry.includes('❌') ? 'text-red-500' : 'text-muted-foreground'}>{entry}</p>))}
+              {logs.map((logEntry, index) => (
+                <div key={index} className="flex items-start gap-2 text-sm">
+                  <span className="text-lg">{logEntry.icon}</span>
+                  <div className="flex-1">
+                    <span className="text-gray-500 text-xs">{logEntry.timestamp}</span>
+                    <div className="text-gray-700">{logEntry.message}</div>
+                  </div>
+                </div>
+              ))}
             </div>
             
           </CardContent>
