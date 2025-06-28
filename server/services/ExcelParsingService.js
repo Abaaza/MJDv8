@@ -20,34 +20,86 @@ export class ExcelParsingService {
     try {
       console.log(`🔍 Starting Excel parsing for: ${originalFileName}`)
       
-      // Load workbook
-      const workbook = XLSX.readFile(filePath)
+      // Load workbook with error handling for corrupted files
+      let workbook
+      try {
+        workbook = XLSX.readFile(filePath, { 
+          cellDates: true, 
+          cellNF: false, 
+          cellText: false,
+          sheetStubs: false,
+          bookVBA: false,
+          password: '' // Handle password-protected files gracefully
+        })
+      } catch (readError) {
+        console.error('❌ Error reading Excel file:', readError.message)
+        if (readError.message.includes('password') || readError.message.includes('encrypted')) {
+          throw new Error('File appears to be password protected. Please provide an unprotected Excel file.')
+        }
+        if (readError.message.includes('format') || readError.message.includes('BIFF')) {
+          throw new Error('Unsupported Excel format. Please save as .xlsx or .xls format.')
+        }
+        throw new Error(`Unable to read Excel file: ${readError.message}`)
+      }
+      
       console.log(`📊 Found ${workbook.SheetNames.length} sheets:`, workbook.SheetNames)
+      
+      // Filter out hidden or system sheets
+      const visibleSheets = workbook.SheetNames.filter(name => {
+        const sheet = workbook.Sheets[name]
+        return sheet && !name.startsWith('_') && !name.toLowerCase().includes('hidden')
+      })
+      
+      if (visibleSheets.length === 0) {
+        throw new Error('No readable sheets found in Excel file')
+      }
+      
+      console.log(`📋 Processing ${visibleSheets.length} visible sheets:`, visibleSheets)
       
       let allItems = []
       let totalRowsProcessed = 0
       let itemsWithQuantities = 0
       let sectionHeaders = [] // Store section headers
       
-      // Process each sheet
-      for (const sheetName of workbook.SheetNames) {
+      // Process each visible sheet
+      for (const sheetName of visibleSheets) {
         try {
           console.log(`📋 Processing sheet: ${sheetName}`)
+          
+          // Check if sheet has any data before processing
+          const sheet = workbook.Sheets[sheetName]
+          const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1')
+          const rowCount = range.e.r - range.s.r + 1
+          const colCount = range.e.c - range.s.c + 1
+          
+          console.log(`   📏 Sheet dimensions: ${rowCount} rows x ${colCount} columns`)
+          
+          if (rowCount < 2 || colCount < 2) {
+            console.log(`   ⏭️ Skipping sheet ${sheetName} - insufficient data`)
+            continue
+          }
+          
           const { items: sheetItems, headers: sheetHeaders } = await this.processSheet(workbook, sheetName)
           
           console.log(`   📌 Raw items found: ${sheetItems.length}`)
           
-          // Filter items to only include those with quantities > 0 (be more lenient)
+          // Enhanced filtering with better validation
           const validItems = sheetItems.filter(item => {
-            const hasQty = item.quantity && !isNaN(item.quantity) && parseFloat(item.quantity) > 0
-            const hasDesc = item.description && item.description.trim().length > 0
-            if (!hasQty && hasDesc) {
-              console.log(`   ⚠️ Skipping item without quantity: "${item.description.substring(0, 50)}..." at row ${item.row_number}`)
+            const qty = parseFloat(item.quantity)
+            const hasValidQty = !isNaN(qty) && qty > 0 && qty < 999999 // Reasonable upper limit
+            const desc = (item.description || '').trim()
+            const hasValidDesc = desc.length >= 3 && 
+                                !desc.match(/^(total|subtotal|sum|^\d+$|^[a-z]$)$/i) && // Exclude totals/single chars
+                                !desc.match(/^={2,}|^-{2,}|^_{2,}/) // Exclude separator lines
+            
+            if (!hasValidQty && hasValidDesc && item.quantity !== undefined) {
+              console.log(`   ⚠️ Skipping item with invalid quantity: "${desc.substring(0, 50)}..." qty: ${item.quantity} at row ${item.row_number}`)
             }
-            if (hasQty && !hasDesc) {
-              console.log(`   ⚠️ Skipping item without description at row ${item.row_number}, qty: ${item.quantity}`)
+            if (hasValidQty && !hasValidDesc) {
+              console.log(`   ⚠️ Skipping item with invalid description at row ${item.row_number}, qty: ${item.quantity}, desc: "${desc}"`)
             }
-            return hasQty && hasDesc
+            
+            return hasValidQty && hasValidDesc
           })
           
           console.log(`   📌 Valid items with quantities: ${validItems.length}`)
@@ -89,17 +141,42 @@ export class ExcelParsingService {
         }
       }
       
+      // Post-processing: Remove duplicates and validate data quality
+      const uniqueItems = this.removeDuplicateItems(allItems)
+      const qualityScore = this.calculateDataQuality(uniqueItems, totalRowsProcessed)
+      
       console.log(`📈 Parsing Summary:`)
       console.log(`   - Total rows processed: ${totalRowsProcessed}`)
-      console.log(`   - Items with quantities: ${itemsWithQuantities}`)
-      console.log(`   - Items ready for matching: ${allItems.length}`)
+      console.log(`   - Items with quantities found: ${itemsWithQuantities}`)
+      console.log(`   - Before duplicate removal: ${allItems.length} items`)
+      console.log(`   - Duplicates removed: ${allItems.length - uniqueItems.length}`)
+      console.log(`   - Final items for matching: ${uniqueItems.length}`)
       console.log(`   - Section headers found: ${sectionHeaders.length}`)
+      console.log(`   - Data quality score: ${qualityScore}%`)
+      
+      if (qualityScore < 60) {
+        console.warn(`⚠️ Low data quality detected. Please verify Excel file format.`)
+      }
+      
+      allItems = uniqueItems
       
       return allItems
       
     } catch (error) {
       console.error(`❌ Error parsing Excel file:`, error)
       console.error(`   Stack:`, error.stack)
+      
+      // Provide more helpful error messages
+      if (error.message.includes('ENOENT')) {
+        throw new Error('Excel file not found or has been moved')
+      }
+      if (error.message.includes('permission') || error.message.includes('EACCES')) {
+        throw new Error('Permission denied accessing Excel file. Please ensure file is not open in Excel.')
+      }
+      if (error.message.includes('EMFILE') || error.message.includes('too many files')) {
+        throw new Error('System resource limit reached. Please try again in a moment.')
+      }
+      
       throw error
     }
   }
@@ -734,5 +811,129 @@ export class ExcelParsingService {
     
     // Everything else is valid - we want ALL items
     return false
+  }
+
+  /**
+   * Remove duplicate items based on description and quantity
+   */
+  removeDuplicateItems(items) {
+    const seen = new Map()
+    const unique = []
+    
+    for (const item of items) {
+      // More precise duplicate detection: include row number to avoid removing legitimate items
+      // Only remove if EXACT same description, quantity, sheet AND adjacent rows (likely actual duplicates)
+      const descKey = item.description.toLowerCase().trim()
+      const key = `${descKey}_${item.quantity}_${item.sheet_name}`
+      
+      const previousItem = seen.get(key)
+      
+      if (!previousItem) {
+        // First occurrence, keep it
+        seen.set(key, item)
+        unique.push(item)
+      } else {
+        // Check if it's likely a real duplicate (adjacent rows or very close)
+        const rowDiff = Math.abs(item.row_number - previousItem.row_number)
+        
+        if (rowDiff <= 2 && item.sheet_name === previousItem.sheet_name) {
+          // Likely a duplicate (same content in adjacent rows)
+          console.log(`   🔄 Removed likely duplicate: "${item.description.substring(0, 40)}..." at row ${item.row_number} (previous at row ${previousItem.row_number})`)
+        } else {
+          // Not adjacent - likely legitimate item with same description/qty
+          // Keep it but update the seen map for future comparisons
+          seen.set(key, item)
+          unique.push(item)
+          console.log(`   ✅ Kept similar item: "${item.description.substring(0, 40)}..." at row ${item.row_number} (different context)`)
+        }
+      }
+    }
+    
+    console.log(`   📊 Duplicate removal: ${items.length} items → ${unique.length} unique items`)
+    return unique
+  }
+
+  /**
+   * Calculate data quality score based on various metrics
+   */
+  calculateDataQuality(items, totalRows) {
+    if (totalRows === 0) return 0
+    
+    let qualityScore = 0
+    let checks = 0
+    
+    // Check 1: Item extraction rate (should be > 10% of total rows)
+    const extractionRate = (items.length / totalRows) * 100
+    qualityScore += Math.min(extractionRate * 2, 40) // Max 40 points
+    checks++
+    
+    // Check 2: Description quality (length, variety)
+    const avgDescLength = items.reduce((sum, item) => sum + item.description.length, 0) / items.length
+    const descQuality = Math.min((avgDescLength / 30) * 30, 30) // Max 30 points
+    qualityScore += descQuality
+    checks++
+    
+    // Check 3: Quantity validity (reasonable ranges)
+    const validQuantities = items.filter(item => {
+      const qty = parseFloat(item.quantity)
+      return qty > 0 && qty <= 10000 // Reasonable range
+    }).length
+    const qtyQuality = (validQuantities / items.length) * 20 // Max 20 points
+    qualityScore += qtyQuality
+    checks++
+    
+    // Check 4: Structural consistency (presence of units, rates)
+    const withUnits = items.filter(item => item.unit && item.unit.trim()).length
+    const structuralQuality = (withUnits / items.length) * 10 // Max 10 points
+    qualityScore += structuralQuality
+    checks++
+    
+    return Math.round(qualityScore)
+  }
+
+  /**
+   * Enhanced description extraction with better text cleaning
+   */
+  extractDescription(cell) {
+    if (!cell) return null
+    
+    let description = String(cell).trim()
+    
+    // Remove excessive whitespace and normalize
+    description = description.replace(/\s+/g, ' ')
+    
+    // Remove common Excel artifacts
+    description = description.replace(/^[-=_]+$/, '') // Separator lines
+    description = description.replace(/^\d+\.$/, '') // Just numbers with dots
+    
+    // Filter out very short or meaningless descriptions
+    if (description.length < 3) return null
+    if (/^[A-Z]$/.test(description)) return null // Single capital letters
+    if (/^\d+$/.test(description)) return null // Just numbers
+    
+    return description
+  }
+
+  /**
+   * Enhanced quantity extraction with better number parsing
+   */
+  extractQuantity(cell) {
+    if (!cell) return null
+    
+    const cellStr = String(cell).trim()
+    
+    // Handle various number formats
+    let cleanedStr = cellStr
+      .replace(/,/g, '') // Remove commas
+      .replace(/[^\d.-]/g, '') // Keep only digits, dots, and minus
+    
+    const quantity = parseFloat(cleanedStr)
+    
+    // Validate the quantity
+    if (isNaN(quantity) || quantity <= 0 || quantity > 999999) {
+      return null
+    }
+    
+    return quantity
   }
 } 

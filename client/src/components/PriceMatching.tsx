@@ -1,13 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ExcelUpload } from "./ExcelUpload"
-import { EditableMatchResultsTable } from "./EditableMatchResultsTable"
 import { ClientForm } from "./ClientForm"
+import { EditableMatchResultsTable } from "./EditableMatchResultsTable"
 import { Download, Play, Zap, AlertCircle, CheckCircle, Edit, FileSpreadsheet, Plus, Trash2, Square, Loader2 } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client"
 import { useAuth } from "@/contexts/AuthContext"
@@ -16,6 +18,10 @@ import { toast } from "sonner"
 import { Tables } from "@/integrations/supabase/types"
 import { notificationService } from "@/services/notificationService"
 import { apiEndpoint } from '@/config/api'
+import { PerformanceMonitor, usePerformanceMetrics } from './PerformanceMonitor'
+import { useOptimizedMatchingJobs } from '@/hooks/useOptimizedQueries'
+import { useOptimizedEventHandlers, useMemoryMonitor, useBackgroundTasks } from '@/hooks/usePerformanceOptimizations'
+
 
 type MatchingJob = Tables<'ai_matching_jobs'>
 
@@ -38,11 +44,15 @@ interface MatchResult {
 export function PriceMatching() {
   const { user } = useAuth()
   const { clients, createClient } = useClients()
+  const { logPerformance } = usePerformanceMetrics('PriceMatching')
+  const { debounce, throttle } = useOptimizedEventHandlers()
+  const memoryInfo = useMemoryMonitor('PriceMatching')
+  const { addTask } = useBackgroundTasks()
+  
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [projectName, setProjectName] = useState('')
   const [selectedClientId, setSelectedClientId] = useState('')
   const [clientNameInput, setClientNameInput] = useState('')
-  const [filteredClients, setFilteredClients] = useState(clients)
   const [showClientSuggestions, setShowClientSuggestions] = useState(false)
   const [showClientForm, setShowClientForm] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -56,11 +66,22 @@ export function PriceMatching() {
   )
   const [matchResults, setMatchResults] = useState<MatchResult[]>([])
   const [isExporting, setIsExporting] = useState(false)
-  // Always use Cohere AI for matching
+  const [matchingMethod, setMatchingMethod] = useState<'hybrid' | 'openai' | 'cohere' | 'local' | 'hybrid2'>('hybrid')
   
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const isProcessingRef = useRef(false)
   const logContainerRef = useRef<HTMLDivElement>(null)
+
+  // Memoized filtered clients to prevent unnecessary re-renders
+  const filteredClients = useMemo(() => {
+    const startTime = performance.now()
+    const filtered = clients.filter(client =>
+      client.name.toLowerCase().includes(clientNameInput.toLowerCase())
+    )
+    logPerformance('Client filtering', startTime)
+    return filtered
+  }, [clients, clientNameInput, logPerformance])
+
 
   // Auto-scroll log to bottom when new entries are added
   useEffect(() => {
@@ -69,58 +90,58 @@ export function PriceMatching() {
     }
   }, [log, logs])
 
-  const addLogMessage = (message: string) => {
+  const addLogMessage = useCallback((message: string) => {
+    console.log(`🟢 [addLogMessage] Adding message: "${message}"`);
     const timestamp = new Date().toLocaleTimeString();
     const logEntry = { message, timestamp, icon: "" };
 
     setLogs((prev) => {
+      console.log(`🟢 [addLogMessage] Current logs count: ${prev.length}`);
+      
       // Prevent duplicate consecutive messages
       if (prev.length > 0 && prev[prev.length - 1].message === message) {
+        console.log(`🟡 [addLogMessage] Duplicate message ignored: "${message}"`);
         return prev;
       }
-      return [...prev, logEntry];
+      
+      const newLogs = [...prev, logEntry];
+      console.log(`🟢 [addLogMessage] New logs count: ${newLogs.length}`);
+      return newLogs;
     });
-  };
+  }, []);
 
   // Filter clients based on input
-  const handleClientNameChange = (value: string) => {
+  const handleClientNameChange = useCallback((value: string) => {
     setClientNameInput(value)
     
     if (value.trim() === '') {
-      setFilteredClients([])
       setSelectedClientId('')
       setShowClientSuggestions(false)
       return
     }
 
-    const filtered = clients.filter(client => 
-      client.name.toLowerCase().includes(value.toLowerCase()) ||
-      (client.company_name && client.company_name.toLowerCase().includes(value.toLowerCase()))
-    )
-    
-    setFilteredClients(filtered)
-    setShowClientSuggestions(filtered.length > 0)
+    setShowClientSuggestions(filteredClients.length > 0)
     
     // Check if exact match exists
     const exactMatch = clients.find(client => 
       client.name.toLowerCase() === value.toLowerCase()
     )
     setSelectedClientId(exactMatch?.id || '')
-  }
+  }, [clients, filteredClients.length])
 
-  const handleClientSelect = (client: any) => {
+  const handleClientSelect = useCallback((client: any) => {
     setClientNameInput(client.name)
     setSelectedClientId(client.id)
     setShowClientSuggestions(false)
-  }
+  }, [])
 
-  const handleFileSelect = (file: File) => {
+  const handleFileSelect = useCallback((file: File) => {
     setSelectedFile(file)
     if (!projectName) {
       const name = file.name.replace(/\.(xlsx|xls)$/i, '')
       setProjectName(name)
     }
-  }
+  }, [projectName])
 
   const createOrGetClient = async () => {
     if (!user) return null
@@ -182,8 +203,8 @@ export function PriceMatching() {
         console.log('Created new client:', newClient.id)
         setSelectedClientId(newClient.id)
         
-        // Update filtered clients to include the new client
-        setFilteredClients(prev => [...prev, newClient])
+        // Refresh clients list to include the new client
+        // filteredClients is computed from clients, so we don't need to update it directly
         
         toast.success(`New client "${clientNameInput.trim()}" created`)
         return newClient.id
@@ -382,15 +403,16 @@ export function PriceMatching() {
     }
   }
 
-  const clearPollInterval = () => {
+  const clearPollInterval = useCallback(() => {
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current)
       pollIntervalRef.current = null
+      console.log('🧹 Cleared polling interval')
     }
-  }
+  }, [])
 
   const handleStartMatching = async () => {
-    console.log('handleStartMatching called, isProcessingRef.current:', isProcessingRef.current)
+    console.log('🚀🚀🚀 UPDATED VERSION - handleStartMatching called, isProcessingRef.current:', isProcessingRef.current)
     console.log('selectedFile:', selectedFile?.name)
     console.log('projectName:', projectName)
     console.log('selectedClientId:', selectedClientId)
@@ -425,6 +447,7 @@ export function PriceMatching() {
     isProcessingRef.current = true
     clearPollInterval()
     setIsProcessing(true)
+    console.log(`🧹 [DEBUG] Clearing all logs and state at job start`)
     setLog([])
     setLogs([])
     setDisplayedMessages(new Set())
@@ -462,8 +485,17 @@ export function PriceMatching() {
       }
 
       console.log('Job created successfully:', jobData.id)
+      console.log('Job data received:', jobData)
       setCurrentJob(jobData)
       addLogMessage(`Created AI matching job: ${jobData.id}`)
+      
+      // Log the current job state for debugging
+      console.log('Current job state after creation:', {
+        id: jobData.id,
+        status: jobData.status,
+        progress: jobData.progress,
+        created_at: jobData.created_at
+      })
 
       console.log('Converting file to base64...')
       
@@ -489,36 +521,99 @@ export function PriceMatching() {
       addLogMessage(`Uploading ${selectedFile.name} to Vercel serverless...`)
 
       console.log('Calling Node.js backend...')
-      const response = await fetch(apiEndpoint('/price-matching/process-base64'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          jobId: jobData.id,
-          fileName: selectedFile.name,
-          fileData: base64File,
-          matchingMethod: 'hybrid'
-        })
-      })
+      console.log('API Endpoint:', apiEndpoint('/price-matching/process-base64'))
+      console.log('Request payload size:', JSON.stringify({
+        jobId: jobData.id,
+        fileName: selectedFile.name,
+        fileData: base64File.substring(0, 100) + '...[truncated]',
+        matchingMethod: matchingMethod
+      }).length, 'characters')
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(`Processing failed: ${errorData.message || errorData.error}`)
+      console.log('🔄 [FETCH] About to start fetch call...')
+      
+      let response;
+      try {
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          console.log('🔄 [FETCH] Fetch timeout reached, aborting...')
+          controller.abort();
+        }, 30000); // 30 second timeout
+        
+        response = await fetch(apiEndpoint('/price-matching/process-base64'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            jobId: jobData.id,
+            fileName: selectedFile.name,
+            fileData: base64File,
+            matchingMethod: matchingMethod
+          }),
+          signal: controller.signal
+        })
+        
+        clearTimeout(timeoutId);
+        console.log('🔄 [FETCH] Fetch call completed successfully!')
+      } catch (fetchError) {
+        console.error('🔄 [FETCH] Fetch call failed with error:', fetchError)
+        if (fetchError.name === 'AbortError') {
+          addLogMessage('Request timed out after 30 seconds - starting polling anyway...')
+          console.log('🔄 [FETCH] Starting polling despite timeout...')
+          
+          // Start polling immediately even if the initial request timed out
+          console.log('Starting immediate polling after timeout for job:', jobData.id)
+          startPolling(jobData.id)
+          
+          return; // Don't throw, just continue
+        }
+        throw fetchError
       }
 
+      console.log('Backend response status:', response.status)
+      console.log('Backend response statusText:', response.statusText)
+      console.log('Backend response headers:', Object.fromEntries(response.headers.entries()))
+
+      if (!response.ok) {
+        console.error('Backend response not OK, attempting to get error details...')
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`
+        try {
+          const errorData = await response.json()
+          console.error('Backend error data:', errorData)
+          errorMessage = errorData.message || errorData.error || errorMessage
+        } catch (parseError) {
+          console.error('Could not parse error response as JSON:', parseError)
+          const errorText = await response.text()
+          console.error('Error response text:', errorText)
+          errorMessage = errorText || errorMessage
+        }
+        throw new Error(`Backend processing failed: ${errorMessage}`)
+      }
+
+      console.log('Response OK, parsing JSON...')
       const processData = await response.json()
+      console.log('Backend response data:', processData)
 
       console.log('Processing started successfully')
-      addLogMessage("Processing started on Vercel serverless (300s max) with hybrid AI matching")
+      const methodLabels = {
+        'hybrid': 'hybrid AI matching (Cohere + OpenAI)',
+        'openai': 'OpenAI matching',
+        'cohere': 'Cohere matching', 
+        'local': 'local string matching',
+        'hybrid2': 'advanced hybrid matching'
+      }
+      addLogMessage(`Processing started on Vercel serverless (300s max) with ${methodLabels[matchingMethod]}`)
+      addLogMessage("Waiting for server progress updates...")
       
-      // Clear previous logs and start fresh polling
-      setLogs([])
-      setDisplayedMessages(new Set())
-      addLogMessage("Job created, starting processing...")
+      console.log('About to start polling for job:', jobData.id)
+      console.log('Current environment - API URL:', apiEndpoint(''))
+      console.log('Full polling URL will be:', apiEndpoint(`/price-matching/status/${jobData.id}`))
       
-      // Start polling BEFORE upload completes to catch early progress
+      // Start polling IMMEDIATELY for faster progress updates
+      console.log('Starting immediate polling for job:', jobData.id)
       startPolling(jobData.id)
+      console.log('Polling started successfully for job:', jobData.id)
 
     } catch (error) {
       console.error('Matching error:', error)
@@ -579,79 +674,182 @@ export function PriceMatching() {
     }
   }
 
-  const startPolling = (jobId: string) => {
+  const startPolling = useCallback((jobId: string) => {
     console.log(`🔄 Starting live polling for job: ${jobId}`)
-    clearPollInterval()
+    console.log(`🔄 API Base URL: ${apiEndpoint('')}`)
+    console.log(`🔄 Full status URL: ${apiEndpoint(`/price-matching/status/${jobId}`)}`)
     
-    pollIntervalRef.current = setInterval(async () => {
+    // Clear any existing interval first
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+    
+    // Add initial immediate poll to test connectivity
+    // Immediate first poll - no delay, and update the UI
+    (async () => {
+      console.log(`🔄 IMMEDIATE poll for job: ${jobId}`)
       try {
-        const response = await fetch(
-          apiEndpoint(`/price-matching/status/${jobId}`)
-        );
-        const job = await response.json();
-
-        // Debug logging
-        console.log(`📊 Polling update:`, {
-          status: job.status,
-          progress: job.progress,
-          message: job.error_message,
-          matched: job.matched_items,
-          total: job.total_items,
-        });
-
-        if (job) {
-          // Update progress counters
+        const response = await fetch(apiEndpoint(`/price-matching/status/${jobId}`));
+        console.log(`🔄 Immediate poll response: ${response.status} ${response.statusText}`);
+        if (response.ok) {
+          const job = await response.json();
+          console.log(`🔄 Immediate poll data:`, job);
+          
+          // Update UI immediately
           setCurrentJob(job);
-
-          // Add server message to logs (with deduplication)
-          if (job.error_message && job.error_message !== 'null' && job.error_message.trim() && !displayedMessages.has(job.error_message)) {
-            addLogMessage(job.error_message);
-            setDisplayedMessages((prev) => new Set([...prev, job.error_message]));
-          }
-
-          // Handle final states
-          if (job.status === 'completed') {
-            const successRate = job.total_items > 0 
-              ? Math.round((job.matched_items / job.total_items) * 100)
-              : 0;
-            
-            addLogMessage("Processing completed successfully!");
-            addLogMessage(`Final Results: ${job.matched_items}/${job.total_items} items matched (${successRate}% success rate)`);
-            addLogMessage(`Average confidence score: ${job.confidence_score || 0}%`);
-            
-            setIsProcessing(false);
-            isProcessingRef.current = false;
-            clearPollInterval();
-            
-            await loadMatchResults(jobId);
-            
-            if (job.matched_items > 0) {
-              toast.success(`Processing completed! Matched ${job.matched_items} items with ${successRate}% success rate.`);
-            } else {
-              toast.info(`Processing completed with AI matching.`);
-            }
-          } else if (job.status === 'failed') {
-            const errorDetails = job.error_message || 'Unknown error';
-            addLogMessage(`Failed: ${errorDetails}`);
-            setIsProcessing(false);
-            isProcessingRef.current = false;
-            clearPollInterval();
-            
-            toast.error(`Processing failed: ${errorDetails}`);
-          } else if (job.status === 'cancelled' || job.status === 'stopped') {
-            addLogMessage(`Job was ${job.status}`);
-            setIsProcessing(false);
-            isProcessingRef.current = false;
-            clearPollInterval();
-            
-            toast.info(`Job was ${job.status}`);
+          
+          // Add initial progress message
+          if (job.progress > 0 && !displayedMessages.has(`Progress: ${job.progress}%`)) {
+            addLogMessage(`Progress: ${job.progress}%`);
+            setDisplayedMessages((prev) => new Set([...prev, `Progress: ${job.progress}%`]));
           }
         }
       } catch (error) {
-        console.error('Polling error:', error);
+        console.error(`🔄 Immediate poll error:`, error);
       }
-    }, 2000); // Poll every 2 seconds
-  }
+    })();
+    
+    const intervalId = setInterval(async () => {
+      try {
+        const apiUrl = apiEndpoint(`/price-matching/status/${jobId}`);
+        console.log(`🔗 [POLLING] Calling API:`, apiUrl);
+        
+        const response = await fetch(apiUrl);
+        
+        console.log(`📡 [POLLING] Response status: ${response.status} ${response.statusText}`);
+        
+        if (!response.ok) {
+          console.error(`❌ Polling failed: ${response.status} ${response.statusText}`);
+          const errorText = await response.text();
+          console.error(`❌ Error response body:`, errorText);
+          
+          if (response.status === 404) {
+            addLogMessage(`Job ${jobId} not found in database - may have been deleted`);
+            clearPollInterval();
+            setIsProcessing(false);
+            isProcessingRef.current = false;
+          }
+          return;
+        }
+        
+        const job = await response.json();
+
+        // ENHANCED DEBUG LOGGING
+        console.log(`📊 RAW API Response:`, job);
+        console.log(`📊 Polling update for job ${jobId}:`, {
+          status: job?.status,
+          progress: job?.progress,
+          message: job?.error_message,
+          matched: job?.matched_items,
+          total: job?.total_items,
+          response_keys: Object.keys(job || {}),
+          created_at: job?.created_at,
+          updated_at: job?.updated_at
+        });
+
+        if (!job) {
+          console.error(`❌ No job data received for ${jobId}`);
+          addLogMessage(`Error: No job data found for job ${jobId}`);
+          return;
+        }
+
+        if (job.error) {
+          console.error(`❌ API returned error:`, job.error);
+          addLogMessage(`API Error: ${job.error}`);
+          return;
+        }
+
+        // Update progress counters - this should trigger UI updates
+        setCurrentJob(job);
+        console.log(`📊 Updated currentJob state with:`, {
+          progress: job.progress,
+          matched_items: job.matched_items,
+          total_items: job.total_items,
+          status: job.status
+        });
+
+        // Add server message to logs (with simple deduplication)
+        const serverMessage = job.error_message;
+        console.log(`🔍 [DEBUG] Server message received: "${serverMessage}"`);
+        console.log(`🔍 [DEBUG] Current displayed messages:`, Array.from(displayedMessages));
+        
+        if (serverMessage && 
+            serverMessage !== 'null' && 
+            serverMessage.trim() &&
+            !displayedMessages.has(serverMessage)) {
+          
+          console.log(`✅ [DEBUG] Adding server message to logs: "${serverMessage}"`);
+          addLogMessage(serverMessage);
+          setDisplayedMessages((prev) => {
+            const newSet = new Set([...prev, serverMessage]);
+            console.log(`🔍 [DEBUG] Updated displayed messages:`, Array.from(newSet));
+            return newSet;
+          });
+        } else {
+          console.log(`❌ [DEBUG] Message filtered out. Reasons:`);
+          console.log(`   - Empty/null: ${!serverMessage || serverMessage === 'null'}`);
+          console.log(`   - Already displayed: ${displayedMessages.has(serverMessage)}`);
+        }
+
+        // Handle final states
+        if (job.status === 'completed') {
+          const successRate = job.total_items > 0 
+            ? Math.round((job.matched_items / job.total_items) * 100)
+            : 0;
+          
+          addLogMessage("Processing completed successfully!");
+          addLogMessage(`Final Results: ${job.matched_items}/${job.total_items} items matched (${successRate}% success rate)`);
+          addLogMessage(`Average confidence score: ${job.confidence_score || 0}%`);
+          
+          setIsProcessing(false);
+          isProcessingRef.current = false;
+          clearPollInterval();
+          
+          await loadMatchResults(jobId);
+          
+          if (job.matched_items > 0) {
+            toast.success(`Processing completed! Matched ${job.matched_items} items with ${successRate}% success rate.`);
+          } else {
+            toast.info(`Processing completed with AI matching.`);
+          }
+        } else if (job.status === 'failed') {
+          const errorDetails = job.error_message || 'Unknown error';
+          addLogMessage(`Failed: ${errorDetails}`);
+          setIsProcessing(false);
+          isProcessingRef.current = false;
+          clearPollInterval();
+          
+          toast.error(`Processing failed: ${errorDetails}`);
+        } else if (job.status === 'cancelled' || job.status === 'stopped') {
+          addLogMessage(`Job was ${job.status}`);
+          setIsProcessing(false);
+          isProcessingRef.current = false;
+          clearPollInterval();
+          
+          toast.info(`Job was ${job.status}`);
+        } else if (job.status === 'processing') {
+          console.log(`🔄 Job processing - Progress: ${job.progress}%, Message: "${job.error_message}"`);
+          // Add progress message to logs for processing status
+          if (job.progress > 0 && !displayedMessages.has(`Progress: ${job.progress}%`)) {
+            addLogMessage(`Progress: ${job.progress}%`);
+            setDisplayedMessages((prev) => new Set([...prev, `Progress: ${job.progress}%`]));
+          }
+        } else if (job.status === 'pending') {
+          console.log(`⏳ Job pending - waiting to start`);
+        } else {
+          console.log(`🔄 Job status: ${job.status}`);
+        }
+      } catch (error) {
+        console.error('❌ Polling error:', error);
+        addLogMessage(`Polling error: ${error.message}`);
+      }
+    }, 1000); // Poll every 1 second for Vercel optimization
+    
+    pollIntervalRef.current = intervalId;
+    console.log(`🔄 Polling interval set with ID:`, intervalId);
+    console.log(`🔄 pollIntervalRef.current is now:`, pollIntervalRef.current);
+  }, [addLogMessage, setCurrentJob, setDisplayedMessages, displayedMessages, clearPollInterval])
 
   const loadMatchResults = async (jobId: string) => {
     try {
@@ -802,7 +1000,9 @@ export function PriceMatching() {
   }
 
   return (
-    <div className="space-y-6">
+    <>
+      <PerformanceMonitor componentName="PriceMatching" />
+      <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle>Smart Price Matching</CardTitle>
@@ -846,12 +1046,31 @@ export function PriceMatching() {
             </div>
           </div>
           <div className="grid gap-2">
+            <Label>Matching Method</Label>
+            <Select 
+              value={matchingMethod} 
+              onValueChange={(value: 'hybrid' | 'openai' | 'cohere' | 'local' | 'hybrid2') => setMatchingMethod(value)}
+              disabled={isProcessing}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select matching method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hybrid">Hybrid AI (Cohere + OpenAI)</SelectItem>
+                <SelectItem value="openai">OpenAI Only</SelectItem>
+                <SelectItem value="cohere">Cohere Only</SelectItem>
+                <SelectItem value="local">Local Matching</SelectItem>
+                <SelectItem value="hybrid2">Advanced Hybrid (Multi-Technique)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
             <Label>BoQ File</Label>
             <ExcelUpload onFileSelect={handleFileSelect} disabled={isProcessing} />
           </div>
           <Button onClick={handleStartMatching} disabled={!selectedFile || !projectName.trim() || !clientNameInput.trim() || isProcessing} size="lg">
             <Play className="h-5 w-5 mr-2" />
-            {isProcessing ? 'Processing...' : 'Start AI Matching'}
+            {isProcessing ? 'Processing...' : matchingMethod === 'local' ? 'Start Local Matching' : 'Start AI Matching'}
           </Button>
         </CardContent>
       </Card>
@@ -878,26 +1097,182 @@ export function PriceMatching() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 mb-4">
               {getStatusIcon(currentJob.status)}
               <div className="flex-1">
-                <p className="font-medium">{currentJob.status}</p>
-                <Progress value={currentJob.progress || 0} className="mt-1" />
-              </div>
-              <Badge variant="outline">{currentJob.progress || 0}%</Badge>
-            </div>
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <Card><CardContent className="p-4"><p className="text-2xl font-bold">{currentJob.total_items || 0}</p><p className="text-xs text-muted-foreground">Total Items</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="text-2xl font-bold">{currentJob.matched_items || 0}</p><p className="text-xs text-muted-foreground">Matched</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="text-2xl font-bold">{currentJob.total_items > 0 ? Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100) : 0}%</p><p className="text-xs text-muted-foreground">Success Rate</p></CardContent></Card>
-            </div>
-            <div ref={logContainerRef} className="bg-muted/50 p-4 rounded-lg h-48 overflow-y-auto font-mono text-xs space-y-1 border">
-              {logs.map((logEntry, index) => (
-                <div key={index} className="text-sm">
-                  <span className="text-gray-500 text-xs">{logEntry.timestamp}</span>
-                  <div className="text-gray-700">{logEntry.message}</div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="font-semibold text-lg capitalize">{currentJob.status}</p>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="font-mono text-lg px-3 py-1">
+                      {currentJob.progress || 0}%
+                    </Badge>
+                    {currentJob.progress >= 100 ? (
+                      <div className="flex items-center gap-1 text-green-600">
+                        <CheckCircle className="w-4 h-4" />
+                        <span className="text-sm font-medium">Complete</span>
+                      </div>
+                    ) : currentJob.status === 'processing' ? (
+                      <div className="flex items-center gap-1 text-blue-600">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-sm font-medium">Processing</span>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              ))}
+                <div className="relative">
+                  <Progress value={currentJob.progress || 0} className="h-3 bg-slate-200" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-xs font-medium text-white drop-shadow-sm">
+                      {currentJob.progress >= 25 ? `${currentJob.progress}%` : ''}
+                    </span>
+                  </div>
+                </div>
+                {/* Progress phase indicator */}
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {currentJob.progress >= 95 ? '🚀 Finalizing results...' :
+                   currentJob.progress >= 85 ? '⚡ Generating output...' :
+                   currentJob.progress >= 70 ? '🔄 Processing matches...' :
+                   currentJob.progress >= 50 ? '🧠 Analyzing embeddings...' :
+                   currentJob.progress >= 30 ? '🔍 Computing similarities...' :
+                   currentJob.progress >= 15 ? '📊 Loading price list...' :
+                   currentJob.progress >= 5 ? '📄 Parsing input file...' :
+                   '🎯 Initializing...'}
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4 text-center mb-4">
+              <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <FileSpreadsheet className="w-5 h-5 text-blue-600" />
+                    <p className="text-xs font-medium text-blue-600 uppercase tracking-wide">Total Items</p>
+                  </div>
+                  <p className="text-3xl font-bold text-blue-900">{currentJob.total_items || 0}</p>
+                  <div className="text-xs text-blue-600 mt-1">
+                    {currentJob.total_items > 0 ? 'Ready for processing' : 'Awaiting data'}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <CheckCircle className="w-5 h-5 text-green-600" />
+                    <p className="text-xs font-medium text-green-600 uppercase tracking-wide">Matched</p>
+                  </div>
+                  <p className="text-3xl font-bold text-green-900">{currentJob.matched_items || 0}</p>
+                  <div className="text-xs text-green-600 mt-1">
+                    {currentJob.matched_items > 0 ? 'Successful matches' : 'Processing...'}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <Zap className="w-5 h-5 text-purple-600" />
+                    <p className="text-xs font-medium text-purple-600 uppercase tracking-wide">Success Rate</p>
+                  </div>
+                  <p className="text-3xl font-bold text-purple-900">
+                    {currentJob.total_items > 0 ? Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100) : 0}%
+                  </p>
+                  <div className="text-xs text-purple-600 mt-1">
+                    {currentJob.total_items > 0 ? 
+                      (Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100) >= 80 ? 'Excellent!' :
+                       Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100) >= 60 ? 'Good' :
+                       Math.round(((currentJob.matched_items || 0) / currentJob.total_items) * 100) >= 40 ? 'Fair' : 'Processing...') 
+                      : 'Calculating...'}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <div ref={logContainerRef} className="bg-gradient-to-b from-slate-900 to-slate-800 p-4 rounded-lg h-64 overflow-y-auto font-mono text-xs space-y-2 border border-slate-600 shadow-inner">
+              {(() => {
+                console.log(`🎨 [RENDER] Rendering ${logs.length} log entries:`, logs.map(l => l.message));
+                return null;
+              })()}
+              
+              {/* Enhanced log header */}
+              <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-600">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  <span className="text-green-400 font-semibold text-xs">LIVE PROCESSING LOG</span>
+                </div>
+                <div className="text-slate-400 text-xs">
+                  {logs.length} entries
+                </div>
+              </div>
+
+              {/* Enhanced log entries */}
+              {logs.map((logEntry, index) => {
+                const getModelColor = (message) => {
+                  if (message.includes('🧠') || message.includes('COHERE')) return 'text-purple-400'
+                  if (message.includes('🤖') || message.includes('OPENAI')) return 'text-blue-400'
+                  if (message.includes('💻') || message.includes('LOCAL')) return 'text-green-400'
+                  if (message.includes('🌟') || message.includes('HYBRID')) return 'text-yellow-400'
+                  if (message.includes('⚡') || message.includes('ADVANCED')) return 'text-red-400'
+                  return 'text-slate-300'
+                }
+
+                const getProgressBar = (message) => {
+                  const match = message.match(/\[(\d+)%\]/)
+                  if (match) {
+                    const progress = parseInt(match[1])
+                    const filled = Math.round((progress / 100) * 20)
+                    const empty = 20 - filled
+                    return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${progress}%`
+                  }
+                  return null
+                }
+
+                const modelColor = getModelColor(logEntry.message)
+                const progressBar = getProgressBar(logEntry.message)
+                const isImportant = logEntry.message.includes('***') || logEntry.message.includes('COMPLETE') || logEntry.message.includes('ERROR')
+                
+                return (
+                  <div 
+                    key={index} 
+                    className={`transition-all duration-300 ${
+                      isImportant ? 'bg-slate-700/50 border-l-2 border-yellow-400 pl-2' : ''
+                    } ${index === logs.length - 1 ? 'animate-pulse' : ''}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <span className="text-slate-500 text-[10px] mt-0.5 font-mono min-w-[60px]">
+                        {logEntry.timestamp}
+                      </span>
+                      <div className="flex-1">
+                        <div className={`${modelColor} font-medium leading-relaxed`}>
+                          {logEntry.message}
+                        </div>
+                        {progressBar && (
+                          <div className="text-slate-400 text-[10px] mt-1 font-mono">
+                            {progressBar}
+                          </div>
+                        )}
+                      </div>
+                      {/* Status indicator */}
+                      <div className="w-1 h-1 rounded-full bg-slate-500 mt-2 flex-shrink-0"></div>
+                    </div>
+                  </div>
+                )
+              })}
+              
+              {logs.length === 0 && (
+                <div className="text-slate-400 text-center py-8">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-8 h-8 border-2 border-slate-600 rounded-full animate-spin border-t-blue-400"></div>
+                    <span>Initializing AI processing engines...</span>
+                    <div className="text-[10px] text-slate-500">Waiting for log messages</div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Scroll indicator */}
+              {logs.length > 10 && (
+                <div className="absolute bottom-2 right-2 text-slate-500 text-[10px] bg-slate-800 px-2 py-1 rounded border border-slate-600">
+                  Scroll for more ↓
+                </div>
+              )}
             </div>
             
           </CardContent>
@@ -905,35 +1280,43 @@ export function PriceMatching() {
       )}
 
       {matchResults.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Match Results</CardTitle>
-                <CardDescription>Review and edit the matches. Changes are saved automatically.</CardDescription>
+        <Dialog open={true} onOpenChange={() => setMatchResults([])}>
+          <DialogContent className="max-w-7xl max-h-[90vh]">
+            <DialogHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <DialogTitle>Match Results</DialogTitle>
+                  <DialogDescription>Review and edit the matches. Changes are saved automatically.</DialogDescription>
+                </div>
+                <Button onClick={exportToExcel} size="sm" variant="outline" disabled={isExporting}>
+                  {isExporting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <FileSpreadsheet className="h-4 w-4 mr-2" />
+                      Export Results
+                    </>
+                  )}
+                </Button>
               </div>
-              <Button onClick={exportToExcel} size="sm" variant="outline" disabled={isExporting}>
-                {isExporting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Exporting...
-                  </>
-                ) : (
-                  <>
-                    <FileSpreadsheet className="h-4 w-4 mr-2" />
-                    Export Results
-                  </>
-                )}
-              </Button>
+            </DialogHeader>
+            <div className="overflow-auto max-h-[70vh]">
+              <EditableMatchResultsTable
+                matchResults={matchResults}
+                onUpdateResult={handleUpdateResult}
+                onDeleteResult={handleDeleteResult}
+                currency="GBP"
+              />
             </div>
-          </CardHeader>
-          <CardContent>
-            <EditableMatchResultsTable matchResults={matchResults} onUpdateResult={handleUpdateResult} onDeleteResult={handleDeleteResult} currency="GBP" />
-          </CardContent>
-        </Card>
+          </DialogContent>
+        </Dialog>
       )}
 
       <ClientForm isOpen={showClientForm} onClose={() => setShowClientForm(false)} onSave={createClient} />
-    </div>
+      </div>
+    </>
   )
 }

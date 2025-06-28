@@ -93,8 +93,29 @@ export default defineConfig(({ mode }) => {
       },
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', '@tanstack/react-query'],
+      include: [
+        'react', 
+        'react-dom', 
+        '@tanstack/react-query',
+        '@supabase/supabase-js',
+        'sonner',
+        'lucide-react',
+        'date-fns',
+        'clsx',
+        'tailwind-merge'
+      ],
       exclude: ['@vite/client', '@vite/env'],
+      force: true, // Force re-optimization on restart
+    },
+    esbuild: {
+      // Remove console logs and debugger statements in production
+      drop: mode === 'production' ? ['console', 'debugger'] : [],
+    },
+    // Improve performance for large projects
+    experimental: {
+      renderBuiltUrl(filename: string) {
+        return `/${filename}`
+      }
     },
     define: {
       // Ensure environment variables are available at build time

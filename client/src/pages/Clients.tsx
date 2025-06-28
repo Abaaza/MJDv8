@@ -1,24 +1,69 @@
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
-import { Plus, Search, Edit, Trash2, Phone, Mail, Building, ExternalLink } from "lucide-react"
+import { Plus, Search, Edit, Trash2, Phone, Mail, Building, ExternalLink, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react"
 import { useClients, Client } from "@/hooks/useClients"
 import { ClientForm } from "@/components/ClientForm"
+
+type SortField = 'name' | 'email' | 'company_name' | 'created_at'
+type SortDirection = 'asc' | 'desc'
 
 export default function Clients() {
   const { clients, loading, createClient, updateClient, deleteClient } = useClients()
   const [searchTerm, setSearchTerm] = useState("")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<Client | null>(null)
+  const [sortField, setSortField] = useState<SortField>('created_at')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
-  const filteredClients = clients.filter(client =>
-    client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (client.email && client.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (client.company_name && client.company_name.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
+  const filteredAndSortedClients = useMemo(() => {
+    let filtered = clients.filter(client =>
+      client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (client.email && client.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (client.company_name && client.company_name.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
+
+    // Sort the filtered results
+    filtered.sort((a, b) => {
+      let aValue = a[sortField] || ''
+      let bValue = b[sortField] || ''
+      
+      // Handle date sorting
+      if (sortField === 'created_at') {
+        aValue = new Date(aValue).getTime()
+        bValue = new Date(bValue).getTime()
+      } else {
+        aValue = aValue.toString().toLowerCase()
+        bValue = bValue.toString().toLowerCase()
+      }
+      
+      if (sortDirection === 'asc') {
+        return aValue > bValue ? 1 : -1
+      } else {
+        return aValue < bValue ? 1 : -1
+      }
+    })
+
+    return filtered
+  }, [clients, searchTerm, sortField, sortDirection])
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
+    }
+  }
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) return <ArrowUpDown className="h-4 w-4" />
+    return sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+  }
 
   const handleCreateClient = async (clientData: Omit<Client, 'id' | 'created_at' | 'updated_at' | 'user_id'>) => {
     return await createClient(clientData)
@@ -64,9 +109,28 @@ export default function Clients() {
           <div className="flex items-center justify-between">
             <div className="text-left">
               <CardTitle>Client Directory</CardTitle>
-              <CardDescription>All your clients and prospects ({filteredClients.length} total)</CardDescription>
+              <CardDescription>All your clients and prospects ({filteredAndSortedClients.length} total)</CardDescription>
             </div>
             <div className="flex items-center space-x-2">
+              <Select value={sortField} onValueChange={(value: SortField) => setSortField(value)}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name">Name</SelectItem>
+                  <SelectItem value="company_name">Company</SelectItem>
+                  <SelectItem value="email">Email</SelectItem>
+                  <SelectItem value="created_at">Date Added</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button 
+                variant="outline" 
+                size="icon"
+                onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+                title={`Sort ${sortDirection === 'asc' ? 'descending' : 'ascending'}`}
+              >
+                {sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+              </Button>
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -80,7 +144,7 @@ export default function Clients() {
           </div>
         </CardHeader>
         <CardContent>
-          {filteredClients.length === 0 ? (
+          {filteredAndSortedClients.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground">
                 {searchTerm ? 'No clients found matching your search.' : 'No clients yet. Add your first client to get started.'}
@@ -96,15 +160,39 @@ export default function Clients() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-left">Client Name</TableHead>
-                  <TableHead className="text-left">Contact</TableHead>
+                  <TableHead 
+                    className="text-left cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort('name')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Client Name
+                      {getSortIcon('name')}
+                    </div>
+                  </TableHead>
+                  <TableHead 
+                    className="text-left cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort('email')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Contact
+                      {getSortIcon('email')}
+                    </div>
+                  </TableHead>
                   <TableHead className="text-left">Matched Jobs</TableHead>
-                  <TableHead className="text-left">Created</TableHead>
+                  <TableHead 
+                    className="text-left cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort('created_at')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Created
+                      {getSortIcon('created_at')}
+                    </div>
+                  </TableHead>
                   <TableHead className="text-left w-[100px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredClients.map((client) => (
+                {filteredAndSortedClients.map((client) => (
                   <TableRow key={client.id}>
                     <TableCell className="font-medium text-left">
                       <div>

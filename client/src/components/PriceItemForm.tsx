@@ -92,7 +92,10 @@ export function PriceItemForm({ initialData, onSuccess, onCancel }: PriceItemFor
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user) return
+    if (!user) {
+      toast.error('User not authenticated')
+      return
+    }
 
     setLoading(true)
     try {
@@ -102,6 +105,8 @@ export function PriceItemForm({ initialData, onSuccess, onCancel }: PriceItemFor
         rate: formData.rate && formData.rate !== 0 ? Number(formData.rate) : null,
       }
 
+      console.log('Submitting with user_id:', user.id)
+      console.log('Auth user:', user)
       console.log('Submitting rate:', itemData.rate, 'Original formData rate:', formData.rate)
 
       let error

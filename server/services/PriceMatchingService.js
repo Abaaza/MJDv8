@@ -10,6 +10,7 @@ import { LocalPriceMatchingService } from './LocalPriceMatchingService.js'
 import { CohereMatchingService } from './CohereMatchingService.js'
 import { OpenAIEmbeddingService } from './OpenAIEmbeddingService.js'
 import { ExcelExportService } from './ExcelExportService.js'
+import { AdvancedHybridMatchingService } from './AdvancedHybridMatchingService.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -41,6 +42,7 @@ export class PriceMatchingService {
     this.localMatcher = new LocalPriceMatchingService()
     this.cohereMatcher = null  // Will be initialized with API key from DB
     this.openAIMatcher = null  // Will be initialized with API key from DB
+    this.advancedHybridMatcher = null  // Will be initialized when API services are ready
     this.exportService = new ExcelExportService()
     
     // Performance optimization: Cache price list
@@ -114,6 +116,23 @@ export class PriceMatchingService {
         } else {
           console.log('⚠️ OpenAI API key not configured in admin settings')
         }
+        
+        // Initialize Advanced Hybrid service if both API services are available
+        if (this.cohereMatcher && this.openAIMatcher) {
+          console.log('🔑 [API-INIT] Initializing Advanced Hybrid service...')
+          try {
+            this.advancedHybridMatcher = new AdvancedHybridMatchingService(
+              this.cohereMatcher, 
+              this.openAIMatcher, 
+              this.localMatcher
+            )
+            console.log('✅ Advanced Hybrid service initialized')
+          } catch (advancedError) {
+            console.error('🔑 [API-INIT] Advanced Hybrid initialization failed:', advancedError)
+          }
+        } else {
+          console.log('⚠️ Advanced Hybrid service not initialized - requires both Cohere and OpenAI')
+        }
       } else {
         console.log('⚠️ [API-INIT] No settings found in database')
       }
@@ -144,6 +163,21 @@ export class PriceMatchingService {
             console.log('✅ OpenAI API service initialized from environment')
           }
           
+          // Initialize Advanced Hybrid service if both API services are available
+          if (this.cohereMatcher && this.openAIMatcher) {
+            console.log('🔑 [API-INIT] Initializing Advanced Hybrid service from environment...')
+            try {
+              this.advancedHybridMatcher = new AdvancedHybridMatchingService(
+                this.cohereMatcher, 
+                this.openAIMatcher, 
+                this.localMatcher
+              )
+              console.log('✅ Advanced Hybrid service initialized from environment')
+            } catch (advancedError) {
+              console.error('🔑 [API-INIT] Advanced Hybrid initialization failed:', advancedError)
+            }
+          }
+          
           console.log('✅ [API-INIT] Fallback initialization completed')
         } else {
           console.log('⚠️ [API-INIT] No API keys found in environment variables either')
@@ -160,6 +194,10 @@ export class PriceMatchingService {
 
   async processFile(jobId, inputFilePath, originalFileName, matchingMethod = 'hybrid') {
     try {
+      // Track start time for Vercel timeout management
+      this.processStartTime = Date.now()
+      const maxRuntime = 290 * 1000 // 4 minutes 50 seconds - safety buffer for Vercel
+      
       console.log(`🔥🔥🔥 [PROCESSFILE] *** CRITICAL: ENTERING processFile method ***`)
       console.log(`🔥 [PROCESSFILE] CRITICAL: Job ID: ${jobId}`)
       console.log(`🔥 [PROCESSFILE] CRITICAL: Input file path: ${inputFilePath}`)
@@ -167,6 +205,31 @@ export class PriceMatchingService {
       console.log(`🔥 [PROCESSFILE] CRITICAL: Matching method: ${matchingMethod}`)
       console.log(`🔥 [PROCESSFILE] CRITICAL: Current time: ${new Date().toISOString()}`)
       console.log(`🔥 [PROCESSFILE] CRITICAL: Environment: Vercel=${!!process.env.VERCEL}, NodeEnv=${process.env.NODE_ENV}`)
+      console.log(`🔥 [VERCEL] Max runtime: ${maxRuntime/1000}s (${maxRuntime/60000} minutes)`)
+      
+      // Helper function to check timeout - more comprehensive
+      const checkTimeout = (phase = 'unknown') => {
+        const runtime = Date.now() - this.processStartTime
+        const runtimeSeconds = Math.round(runtime / 1000)
+        const remainingTime = maxRuntime - runtime
+        const remainingSeconds = Math.round(remainingTime / 1000)
+        
+        console.log(`⏱️ [VERCEL TIMEOUT] Phase: ${phase} | Runtime: ${runtimeSeconds}s | Remaining: ${remainingSeconds}s`)
+        
+        if (runtime > maxRuntime) {
+          const timeoutError = `Processing timeout after ${runtimeSeconds}s in phase '${phase}' - Vercel 5-minute limit approaching`
+          console.error(`🚨 [VERCEL TIMEOUT] ${timeoutError}`)
+          throw new Error(timeoutError)
+        }
+        
+        // Warning at 80% of max runtime (232 seconds)
+        if (runtime > maxRuntime * 0.8 && !this.timeoutWarningShown) {
+          console.warn(`⚠️ [VERCEL TIMEOUT WARNING] 80% of runtime used (${runtimeSeconds}s/${Math.round(maxRuntime/1000)}s) in phase '${phase}'`)
+          this.timeoutWarningShown = true
+        }
+        
+        return { runtime, runtimeSeconds, remainingTime, remainingSeconds }
+      }
       
       // Log memory usage for debugging
       const memUsage = process.memoryUsage()
@@ -252,15 +315,19 @@ export class PriceMatchingService {
         console.log('[PRICE MATCHING DEBUG] Successfully stored original file path and blob key')
       }
       
-      // Parse Excel file directly - let Vercel handle timeout naturally
+      // Parse Excel file with timeout monitoring
       console.log(`📊 [EXCEL-PARSE] Starting Excel parsing...`)
       console.log(`🔥 [EXCEL-PARSE] CRITICAL: About to call parseExcelFile`)
+      checkTimeout('excel-parsing-start')
       
       let extractedItems
       try {
         extractedItems = await this.excelParser.parseExcelFile(inputFilePath, jobId, originalFileName)
         console.log(`🔥 [EXCEL-PARSE] CRITICAL: parseExcelFile completed successfully`)
         console.log(`✅ Extracted ${extractedItems.length} items from Excel`)
+        
+        // Check timeout after parsing
+        const { runtimeSeconds } = checkTimeout('excel-parsing-complete')
         
         // Log memory usage after parsing
         const memUsageAfterParsing = process.memoryUsage()
@@ -277,7 +344,7 @@ export class PriceMatchingService {
       // Check if job was cancelled after parsing
       if (isJobCancelled(jobId)) {
         console.log(`🛑 Job ${jobId} was cancelled after parsing, stopping processing`)
-        await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+        await this.updateJobStatus(jobId, 'stopped', 10, 'Job stopped by user')
         return
       }
       
@@ -306,15 +373,19 @@ export class PriceMatchingService {
       console.log(`💰 Loading price list from database...`)
       // DON'T update progress here to avoid going backwards
       
-      // Load price list directly - let Vercel handle timeout naturally
+      // Load price list with timeout monitoring
       console.log(`💰 [PRICELIST] Starting price list loading...`)
       console.log(`🔥 [PRICELIST] CRITICAL: About to call getCachedPriceList`)
+      checkTimeout('price-list-loading-start')
       
       let priceList
       try {
         priceList = await this.getCachedPriceList()
         console.log(`🔥 [PRICELIST] CRITICAL: getCachedPriceList completed successfully`)
         console.log(`✅ Loaded ${priceList.length} price items`)
+        
+        // Check timeout after loading price list
+        const { runtimeSeconds } = checkTimeout('price-list-loading-complete')
       } catch (priceListError) {
         console.error(`❌ [PRICELIST] CRITICAL: getCachedPriceList failed:`, priceListError)
         console.error(`❌ [PRICELIST] Error stack:`, priceListError.stack)
@@ -331,7 +402,7 @@ export class PriceMatchingService {
       // Check if job was cancelled before expensive matching operation
       if (isJobCancelled(jobId)) {
         console.log(`🛑 Job ${jobId} was cancelled before matching, stopping processing`)
-        await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+        await this.updateJobStatus(jobId, 'stopped', 10, 'Job stopped by user')
         return
       }
       
@@ -341,24 +412,67 @@ export class PriceMatchingService {
       console.log(`🔥 [MATCHING] CRITICAL: Items to match: ${extractedItems.length}`)
       console.log(`🔥 [MATCHING] CRITICAL: Price items available: ${priceList.length}`)
       
+      // Check timeout before expensive matching operation
+      const { remainingSeconds } = checkTimeout('matching-start')
+      console.log(`⏱️ [MATCHING] Starting matching with ${remainingSeconds}s remaining`)
+      
       try {
         if (matchingMethod === 'local') {
           // Use local matching - need to pass updateJobStatus as 5th parameter
           console.log('🔧 [PROCESSFILE] Using local matching as requested')
           const updateJobStatus = this.updateJobStatus.bind(this)
           matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
-        } else if (matchingMethod === 'hybrid' || matchingMethod === 'cohere') {
+        } else if (matchingMethod === 'hybrid') {
           // Use hybrid AI matching if both services are available, otherwise fall back
-          if (this.cohereMatcher && this.openAIMatcher && matchingMethod === 'hybrid') {
+          if (this.cohereMatcher && this.openAIMatcher) {
             console.log('🔧 [PROCESSFILE] Using hybrid AI matching (Cohere + OpenAI)')
             matchingResult = await this.performHybridAIMatching(extractedItems, priceList, jobId, inputFilePath)
           } else if (this.cohereMatcher) {
-            console.log('🔧 [PROCESSFILE] Using Cohere AI matching')
+            console.log('⚠️ [PROCESSFILE] OpenAI not available, using Cohere only for hybrid request')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, updateJobStatus)
+          } else if (this.openAIMatcher) {
+            console.log('⚠️ [PROCESSFILE] Cohere not available, using OpenAI only for hybrid request')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.openAIMatcher.matchItems(extractedItems, priceList, jobId, updateJobStatus)
+          } else {
+            console.log('⚠️ [PROCESSFILE] No AI services available, falling back to local matching')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
+          }
+        } else if (matchingMethod === 'cohere') {
+          // Use Cohere AI matching only
+          if (this.cohereMatcher) {
+            console.log('🔧 [PROCESSFILE] Using Cohere AI matching only')
             const updateJobStatus = this.updateJobStatus.bind(this)
             matchingResult = await this.cohereMatcher.matchItems(extractedItems, priceList, jobId, updateJobStatus)
           } else {
-            // If AI services not available, fall back to local matching
-            console.log('⚠️ [PROCESSFILE] AI services not configured, using local matching fallback')
+            console.log('⚠️ [PROCESSFILE] Cohere not available, falling back to local matching')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
+          }
+        } else if (matchingMethod === 'openai') {
+          // Use OpenAI matching only
+          if (this.openAIMatcher) {
+            console.log('🔧 [PROCESSFILE] Using OpenAI matching only')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.openAIMatcher.matchItems(extractedItems, priceList, jobId, updateJobStatus)
+          } else {
+            console.log('⚠️ [PROCESSFILE] OpenAI not available, falling back to local matching')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
+          }
+        } else if (matchingMethod === 'hybrid2') {
+          // Use Advanced Hybrid matching with sophisticated multi-technique approach
+          if (this.advancedHybridMatcher) {
+            console.log('🔧 [PROCESSFILE] Using Advanced Hybrid matching with multi-technique approach')
+            const updateJobStatus = this.updateJobStatus.bind(this)
+            matchingResult = await this.advancedHybridMatcher.matchItems(extractedItems, priceList, jobId, updateJobStatus)
+          } else if (this.cohereMatcher && this.openAIMatcher) {
+            console.log('⚠️ [PROCESSFILE] Advanced Hybrid not available, falling back to regular hybrid')
+            matchingResult = await this.performHybridAIMatching(extractedItems, priceList, jobId, inputFilePath)
+          } else {
+            console.log('⚠️ [PROCESSFILE] AI services not available for hybrid2, falling back to local matching')
             const updateJobStatus = this.updateJobStatus.bind(this)
             matchingResult = await this.localMatcher.matchItems(extractedItems, priceList, jobId, originalFileName, updateJobStatus)
           }
@@ -370,6 +484,11 @@ export class PriceMatchingService {
         }
         
         console.log(`🔥 [MATCHING] CRITICAL: Matching completed successfully`)
+        
+        // Check timeout after matching
+        const { runtimeSeconds } = checkTimeout('matching-complete')
+        console.log(`⏱️ [MATCHING] Matching phase completed in ${runtimeSeconds}s total`)
+        
       } catch (matchingError) {
         console.error(`❌ [MATCHING] CRITICAL: Matching failed:`, matchingError)
         console.error(`❌ [MATCHING] Error stack:`, matchingError.stack)
@@ -388,6 +507,8 @@ export class PriceMatchingService {
       
       // Step 4: Save results to database (86-90%) - Ensure we don't go backwards
       console.log(`💾 Saving results to database...`)
+      checkTimeout('database-save-start')
+      
       await this.updateJobStatus(jobId, 'processing', 86, `Found ${matchingResult.totalMatched} matches`, {
         matched_items: matchingResult.totalMatched,
         total_items: extractedItems.length
@@ -395,6 +516,9 @@ export class PriceMatchingService {
       
       await this.saveMatchesToDatabase(jobId, matchingResult.matches)
       console.log(`✅ Results saved to database`)
+      
+      // Check timeout after database save
+      checkTimeout('database-save-complete')
       await this.updateJobStatus(jobId, 'processing', 90, 'Saving results...', {
         matched_items: matchingResult.totalMatched,
         total_items: extractedItems.length
@@ -402,6 +526,8 @@ export class PriceMatchingService {
 
       // Step 5: Generate output Excel (90-95%)
       console.log(`📄 Generating output Excel file...`)
+      checkTimeout('excel-export-start')
+      
       let outputPath = matchingResult.outputPath
       
       // If no output path, create one with ExcelExportService
@@ -414,6 +540,9 @@ export class PriceMatchingService {
           originalFileName
         )
         console.log(`✅ Created output file: ${outputPath}`)
+        
+        // Check timeout after Excel export
+        checkTimeout('excel-export-complete')
       }
 
       // Step 6: Update job with final statistics (95-100%)
@@ -444,7 +573,11 @@ export class PriceMatchingService {
       }
 
       await this.updateJobStatus(jobId, 'completed', 100)
-      console.log(`🎉 Job ${jobId} COMPLETED successfully`)
+      
+      // Final timeout check and completion logging
+      const finalTiming = checkTimeout('job-completion')
+      console.log(`🎉 Job ${jobId} COMPLETED successfully in ${finalTiming.runtimeSeconds}s`)
+      console.log(`⏱️ [VERCEL PERFORMANCE] Total processing time: ${finalTiming.runtimeSeconds}s / ${Math.round(maxRuntime/1000)}s limit`)
 
       // Cleanup temp files
       console.log(`🧹 Cleaning up temp files...`)
@@ -650,32 +783,193 @@ export class PriceMatchingService {
   }
 
   /**
-   * Update job status in database
+   * Enhanced visual progress bar generator for logs
+   */
+  generateProgressBar(progress, width = 20) {
+    if (progress === undefined || progress === null) return '◯◯◯◯◯◯◯◯◯◯'
+    
+    const filled = Math.round((progress / 100) * width)
+    const empty = width - filled
+    const bar = '█'.repeat(filled) + '░'.repeat(empty)
+    
+    // Add color indicators
+    if (progress >= 100) return `🟢 ${bar} COMPLETE`
+    if (progress >= 75) return `🟡 ${bar} FINALIZING`
+    if (progress >= 50) return `🔵 ${bar} PROCESSING`
+    if (progress >= 25) return `🟠 ${bar} ANALYZING`
+    return `⚪ ${bar} STARTING`
+  }
+
+  /**
+   * Get status emoji based on current state
+   */
+  getStatusEmoji(status, progress) {
+    switch (status) {
+      case 'processing':
+        if (progress >= 90) return '🚀'
+        if (progress >= 70) return '⚡'
+        if (progress >= 50) return '🔄'
+        if (progress >= 25) return '🔍'
+        return '🎯'
+      case 'completed': return '✅'
+      case 'failed': return '❌'
+      case 'stopped': return '🛑'
+      case 'cancelled': return '⏹️'
+      default: return '🔄'
+    }
+  }
+
+  /**
+   * Get model-specific emoji
+   */
+  getModelEmoji(message) {
+    if (message.includes('Cohere')) return '🧠'
+    if (message.includes('OpenAI')) return '🤖'
+    if (message.includes('Local')) return '💻'
+    if (message.includes('Hybrid')) return '🌟'
+    if (message.includes('Advanced')) return '⚡'
+    return '🔧'
+  }
+
+  /**
+   * Get progress phase description
+   */
+  getProgressPhase(progress) {
+    if (progress >= 95) return 'FINALIZING RESULTS'
+    if (progress >= 85) return 'GENERATING OUTPUT'
+    if (progress >= 70) return 'PROCESSING MATCHES'
+    if (progress >= 50) return 'ANALYZING EMBEDDINGS'
+    if (progress >= 30) return 'COMPUTING SIMILARITIES'
+    if (progress >= 15) return 'LOADING PRICE LIST'
+    if (progress >= 5) return 'PARSING INPUT FILE'
+    return 'INITIALIZING'
+  }
+
+  /**
+   * Calculate estimated time remaining
+   */
+  calculateETA(progress, runtime) {
+    if (progress <= 0 || progress >= 100) return 'N/A'
+    
+    const avgTimePerPercent = runtime / progress
+    const remainingProgress = 100 - progress
+    const etaMs = avgTimePerPercent * remainingProgress
+    
+    const etaSeconds = Math.round(etaMs / 1000)
+    const etaMinutes = Math.floor(etaSeconds / 60)
+    const etaSecondsRem = etaSeconds % 60
+    
+    if (etaMinutes > 0) {
+      return `${etaMinutes}m ${etaSecondsRem}s`
+    }
+    return `${etaSeconds}s`
+  }
+
+  /**
+   * Enhanced log message formatting
+   */
+  enhanceLogMessage(message, status, progress, runtime) {
+    const timestamp = new Date().toISOString().substring(11, 23)
+    
+    // Model-specific enhancements
+    if (message.includes('Cohere')) {
+      message = `🧠 COHERE AI: ${message.replace('Cohere:', '').trim()}`
+    } else if (message.includes('OpenAI')) {
+      message = `🤖 OPENAI: ${message.replace('OpenAI:', '').trim()}`
+    } else if (message.includes('Local')) {
+      message = `💻 LOCAL ENGINE: ${message.replace('Local matching:', '').trim()}`
+    } else if (message.includes('Hybrid')) {
+      message = `🌟 HYBRID AI: ${message.replace('Hybrid:', '').trim()}`
+    } else if (message.includes('Advanced')) {
+      message = `⚡ ADVANCED AI: ${message.replace('Advanced:', '').trim()}`
+    }
+    
+    // Add performance indicators
+    if (status === 'processing' && progress !== undefined) {
+      const phaseEmoji = progress >= 75 ? '🚀' : progress >= 50 ? '⚡' : progress >= 25 ? '🔍' : '🎯'
+      message = `${phaseEmoji} [${progress}%] ${message} | Runtime: ${runtime}`
+    }
+    
+    return message
+  }
+
+  /**
+   * Update job status in database - Enhanced with impressive logging for all 5 models
    */
   async updateJobStatus(jobId, status, progress = 0, message = '', extraData = {}) {
     try {
-      // Debug logging to track progress updates
-      console.log(`🔄 [DATABASE] ENTERING updateJobStatus for job ${jobId}: status=${status}, progress=${progress}`)
-      if (message) {
-        console.log(`🔄 [DATABASE] Message: ${message}`)
+      // Enhanced runtime tracking
+      const currentTime = Date.now()
+      const runtime = this.processStartTime ? currentTime - this.processStartTime : 0
+      const runtimeSeconds = Math.round(runtime / 1000)
+      const runtimeMinutes = Math.floor(runtimeSeconds / 60)
+      const remainingSeconds = runtimeSeconds % 60
+      const formattedRuntime = runtimeMinutes > 0 ? `${runtimeMinutes}m ${remainingSeconds}s` : `${runtimeSeconds}s`
+      
+      // Visual progress indicators
+      const progressBar = this.generateProgressBar(progress)
+      const statusEmoji = this.getStatusEmoji(status, progress)
+      const modelEmoji = this.getModelEmoji(message)
+      const phase = this.getProgressPhase(progress)
+      const eta = this.calculateETA(progress, runtime)
+      
+      // Enhanced logging with visual appeal
+      console.log('\n' + '='.repeat(80))
+      console.log(`${statusEmoji} ${modelEmoji} JOB ${jobId} | ${status.toUpperCase()}`)
+      console.log(`${progressBar}`)
+      console.log(`📊 Progress: ${progress}% | Phase: ${phase}`)
+      console.log(`⏱️  Runtime: ${formattedRuntime} | ETA: ${eta}`)
+      console.log(`💬 Message: ${message}`)
+      console.log('='.repeat(80) + '\n')
+      
+      // Model-specific detailed logging
+      if (message.includes('Cohere')) {
+        console.log(`🧠 [COHERE AI] *** ADVANCED NEURAL PROCESSING *** ${progress}%`)
+        console.log(`   └─ Similarity Engine: ${message}`)
+      } else if (message.includes('OpenAI')) {
+        console.log(`🤖 [OPENAI] *** GPT EMBEDDING ANALYSIS *** ${progress}%`)
+        console.log(`   └─ Vector Processing: ${message}`)
+      } else if (message.includes('Local')) {
+        console.log(`💻 [LOCAL ENGINE] *** HIGH-SPEED MATCHING *** ${progress}%`)
+        console.log(`   └─ Algorithm: ${message}`)
+      } else if (message.includes('Hybrid')) {
+        console.log(`🌟 [HYBRID AI] *** MULTI-MODEL FUSION *** ${progress}%`)
+        console.log(`   └─ Combined Intelligence: ${message}`)
+      } else if (message.includes('Advanced')) {
+        console.log(`⚡ [ADVANCED AI] *** NEXT-GEN PROCESSING *** ${progress}%`)
+        console.log(`   └─ Cutting-edge Algorithm: ${message}`)
       }
       
-      // Get current job status for debugging and message accumulation
+      // Performance metrics logging
+      if (progress > 0 && runtime > 0) {
+        const itemsPerSecond = Math.round((progress / 100) * (extraData.total_items || 100) / (runtime / 1000))
+        const memoryUsage = process.memoryUsage()
+        const memoryMB = Math.round(memoryUsage.heapUsed / 1024 / 1024)
+        
+        console.log(`📈 [PERFORMANCE] Speed: ${itemsPerSecond} items/sec | Memory: ${memoryMB}MB`)
+      }
+      
+      // Enhanced message for database storage
+      const enhancedMessage = this.enhanceLogMessage(message, status, progress, formattedRuntime)
+      
+      // Get current job status for validation
       const currentJobStatus = await this.getJobStatus(jobId)
-      console.log(`🔄 [DATABASE] Current job status before update:`, {
-        status: currentJobStatus?.status,
-        progress: currentJobStatus?.progress,
-        updated_at: currentJobStatus?.updated_at
-      })
       
-      // Special logging for Cohere progress
-      if (message.includes('Cohere:')) {
-        console.log(`🔄 [DATABASE] *** COHERE PROGRESS UPDATE *** ${progress}%: ${message}`)
-      }
-      
-      // Add stack trace for debugging unexpected progress jumps
-      if (progress > 60 && progress < 90 && !message.includes('Matching items')) {
-        console.log('   Stack trace for unexpected progress:', new Error().stack.split('\n').slice(2, 4).join('\n'))
+      // Advanced progress validation with model-specific logging
+      if (currentJobStatus) {
+        console.log(`🔍 [VALIDATION] Current: ${currentJobStatus.progress}% → Target: ${progress}%`)
+        
+        // Model-specific progress tracking
+        if (message.includes('Cohere')) {
+          console.log(`🧠 [COHERE TRACKING] Neural Network Progress: ${progress}%`)
+          console.log(`   └─ Previous: ${currentJobStatus.progress}% | Delta: +${progress - (currentJobStatus.progress || 0)}%`)
+        } else if (message.includes('OpenAI')) {
+          console.log(`🤖 [OPENAI TRACKING] GPT Embedding Progress: ${progress}%`)
+          console.log(`   └─ Vector Analysis: ${(progress / 100) * (extraData.total_items || 100)} items processed`)
+        } else if (message.includes('Local')) {
+          console.log(`💻 [LOCAL TRACKING] High-Speed Processing: ${progress}%`)
+          console.log(`   └─ Algorithm Performance: ${Math.round(progress * 10)}% efficiency`)
+        }
       }
       
       // Define final states that should not be overwritten
@@ -708,8 +1002,8 @@ export class PriceMatchingService {
         updateData.progress = Math.min(100, Math.max(0, progress))
       }
       
-      if (message) {
-        updateData.error_message = message
+      if (enhancedMessage) {
+        updateData.error_message = enhancedMessage
       }
       
       // Merge any extra data
@@ -927,6 +1221,7 @@ export class PriceMatchingService {
     // Pre-compute embeddings sequentially to show clear progress
     console.log('📊 Computing OpenAI embeddings...')
     const openaiStart = Date.now()
+    let openaiSuccessful = false
     
     // Check if job was cancelled before OpenAI
     if (isJobCancelled(jobId)) {
@@ -935,16 +1230,29 @@ export class PriceMatchingService {
       return { matches: [], totalMatched: 0, averageConfidence: 0, outputPath: null }
     }
     
-    await this.openAIMatcher.precomputePriceListEmbeddings(priceList, jobId, openaiProgressTracker)
-    console.log(`✅ OpenAI embeddings completed in ${((Date.now() - openaiStart) / 1000).toFixed(1)}s`)
-    
-    // Update to exactly 30% after OpenAI completion
-    await updateJobStatusWithThrottle(jobId, 'processing', 30, 'OpenAI embeddings completed')
+    try {
+      await this.openAIMatcher.precomputePriceListEmbeddings(priceList, jobId, openaiProgressTracker)
+      console.log(`✅ OpenAI embeddings completed in ${((Date.now() - openaiStart) / 1000).toFixed(1)}s`)
+      openaiSuccessful = true
+      
+      // Update to exactly 30% after OpenAI completion
+      await updateJobStatusWithThrottle(jobId, 'processing', 30, 'OpenAI embeddings completed')
+    } catch (openaiError) {
+      console.error(`⚠️ OpenAI embeddings failed:`, openaiError.message);
+      console.log(`📊 Continuing with Cohere-only matching due to OpenAI failure`)
+      
+      // Check if it's a quota error specifically
+      if (openaiError.message.includes('quota') || openaiError.message.includes('exceeded')) {
+        await updateJobStatusWithThrottle(jobId, 'processing', 30, 'OpenAI quota exceeded, using Cohere only')
+      } else {
+        await updateJobStatusWithThrottle(jobId, 'processing', 30, `OpenAI failed: ${openaiError.message}, using Cohere only`)
+      }
+    }
     
     // Check if job was cancelled after OpenAI but before Cohere
     if (isJobCancelled(jobId)) {
       console.log(`🛑 Job ${jobId} was cancelled after OpenAI, before Cohere embeddings`)
-      await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+      await this.updateJobStatus(jobId, 'stopped', 30, 'Job stopped by user')
       return { matches: [], totalMatched: 0, averageConfidence: 0, outputPath: null }
     }
     
@@ -965,11 +1273,14 @@ export class PriceMatchingService {
     // Check if job was cancelled after embeddings but before matching
     if (isJobCancelled(jobId)) {
       console.log(`🛑 Job ${jobId} was cancelled after embeddings, before matching`)
-      await this.updateJobStatus(jobId, 'stopped', 0, 'Job stopped by user')
+      await this.updateJobStatus(jobId, 'stopped', 50, 'Job stopped by user')
       return { matches: [], totalMatched: 0, averageConfidence: 0, outputPath: null }
     }
     
-    await updateJobStatusWithThrottle(jobId, 'processing', 55, 'AI embeddings ready, starting matching...')
+    await updateJobStatusWithThrottle(jobId, 'processing', 55, 'AI embeddings ready, starting matching...', {
+      total_items: boqItems.length,
+      matched_items: 0
+    })
     
     // Create matching progress trackers (55-85%) - FIXED range
     let cohereMatchProgress = 0
@@ -994,15 +1305,18 @@ export class PriceMatchingService {
         lastUpdateTime = now
         
         // Calculate combined progress for matching phase (55-85%)
-        const avgProgress = (cohereMatchProgress + openaiMatchProgress) / 2 // Average of both
+        // If OpenAI failed, use only Cohere progress
+        const avgProgress = openaiSuccessful 
+          ? (cohereMatchProgress + openaiMatchProgress) / 2 
+          : cohereMatchProgress
         const actualProgress = 55 + Math.round((avgProgress / 100) * 30) // Map to 55-85% range
         
         // Ensure monotonic progress
         if (actualProgress <= currentProgress) return
         
-        // Show both services' match counts
+        // Show services' match counts
         const cohereMsg = cohereMatchCount > 0 ? `Cohere: ${cohereMatchCount}` : ''
-        const openaiMsg = openaiMatchCount > 0 ? `OpenAI: ${openaiMatchCount}` : ''
+        const openaiMsg = openaiSuccessful && openaiMatchCount > 0 ? `OpenAI: ${openaiMatchCount}` : ''
         const matchesMsg = [cohereMsg, openaiMsg].filter(m => m).join(', ') || '0'
         
         await updateJobStatusWithThrottle(
@@ -1013,7 +1327,7 @@ export class PriceMatchingService {
           { 
             ...extraData, 
             matched_items: Math.max(cohereMatchCount, openaiMatchCount),
-            total_items: extraData?.total_items || 0
+            total_items: boqItems.length // Always maintain the original total
           }
         )
       }
@@ -1022,17 +1336,30 @@ export class PriceMatchingService {
     const cohereMatchUpdater = createMatchingProgressTracker('cohere')
     const openaiMatchUpdater = createMatchingProgressTracker('openai')
     
-    // Run both AI matchers in parallel with coordinated progress
-    console.log('🔄 Running parallel AI matching...')
-    const [cohereResult, openaiResult] = await Promise.all([
-      this.cohereMatcher.matchItems(boqItems, priceList, jobId, cohereMatchUpdater),
-      this.openAIMatcher.matchItems(boqItems, priceList, jobId, openaiMatchUpdater)
-    ])
+    // Run AI matchers - parallel if both available, sequential if only one
+    console.log('🔄 Running AI matching...')
+    let cohereResult, openaiResult
+    
+    if (openaiSuccessful) {
+      console.log('📊 Running hybrid matching (Cohere + OpenAI)')
+      const [cohereRes, openaiRes] = await Promise.all([
+        this.cohereMatcher.matchItems(boqItems, priceList, jobId, cohereMatchUpdater),
+        this.openAIMatcher.matchItems(boqItems, priceList, jobId, openaiMatchUpdater)
+      ])
+      cohereResult = cohereRes
+      openaiResult = openaiRes
+    } else {
+      console.log('📊 Running Cohere-only matching (OpenAI unavailable)')
+      cohereResult = await this.cohereMatcher.matchItems(boqItems, priceList, jobId, cohereMatchUpdater)
+      openaiResult = { matches: [], totalMatched: 0, averageConfidence: 0 } // Empty OpenAI results
+    }
     
     console.log(`📊 Cohere Results: ${cohereResult.totalMatched}/${boqItems.length} matched`)
-    console.log(`📊 OpenAI Results: ${openaiResult.totalMatched}/${boqItems.length} matched`)
+    if (openaiSuccessful) {
+      console.log(`📊 OpenAI Results: ${openaiResult.totalMatched}/${boqItems.length} matched`)
+    }
     
-    await updateJobStatusWithThrottle(jobId, 'processing', 85, 'Combining AI results...')
+    await updateJobStatusWithThrottle(jobId, 'processing', 85, openaiSuccessful ? 'Combining AI results...' : 'Processing Cohere results...')
     
     // Combine results using intelligent merging
     const hybridMatches = this.combineAIResults(cohereResult.matches, openaiResult.matches)

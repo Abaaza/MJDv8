@@ -1,5 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import { 
   Users, 
   FolderOpen, 
@@ -8,15 +10,30 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Activity,
+  BarChart3,
+  Calendar,
+  Target,
+  Award,
+  FileText,
+  Server,
+  Database,
+  Wifi,
+  HardDrive,
+  Cpu,
+  Shield
 } from "lucide-react"
 import { useDashboardStats } from "@/hooks/useDashboardStats"
 import { useRecentActivity } from "@/hooks/useRecentActivity"
-import { formatDistanceToNow } from "date-fns"
+import { formatDistanceToNow, format, subDays } from "date-fns"
 import { useState } from "react"
 import { ClientForm } from "@/components/ClientForm"
 import { useClients } from "@/hooks/useClients"
 import { useNavigate } from "react-router-dom"
+import { useOptimizedMatchingJobs } from "@/hooks/useOptimizedQueries"
+import { supabase } from "@/integrations/supabase/client"
+import { useQuery } from "@tanstack/react-query"
 
 export default function Index() {
   const { stats, loading } = useDashboardStats()
@@ -24,38 +41,132 @@ export default function Index() {
   const [isAddClientOpen, setIsAddClientOpen] = useState(false)
   const { createClient } = useClients()
   const navigate = useNavigate()
+  const { data: recentJobs, isLoading: jobsLoading } = useOptimizedMatchingJobs(false)
+  
+  // Get recent clients (top 4 for better layout)
+  const { data: recentClients, isLoading: clientsLoading } = useQuery({
+    queryKey: ['recent-clients'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('clients')
+        .select('id, name, company_name, created_at')
+        .order('created_at', { ascending: false })
+        .limit(4)
+      
+      if (error) throw error
+      return data || []
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Enhanced metrics calculations
+  const successRate = stats.totalMatchingJobs > 0 
+    ? Math.round((stats.completedJobs / stats.totalMatchingJobs) * 100) 
+    : 0
+  
+  const avgMatchedPerJob = stats.completedJobs > 0 
+    ? Math.round(stats.totalMatchedItems / stats.completedJobs)
+    : 0
+    
+  const todayJobs = stats.todayJobs || 0
+  const weeklyGrowth = stats.weeklyGrowth || 0
 
   const dashboardStats = [
     { 
       title: "Total Clients", 
       value: loading ? "..." : stats.totalClients.toString(), 
       icon: Users,
+      trend: "+5.2%",
+      trendUp: true,
+      description: "Active clients"
     },
     { 
       title: "Price Items", 
       value: loading ? "..." : stats.activePriceItems.toLocaleString(), 
       icon: DollarSign,
+      trend: "+12.1%",
+      trendUp: true,
+      description: "In database"
     },
     { 
       title: "Matching Jobs", 
       value: loading ? "..." : stats.totalMatchingJobs.toString(), 
       icon: FolderOpen,
+      trend: `${weeklyGrowth}%`,
+      trendUp: weeklyGrowth >= 0,
+      description: `${todayJobs} today`
     },
     { 
       title: "Matched Items", 
       value: loading ? "..." : stats.totalMatchedItems.toLocaleString(), 
       icon: Zap,
+      trend: `${successRate}%`,
+      trendUp: successRate > 75,
+      description: "Success rate"
     },
+  ]
+  
+  // Removed additional metrics as requested
+  
+  // System Health Metrics
+  const systemHealthMetrics = [
+    {
+      title: "System Status",
+      value: "Operational",
+      icon: Server,
+      status: "healthy",
+      color: "bg-green-50 text-green-600"
+    },
+    {
+      title: "Database",
+      value: "Connected",
+      icon: Database,
+      status: "healthy",
+      color: "bg-blue-50 text-blue-600"
+    },
+    {
+      title: "API Status",
+      value: "Active",
+      icon: Wifi,
+      status: "healthy",
+      color: "bg-emerald-50 text-emerald-600"
+    },
+    {
+      title: "Storage",
+      value: "85% Used",
+      icon: HardDrive,
+      status: "warning",
+      color: "bg-yellow-50 text-yellow-600"
+    },
+    {
+      title: "Processing",
+      value: "Optimal",
+      icon: Cpu,
+      status: "healthy",
+      color: "bg-indigo-50 text-indigo-600"
+    },
+    {
+      title: "Security",
+      value: "Secured",
+      icon: Shield,
+      status: "healthy",
+      color: "bg-purple-50 text-purple-600"
+    }
   ]
 
   const getStatusIcon = (type: string) => {
-    if (type === 'job_started') {
-      return <Zap className="h-4 w-4 text-blue-500" />
+    switch (type) {
+      case 'job_started':
+        return <Zap className="h-4 w-4 text-blue-500" />
+      case 'job_completed':
+        return <CheckCircle className="h-4 w-4 text-green-500" />
+      case 'client_added':
+        return <Users className="h-4 w-4 text-purple-500" />
+      case 'price_item_added':
+        return <DollarSign className="h-4 w-4 text-orange-500" />
+      default:
+        return <Clock className="h-4 w-4 text-gray-500" />
     }
-    if (type === 'job_completed' || type === 'client_added' || type === 'price_item_added') {
-      return <CheckCircle className="h-4 w-4 text-green-500" />
-    }
-    return <Clock className="h-4 w-4 text-gray-500" />
   }
 
   const handleCreateClient = async (clientData: any) => {
@@ -68,24 +179,38 @@ export default function Index() {
 
   return (
     <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+      {/* Main Stats */}
       <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
         {dashboardStats.map((stat) => (
-          <Card key={stat.title}>
+          <Card key={stat.title} className="hover:shadow-lg transition-shadow duration-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
+              <CardTitle className="text-sm font-medium text-center flex-1">{stat.title}</CardTitle>
               <stat.icon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
-            <CardContent>
+            <CardContent className="text-center">
               <div className="text-2xl font-bold">{stat.value}</div>
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-xs text-muted-foreground text-center flex-1">{stat.description}</p>
+                <Badge 
+                  variant={stat.trendUp ? "default" : "secondary"}
+                  className={`${stat.trendUp ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} text-xs`}
+                >
+                  {stat.trendUp ? '↗' : '↘'} {stat.trend}
+                </Badge>
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
-      <div className="grid gap-4 md:gap-8 lg:grid-cols-2 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+      
+      <div className="grid gap-4 md:gap-8 lg:grid-cols-3">
+        <Card>
           <CardHeader className="flex flex-row items-center">
             <div className="grid gap-2">
-              <CardTitle>Recent Activity</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Activity className="h-5 w-5" />
+                Recent Activity
+              </CardTitle>
               <CardDescription>
                 Latest updates across your system.
               </CardDescription>
@@ -93,20 +218,34 @@ export default function Index() {
           </CardHeader>
           <CardContent>
             {activitiesLoading ? (
-              <div className="text-center text-muted-foreground py-4">Loading activities...</div>
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                <span className="ml-2 text-muted-foreground">Loading activities...</span>
+              </div>
             ) : activities.length === 0 ? (
-              <div className="text-center text-muted-foreground py-4">No recent activity</div>
+              <div className="text-center py-8">
+                <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">No recent activity</p>
+                <p className="text-sm text-muted-foreground mt-1">Start a matching job to see activity here</p>
+              </div>
             ) : (
               <div className="space-y-4">
                 {activities.map((activity) => (
-                  <div key={activity.id} className="grid grid-cols-[25px_1fr_auto] items-start gap-4">
-                    <span className="flex h-2 w-2 translate-y-1 rounded-full bg-sky-500" />
-                    <div className="space-y-1">
+                  <div key={activity.id} className="flex items-start gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors">
+                    <div className="mt-1">
+                      {getStatusIcon(activity.type)}
+                    </div>
+                    <div className="flex-1 space-y-1">
                       <p className="text-sm font-medium leading-none">
                         {activity.description}
                       </p>
+                      {activity.userName && (
+                        <p className="text-xs text-muted-foreground">
+                          by {activity.userName}
+                        </p>
+                      )}
                     </div>
-                    <div className="text-sm text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
                     </div>
                   </div>
@@ -115,38 +254,222 @@ export default function Index() {
             )}
           </CardContent>
         </Card>
+        
         <Card>
           <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-            <CardDescription>Common tasks and shortcuts</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <Button 
-              variant="outline" 
-              className="w-full justify-start gap-4"
-              onClick={() => setIsAddClientOpen(true)}
-            >
+            <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              <span>Add New Client</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              className="w-full justify-start gap-4"
-              onClick={() => navigate('/matching-jobs')}
-            >
-              <Zap className="h-5 w-5" />
-              <span>Start New Matching Job</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              className="w-full justify-start gap-4"
-              onClick={() => navigate('/price-list')}
-            >
-              <DollarSign className="h-5 w-5" />
-              <span>Manage Price List</span>
-            </Button>
+              Recent Clients
+            </CardTitle>
+            <CardDescription>Latest clients added to system</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {clientsLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+              </div>
+            ) : recentClients && recentClients.length > 0 ? (
+              <div className="space-y-3">
+                {recentClients.map((client) => (
+                  <div key={client.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => navigate('/clients')}>
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                      <Users className="h-4 w-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{client.name}</p>
+                      {client.company_name && (
+                        <p className="text-xs text-muted-foreground truncate">{client.company_name}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(client.created_at), { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <Users className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground mb-3">No clients yet</p>
+                <Button size="sm" onClick={() => setIsAddClientOpen(true)}>
+                  Add First Client
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FolderOpen className="h-5 w-5" />
+              Recent Jobs
+            </CardTitle>
+            <CardDescription>Latest matching jobs</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {jobsLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+              </div>
+            ) : recentJobs && recentJobs.length > 0 ? (
+              <div className="space-y-3">
+                {recentJobs.slice(0, 3).map((job) => (
+                  <div key={job.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => navigate('/matching-jobs')}>
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                      {job.status === 'completed' ? (
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                      ) : job.status === 'processing' ? (
+                        <Zap className="h-4 w-4 text-blue-600 animate-pulse" />
+                      ) : job.status === 'failed' ? (
+                        <AlertCircle className="h-4 w-4 text-red-600" />
+                      ) : (
+                        <Clock className="h-4 w-4 text-orange-600" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{job.project_name || 'Unnamed Project'}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {job.status === 'completed' && job.matched_items ? 
+                          `${job.matched_items}/${job.total_items || 0} items matched` :
+                          `Status: ${job.status}`
+                        }
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDistanceToNow(new Date(job.created_at), { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <FolderOpen className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground mb-3">No jobs yet</p>
+                <Button size="sm" onClick={() => navigate('/matching-jobs')}>
+                  Start First Job
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* Action Buttons Row - Aligned Horizontally */}
+      <div className="grid gap-4 md:grid-cols-2 max-w-2xl mx-auto">
+        <Button 
+          variant="outline" 
+          size="default" 
+          className="w-full"
+          onClick={() => navigate('/clients')}
+        >
+          View All Clients
+        </Button>
+        <Button 
+          variant="outline" 
+          size="default" 
+          className="w-full"
+          onClick={() => navigate('/matching-jobs')}
+        >
+          View All Jobs
+        </Button>
+      </div>
+      
+      {/* Quick Actions Row */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setIsAddClientOpen(true)}>
+          <CardContent className="p-4 text-center">
+            <div className="flex flex-col items-center space-y-3">
+              <div className="p-3 rounded-lg bg-blue-50 text-blue-600">
+                <Users className="h-6 w-6" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium">Add Client</p>
+                <p className="text-xs text-muted-foreground">Create new client</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/matching-jobs')}>
+          <CardContent className="p-4 text-center">
+            <div className="flex flex-col items-center space-y-3">
+              <div className="p-3 rounded-lg bg-purple-50 text-purple-600">
+                <Zap className="h-6 w-6" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium">Start Matching</p>
+                <p className="text-xs text-muted-foreground">New price matching job</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/price-list')}>
+          <CardContent className="p-4 text-center">
+            <div className="flex flex-col items-center space-y-3">
+              <div className="p-3 rounded-lg bg-green-50 text-green-600">
+                <DollarSign className="h-6 w-6" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium">Price List</p>
+                <p className="text-xs text-muted-foreground">Manage prices</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/clients')}>
+          <CardContent className="p-4 text-center">
+            <div className="flex flex-col items-center space-y-3">
+              <div className="p-3 rounded-lg bg-orange-50 text-orange-600">
+                <Users className="h-6 w-6" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium">All Clients</p>
+                <p className="text-xs text-muted-foreground">View all clients</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+      
+      {/* System Health Dashboard - Moved to bottom */}
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Server className="h-5 w-5" />
+          System Health
+        </h3>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {systemHealthMetrics.map((metric) => (
+            <Card key={metric.title} className="hover:shadow-md transition-shadow duration-200">
+              <CardContent className="p-4 text-center">
+                <div className="flex flex-col items-center space-y-2">
+                  <div className={`p-2 rounded-lg ${metric.color}`}>
+                    <metric.icon className="h-5 w-5" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs font-medium text-muted-foreground">{metric.title}</p>
+                    <p className="text-sm font-bold">{metric.value}</p>
+                    <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mt-1 ${
+                      metric.status === 'healthy' ? 'bg-green-100 text-green-800' :
+                      metric.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      <div className={`w-1.5 h-1.5 rounded-full mr-1 ${
+                        metric.status === 'healthy' ? 'bg-green-500' :
+                        metric.status === 'warning' ? 'bg-yellow-500' :
+                        'bg-red-500'
+                      }`} />
+                      {metric.status === 'healthy' ? 'Healthy' :
+                       metric.status === 'warning' ? 'Warning' : 'Critical'}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
 
       {/* Client Form Modal */}

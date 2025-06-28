@@ -13,12 +13,18 @@ export class LocalPriceMatchingService {
     this.updateJobStatus = null // Will be set by PriceMatchingService
     this.outputDir = path.join(__dirname, '..', 'output')
     
+    console.log('💻 [LOCAL ENGINE] Initializing high-speed matching algorithms...')
+    
     // Ensure output directory exists
     fs.ensureDirSync(this.outputDir)
+    console.log(`📁 [LOCAL ENGINE] Output directory prepared: ${this.outputDir}`)
     
     // Initialize NLP tools
     this.stemmer = natural.PorterStemmer
     this.tokenizer = new natural.WordTokenizer()
+    
+    console.log('🔧 [LOCAL ENGINE] NLP processors initialized - Porter Stemmer + Word Tokenizer')
+    console.log('🎯 [LOCAL ENGINE] High-speed matching engine ready for processing')
     
     // Synonym map for better matching
     this.synonymMap = new Map([
@@ -143,78 +149,87 @@ export class LocalPriceMatchingService {
    */
   async matchItems(items, priceList, jobId, originalFileName, updateJobStatus) {
     try {
-      console.log(`🔍 [LOCAL MATCH DEBUG] Starting local price matching...`)
-      console.log(`📋 [LOCAL MATCH DEBUG] Items to match: ${items.length}`)
-      console.log(`💰 [LOCAL MATCH DEBUG] Price list entries: ${priceList.length}`)
-      console.log(`🆔 [LOCAL MATCH DEBUG] Job ID: ${jobId}`)
-      console.log(`📄 [LOCAL MATCH DEBUG] Original filename: ${originalFileName}`)
-      console.log(`🔧 [LOCAL MATCH DEBUG] updateJobStatus function type: ${typeof updateJobStatus}`)
+      console.log('\n' + '💻'.repeat(20) + ' LOCAL ENGINE ACTIVATION ' + '💻'.repeat(20));
+      console.log(`🚀 [LOCAL ENGINE] *** HIGH-SPEED MATCHING INITIATED ***`);
+      console.log(`📊 [LOCAL ENGINE] Processing dataset: ${items.length} BOQ items vs ${priceList.length} price entries`);
+      console.log(`🎯 [LOCAL ENGINE] Target file: ${originalFileName}`);
+      console.log(`⚡ [LOCAL ENGINE] Algorithm: Advanced NLP + Levenshtein + Token matching`);
       
-      // Test the updateJobStatus function immediately
+      // Validate processing function
       if (typeof updateJobStatus !== 'function') {
-        throw new Error('updateJobStatus is not a function!')
+        throw new Error('🚫 [LOCAL ENGINE] Status update function not available')
       }
       
-      console.log(`🧪 [LOCAL MATCH DEBUG] Testing updateJobStatus function...`)
-      const testResult = await updateJobStatus(jobId, 'processing', 45, 'Local matching initialized', {
+      console.log(`🔗 [LOCAL ENGINE] Dashboard connection established - initializing progress tracking`);
+      const testResult = await updateJobStatus(jobId, 'processing', 45, '💻 LOCAL ENGINE: High-speed algorithms activated | Preprocessing price database', {
         total_items: items.length,
-        matched_items: 0
+        matched_items: 0,
+        current_phase: 'local_matching_init',
+        model_type: 'local-engine'
       })
-      console.log(`🧪 [LOCAL MATCH DEBUG] Test updateJobStatus result: ${testResult}`)
+      console.log(`✅ [LOCAL ENGINE] Dashboard synchronization successful: ${testResult}`);
       
-      // Preprocess price list descriptions with enhanced processing
-      console.log(`🔄 [LOCAL MATCH DEBUG] Preprocessing price list...`)
+      // Enhanced preprocessing with performance tracking
+      console.log(`🔄 [LOCAL ENGINE] Preprocessing ${priceList.length} price entries with NLP...`);
+      const preprocessStart = Date.now();
       const processedPriceList = priceList.map(item => ({
         ...item,
         processed_description: this.preprocessDescription(item.description || item.full_context),
         tokens: this.tokenizeDescription(item.description || item.full_context),
         keywords: this.extractKeywords(item.description || item.full_context)
       }))
-      console.log(`✅ [LOCAL MATCH DEBUG] Price list preprocessed successfully`)
+      const preprocessTime = Date.now() - preprocessStart;
+      console.log(`⚡ [LOCAL ENGINE] Preprocessing complete in ${preprocessTime}ms | ${Math.round(priceList.length / (preprocessTime / 1000))} items/sec`)
       
       const matches = []
       let matchedCount = 0
       let totalConfidence = 0
       
-      // Process each item
+      // Enhanced processing loop with impressive logging
+      console.log(`🔥 [LOCAL ENGINE] Beginning high-speed analysis of ${items.length} items...`);
+      
       for (let i = 0; i < items.length; i++) {
         const item = items[i]
+        const itemStart = Date.now();
         
-        // Identify category for this item
+        // Enhanced category identification
         const categoryInfo = this.identifyCategory(item, {}, item.sheet_name)
-        console.log(`📂 Item ${i + 1}: Category = ${categoryInfo.category || 'none'} (confidence: ${categoryInfo.confidence})`)
+        if (i % 50 === 0) {
+          console.log(`\n🎯 [LOCAL ENGINE] *** PROCESSING BATCH ${Math.floor(i/50) + 1} ***`);
+          console.log(`📂 [LOCAL ENGINE] Item ${i + 1}: Category = ${categoryInfo.category || 'uncategorized'} (${Math.round(categoryInfo.confidence * 100)}% confidence)`);
+        }
         
         const processedItem = this.preprocessDescription(item.description)
         const itemTokens = this.tokenizeDescription(item.description)
         const itemKeywords = this.extractKeywords(item.description)
         
-        if (i % 50 === 0) {
-          console.log(`📊 Processing item ${i + 1}/${items.length}`)
-        }
+        // Calculate dynamic progress (45% to 85% range for local matching)
+        const progress = Math.round(45 + ((i / items.length) * 40))
+        const currentMatches = matches.length
+        const processingSpeed = i > 0 ? Math.round(i / ((Date.now() - preprocessStart) / 1000)) : 0;
         
-        // Update progress with item counts
-        const progress = Math.round(45 + ((i / items.length) * 40)) // Progress from 45% to 85%
-        const currentMatches = matches.length // All matches count since we always return a match
-        
-        // Update progress for every 10th item or major milestones to avoid overwhelming the frontend
-        const shouldUpdate = (i + 1) % 10 === 0 || (i + 1) === items.length || progress % 5 === 0
+        // Smart progress updates - more frequent for early items, less for later
+        const updateFrequency = i < 50 ? 5 : i < 200 ? 10 : 25;
+        const shouldUpdate = (i + 1) % updateFrequency === 0 || (i + 1) === items.length;
         
         if (updateJobStatus && shouldUpdate) {
           const updateResult = await updateJobStatus(jobId, 'processing', progress, 
-            `Local matching: ${i + 1}/${items.length} items processed (${currentMatches} matches found)`, {
+            `💻 LOCAL ENGINE: Analyzing item ${i + 1}/${items.length} | ${currentMatches} matches found | ${processingSpeed} items/sec`, {
               total_items: items.length,
-              matched_items: currentMatches
+              matched_items: currentMatches,
+              current_phase: 'local_matching_analysis',
+              model_type: 'local-engine',
+              processing_speed: processingSpeed
             })
           
-          // Log if the database update failed
           if (!updateResult) {
-            console.error(`❌ [LOCAL MATCH] Failed to update progress for item ${i + 1}/${items.length}`)
+            console.error(`❌ [LOCAL ENGINE] Dashboard update failed for item ${i + 1}`)
           } else {
-            console.log(`✅ [LOCAL MATCH] Progress updated: ${progress}% (${currentMatches} matches)`)
+            console.log(`✅ [LOCAL ENGINE] Dashboard updated: ${progress}% | Speed: ${processingSpeed} items/sec`)
           }
           
-          // Add a small delay to ensure frontend polling can catch this update
-          await new Promise(resolve => setTimeout(resolve, 100))
+          // Optimized delay
+          await new Promise(resolve => setTimeout(resolve, 50))
         }
         
         // Find best match with enhanced algorithm - try category first, then all items

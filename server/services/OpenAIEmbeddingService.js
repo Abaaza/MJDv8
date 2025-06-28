@@ -8,6 +8,9 @@ export class OpenAIEmbeddingService {
     this.BATCH_SIZE = 300 // OpenAI supports up to 2048 inputs per request
     this.model = 'text-embedding-3-large'
     this.dimensions = 3072 // Default dimensions for text-embedding-3-large
+    
+    console.log('🤖 [OPENAI] Initializing GPT embedding service...')
+    console.log(`🔧 [OPENAI] Model: ${this.model} | Dimensions: ${this.dimensions} | Batch: ${this.BATCH_SIZE}`)
   }
 
   /**
@@ -15,10 +18,14 @@ export class OpenAIEmbeddingService {
    */
   async generateEmbeddings(texts) {
     if (!this.apiKey) {
-      throw new Error('OpenAI API key not configured')
+      throw new Error('🚫 [OPENAI] GPT API credentials not configured - missing access token')
     }
 
     try {
+      console.log(`🚀 [OPENAI] Transmitting ${texts.length} texts to GPT embedding model...`)
+      console.log(`🔐 [OPENAI] Authenticating with OpenAI API servers...`)
+      
+      const startTime = Date.now()
       const response = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: {
@@ -31,16 +38,24 @@ export class OpenAIEmbeddingService {
           encoding_format: 'float'
         })
       })
+      
+      const apiTime = Date.now() - startTime
 
       if (!response.ok) {
         const error = await response.json()
+        console.error(`❌ [OPENAI] GPT API returned error: ${error.error?.message || response.statusText}`)
         throw new Error(`OpenAI API error: ${error.error?.message || response.statusText}`)
       }
 
       const data = await response.json()
-      return data.data.map(item => item.embedding)
+      const embeddings = data.data.map(item => item.embedding)
+      
+      console.log(`⚡ [OPENAI] GPT embeddings generated in ${apiTime}ms | ${embeddings.length} vectors | ${this.dimensions}D space`)
+      console.log(`🧮 [OPENAI] API performance: ${Math.round(texts.length / (apiTime / 1000))} embeddings/sec`)
+      
+      return embeddings
     } catch (error) {
-      console.error('❌ [OPENAI] Error generating embeddings:', error)
+      console.error('❌ [OPENAI] GPT embedding generation failed:', error)
       throw error
     }
   }

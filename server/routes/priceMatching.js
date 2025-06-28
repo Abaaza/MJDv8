@@ -280,11 +280,11 @@ router.post('/process-base64', async (req, res) => {
     // Check if job was cancelled before starting
     if (cancelledJobs.has(jobId)) {
       console.log(`🛑 [PROCESSING] Job ${jobId} was cancelled before processing started`)
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Job was cancelled',
-        jobId,
-        status: 'cancelled'
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Processing failed',
+        message: 'Job was cancelled by user',
+        jobId
       })
     }
     
@@ -529,10 +529,21 @@ router.get('/status/:jobId', async (req, res) => {
     const priceMatchingService = getPriceMatchingService()
     const status = await priceMatchingService.getJobStatus(jobId)
     
+    if (!status) {
+      console.log(`❌ No status found for job ${jobId}`)
+      return res.status(404).json({ 
+        error: 'Job not found',
+        message: `No job found with ID: ${jobId}`,
+        jobId
+      })
+    }
+    
     console.log(`📊 Status found for job ${jobId}:`, {
       status: status.status,
       progress: status.progress,
-      matched_items: status.matched_items
+      matched_items: status.matched_items,
+      total_items: status.total_items,
+      updated_at: status.updated_at
     })
     
     res.json(status)

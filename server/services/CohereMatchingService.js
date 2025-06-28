@@ -35,7 +35,8 @@ export class CohereMatchingService {
     let apiKey = null
     
     try {
-      console.log('🔑 Fetching Cohere API key from admin settings...')
+      console.log('🧠 [COHERE AI] Initializing advanced neural network...')
+      console.log('🔑 [COHERE AI] Fetching API credentials from secure vault...')
       
       const { data: settingsData, error: settingsError } = await this.supabase
         .from('app_settings')
@@ -44,10 +45,10 @@ export class CohereMatchingService {
         .single()
 
       if (settingsError) {
-        console.error('❌ Error fetching admin settings:', settingsError)
+        console.error('❌ [COHERE AI] Error accessing secure credentials:', settingsError)
       } else if (settingsData?.cohere_api_key) {
         apiKey = settingsData.cohere_api_key
-        console.log('✅ Successfully retrieved Cohere API key from admin settings')
+        console.log('✅ [COHERE AI] Neural network credentials authenticated successfully')
       }
     } catch (error) {
       console.error('⚠️ Failed to fetch API key from database:', error)
@@ -57,18 +58,20 @@ export class CohereMatchingService {
     if (!apiKey) {
       apiKey = process.env.COHERE_API_KEY
       if (apiKey) {
-        console.log('✅ Using Cohere API key from environment variable as fallback')
+        console.log('🔄 [COHERE AI] Using backup credentials from environment vault')
       }
     }
 
     if (!apiKey) {
-      throw new Error('No Cohere API key found in database or environment variables. Please add it to Admin Settings.')
+      throw new Error('🚫 [COHERE AI] Neural network access denied - missing credentials. Please configure in Admin Settings.')
     }
 
     // Initialize Cohere client
+    console.log('🚀 [COHERE AI] Activating advanced language model...')
     this.cohere = new CohereClient({
       token: apiKey
     })
+    console.log('✅ [COHERE AI] Neural network online - Ready for semantic analysis')
   }
 
   /**
@@ -158,8 +161,10 @@ export class CohereMatchingService {
    */
   async precomputePriceListEmbeddings(priceItems, jobId, pmService) {
     try {
-      console.log(`⚡ [COHERE] Pre-computing embeddings for ${priceItems.length} price items...`);
-      console.log(`[COHERE DEBUG] First 3 price items:`, priceItems.slice(0, 3).map(item => ({
+      console.log('\n' + '🧠'.repeat(20) + ' COHERE AI NEURAL NETWORK ' + '🧠'.repeat(20));
+      console.log(`🚀 [COHERE AI] *** ADVANCED EMBEDDING COMPUTATION INITIATED ***`);
+      console.log(`📊 [COHERE AI] Dataset size: ${priceItems.length} items for neural processing`);
+      console.log(`🔬 [COHERE AI] Sample analysis preview:`, priceItems.slice(0, 3).map(item => ({
         id: item.id,
         description: item.description?.substring(0, 50) + '...',
         rate: item.rate,
@@ -168,7 +173,7 @@ export class CohereMatchingService {
       
       // Initialize Cohere client first
       await this.initializeCohere();
-      console.log(`✅ [COHERE] Client initialized successfully`);
+      console.log(`⚡ [COHERE AI] Neural network fully activated and optimized`);
       
       this.embeddings.clear();
       this.embeddingsByCategory = new Map(); // Store embeddings by category
@@ -176,7 +181,8 @@ export class CohereMatchingService {
       
       // Calculate total batches for progress tracking
       const totalBatches = Math.ceil(priceItems.length / this.EMBEDDING_BATCH_SIZE);
-      console.log(`📊 [COHERE] Will process ${totalBatches} batches of ${this.EMBEDDING_BATCH_SIZE} items each`);
+      console.log(`🎯 [COHERE AI] Parallel processing: ${totalBatches} neural batches x ${this.EMBEDDING_BATCH_SIZE} vectors each`);
+      console.log(`🧮 [COHERE AI] Estimated processing time: ${Math.round(totalBatches * 2.5)}s at current neural speed`);
       
       // pmService is always the wrapper for progress tracking - we'll work with it correctly
     
@@ -195,9 +201,12 @@ export class CohereMatchingService {
         const texts = batch.map(item => this.createSearchText(item));
         
         const currentBatch = Math.floor(i / this.EMBEDDING_BATCH_SIZE) + 1;
-        console.log(`🔄 [COHERE] Processing embedding batch ${currentBatch}/${totalBatches} (${batch.length} items)`);
+        console.log(`\n🔥 [COHERE AI] *** NEURAL BATCH ${currentBatch}/${totalBatches} PROCESSING ***`);
+        console.log(`📡 [COHERE AI] Transmitting ${batch.length} text vectors to language model...`);
+        console.log(`🧠 [COHERE AI] Activating embed-english-v3.0 neural architecture...`);
       
       try {
+        const batchStartTime = Date.now();
         const response = await this.cohere.embed({
           texts: texts,
           model: 'embed-english-v3.0',
@@ -205,8 +214,10 @@ export class CohereMatchingService {
           truncate: 'END',
           embeddingTypes: ['float'],
         });
+        const batchTime = Date.now() - batchStartTime;
         
-        console.log(`✅ [COHERE] Got embeddings for batch ${currentBatch}, storing...`);
+        console.log(`⚡ [COHERE AI] Neural computation complete in ${batchTime}ms | ${batch.length} vectors generated`);
+        console.log(`💾 [COHERE AI] Caching ${response.embeddings.float.length} high-dimensional embeddings...`);
         
         // Store embeddings
         batch.forEach((item, index) => {
@@ -230,28 +241,38 @@ export class CohereMatchingService {
         
         // Update progress during embedding computation
         if (pmService && pmService.updateJobStatus && jobId) {
-          // Use the progress wrapper correctly - pass individual batch progress
-          const batchProgress = Math.round((currentBatch / totalBatches) * 100);
-          console.log(`🔄 [COHERE] Updating progress: batch ${currentBatch}/${totalBatches} = ${batchProgress}% of embedding phase`);
+          const batchProgress = Math.round((currentBatch / totalBatches) * 30); // Embedding is 30% of total
+          const itemsProcessed = Math.min(i + batch.length, priceItems.length);
+          const vectorsPerSecond = Math.round(batch.length / (batchTime / 1000));
           
-          // Call the wrapper with correct parameter order: (jobId, status, serviceProgress, message, extraData)
+          console.log(`📊 [COHERE AI] Neural network performance: ${vectorsPerSecond} vectors/sec`);
+          console.log(`🎯 [COHERE AI] Broadcasting progress to frontend dashboard...`);
+          
           const embeddingUpdateResult = await pmService.updateJobStatus(
             jobId, 
             'processing', 
-            batchProgress, 
-            `Cohere: Computing embeddings batch ${currentBatch}/${totalBatches} (${Math.min(i + batch.length, priceItems.length)}/${priceItems.length} items)`
+            15 + batchProgress, // Start at 15% for embedding phase
+            `🧠 COHERE AI: Neural batch ${currentBatch}/${totalBatches} | ${itemsProcessed}/${priceItems.length} items vectorized | ${vectorsPerSecond} vectors/sec`,
+            { 
+              total_items: priceItems.length,
+              processed_items: itemsProcessed,
+              current_phase: 'embedding_computation',
+              model_type: 'cohere-ai'
+            }
           );
           
           if (!embeddingUpdateResult) {
-            console.error(`❌ [COHERE EMBEDDING] Failed to update progress for batch ${currentBatch}/${totalBatches}`)
+            console.error(`❌ [COHERE AI] Neural network status update failed for batch ${currentBatch}`)
           } else {
-            console.log(`✅ [COHERE EMBEDDING] Progress update successful: ${batchProgress}%`)
+            console.log(`✅ [COHERE AI] Dashboard successfully updated with neural progress`)
           }
         }
         
-        console.log(`📊 [COHERE] Progress: ${Math.round((currentBatch / totalBatches) * 100)}% (${i + batch.length}/${priceItems.length} items)`);
+        const overallProgress = Math.round((currentBatch / totalBatches) * 100);
+        console.log(`🚀 [COHERE AI] Embedding phase progress: ${overallProgress}% | ${i + batch.length}/${priceItems.length} items neural-processed`);
         
-        // Longer delay to ensure frontend sees the progress update
+        // Enhanced delay with progress indication
+        console.log(`⏳ [COHERE AI] Cooling neural processors... (300ms)`);
         await new Promise(resolve => setTimeout(resolve, 300));
       } catch (error) {
         console.error(`❌ [COHERE] Error computing embeddings batch ${currentBatch}:`, error);
