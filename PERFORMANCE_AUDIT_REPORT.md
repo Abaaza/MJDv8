@@ -105,7 +105,7 @@ The price matching system demonstrates good architecture with several optimizati
 
 // After: Rich analytics with trends
 {
-  title: "Total Clients",
+  title: "Total Clientss",
   value: "123",
   trend: "+5.2%",
   trendUp: true,
