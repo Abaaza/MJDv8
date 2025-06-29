@@ -224,7 +224,7 @@ export const AdminSettingsSection: React.FC = () => {
                     placeholder="co-..."
                     className="flex-1"
                   />
-                  {settings?.cohere_api_key && (
+                  {settings?.cohere_api_key && settings.cohere_api_key.trim() !== '' && (
                     <Button
                       type="button"
                       variant="destructive"
@@ -264,7 +264,7 @@ export const AdminSettingsSection: React.FC = () => {
                     placeholder="sk-..."
                     className="flex-1"
                   />
-                  {settings?.openai_api_key && (
+                  {settings?.openai_api_key && settings.openai_api_key.trim() !== '' && (
                     <Button
                       type="button"
                       variant="destructive"
@@ -301,41 +301,6 @@ export const AdminSettingsSection: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Application Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Application Settings</CardTitle>
-          <CardDescription>Configure global application settings</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="company_name">Company Name</Label>
-                <Input
-                  id="company_name"
-                  value={formData.company_name}
-                  onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                  placeholder="Enter company name"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="currency">Default Currency</Label>
-                <Input
-                  id="currency"
-                  value={formData.currency}
-                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                  placeholder="USD"
-                />
-              </div>
-            </div>
-
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Updating...' : 'Update Settings'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
     </div>
   );
 };

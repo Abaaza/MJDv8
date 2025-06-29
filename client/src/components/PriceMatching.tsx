@@ -1011,14 +1011,21 @@ export function PriceMatching() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="project-name" className="text-left">Project Name</Label>
-              <Input id="project-name" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="e.g., Summerfield Residential" disabled={isProcessing} className="text-left" />
+              <Label htmlFor="project-name" className="text-left text-sm font-medium">Project Name</Label>
+              <Input 
+                id="project-name" 
+                value={projectName} 
+                onChange={(e) => setProjectName(e.target.value)} 
+                placeholder="e.g., Summerfield Residential" 
+                disabled={isProcessing} 
+                className="text-left h-11 touch-manipulation" 
+              />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="client-input" className="text-left">Client</Label>
-              <div className="flex gap-2">
+              <Label htmlFor="client-input" className="text-left text-sm font-medium">Client</Label>
+              <div className="flex flex-col sm:flex-row gap-2">
                 <div className="relative flex-1">
                   <Input
                     id="client-input"
@@ -1028,31 +1035,46 @@ export function PriceMatching() {
                     disabled={isProcessing}
                     onFocus={() => setShowClientSuggestions(true)}
                     onBlur={() => setTimeout(() => setShowClientSuggestions(false), 200)}
-                    className="text-left"
+                    className="text-left h-11 touch-manipulation"
                   />
                   {showClientSuggestions && filteredClients.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-card border rounded-md shadow-lg max-h-60 overflow-auto">
+                    <div className="absolute z-20 w-full mt-1 bg-card border rounded-md shadow-lg max-h-60 overflow-auto">
                       {filteredClients.map((client) => (
-                        <div key={client.id} className="px-3 py-2 cursor-pointer hover:bg-muted" onMouseDown={() => handleClientSelect(client)}>
-                          <p className="font-medium">{client.name}</p>
-                          {client.company_name && <p className="text-sm text-muted-foreground">{client.company_name}</p>}
+                        <div 
+                          key={client.id} 
+                          className="px-3 py-3 cursor-pointer hover:bg-muted touch-manipulation" 
+                          onMouseDown={() => handleClientSelect(client)}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <p className="font-medium text-sm">{client.name}</p>
+                          {client.company_name && <p className="text-xs text-muted-foreground truncate">{client.company_name}</p>}
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
-                <Button variant="outline" onClick={() => setShowClientForm(true)} disabled={isProcessing}><Plus className="h-4 w-4" /></Button>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowClientForm(true)} 
+                  disabled={isProcessing}
+                  className="h-11 px-3 touch-manipulation sm:w-auto w-full"
+                  aria-label="Add new client"
+                >
+                  <Plus className="h-4 w-4 sm:mr-0 mr-2" />
+                  <span className="sm:hidden">Add New Client</span>
+                </Button>
               </div>
             </div>
           </div>
           <div className="grid gap-2">
-            <Label>Matching Method</Label>
+            <Label className="text-sm font-medium">Matching Method</Label>
             <Select 
               value={matchingMethod} 
               onValueChange={(value: 'hybrid' | 'openai' | 'cohere' | 'local' | 'hybrid2') => setMatchingMethod(value)}
               disabled={isProcessing}
             >
-              <SelectTrigger>
+              <SelectTrigger className="h-11 touch-manipulation">
                 <SelectValue placeholder="Select matching method" />
               </SelectTrigger>
               <SelectContent>
@@ -1065,12 +1087,19 @@ export function PriceMatching() {
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label>BoQ File</Label>
+            <Label className="text-sm font-medium">BoQ File</Label>
             <ExcelUpload onFileSelect={handleFileSelect} disabled={isProcessing} />
           </div>
-          <Button onClick={handleStartMatching} disabled={!selectedFile || !projectName.trim() || !clientNameInput.trim() || isProcessing} size="lg">
+          <Button 
+            onClick={handleStartMatching} 
+            disabled={!selectedFile || !projectName.trim() || !clientNameInput.trim() || isProcessing} 
+            size="lg"
+            className="w-full sm:w-auto h-12 touch-manipulation text-base"
+          >
             <Play className="h-5 w-5 mr-2" />
-            {isProcessing ? 'Processing...' : matchingMethod === 'local' ? 'Start Local Matching' : 'Start AI Matching'}
+            <span className="truncate">
+              {isProcessing ? 'Processing...' : matchingMethod === 'local' ? 'Start Local Matching' : 'Start AI Matching'}
+            </span>
           </Button>
         </CardContent>
       </Card>
@@ -1078,17 +1107,18 @@ export function PriceMatching() {
       {(isProcessing || (currentJob && (currentJob.status === 'cancelled' || currentJob.status === 'stopped' || currentJob.status === 'failed'))) && currentJob && (
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Processing Job</CardTitle>
-                <CardDescription>Job ID: {currentJob.id}</CardDescription>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <CardTitle className="text-lg">Processing Job</CardTitle>
+                <CardDescription className="text-sm truncate">Job ID: {currentJob.id}</CardDescription>
               </div>
               {(currentJob.status === 'processing' || currentJob.status === 'pending') && (
                 <Button
                   variant="destructive"
                   size="sm"
                   onClick={handleStopMatching}
-                  className="ml-4"
+                  className="w-full sm:w-auto h-10 touch-manipulation"
+                  aria-label="Stop processing"
                 >
                   <Square className="h-4 w-4 mr-2" />
                   Stop Process
@@ -1097,15 +1127,15 @@ export function PriceMatching() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center gap-4 mb-4">
-              {getStatusIcon(currentJob.status)}
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="font-semibold text-lg capitalize">{currentJob.status}</p>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="font-mono text-lg px-3 py-1">
-                      {currentJob.progress || 0}%
-                    </Badge>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
+              <div className="flex items-center gap-3">
+                {getStatusIcon(currentJob.status)}
+                <p className="font-semibold text-base sm:text-lg capitalize">{currentJob.status}</p>
+              </div>
+              <div className="flex items-center justify-between sm:justify-end gap-2 flex-1">
+                <Badge variant="outline" className="font-mono text-sm sm:text-lg px-2 sm:px-3 py-1">
+                  {currentJob.progress || 0}%
+                </Badge>
                     {currentJob.progress >= 100 ? (
                       <div className="flex items-center gap-1 text-green-600">
                         <CheckCircle className="w-4 h-4" />
@@ -1138,8 +1168,6 @@ export function PriceMatching() {
                    currentJob.progress >= 5 ? '📄 Parsing input file...' :
                    '🎯 Initializing...'}
                 </div>
-              </div>
-            </div>
             <div className="grid grid-cols-3 gap-4 text-center mb-4">
               <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
                 <CardContent className="p-4">
@@ -1186,19 +1214,19 @@ export function PriceMatching() {
                 </CardContent>
               </Card>
             </div>
-            <div ref={logContainerRef} className="bg-gradient-to-b from-slate-900 to-slate-800 p-4 rounded-lg h-64 overflow-y-auto font-mono text-xs space-y-2 border border-slate-600 shadow-inner">
+            <div ref={logContainerRef} className="bg-card border p-4 rounded-lg h-64 overflow-y-auto font-mono text-xs space-y-2 shadow-inner">
               {(() => {
                 console.log(`🎨 [RENDER] Rendering ${logs.length} log entries:`, logs.map(l => l.message));
                 return null;
               })()}
               
               {/* Enhanced log header */}
-              <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-600">
+              <div className="flex items-center justify-between mb-2 pb-2 border-b border-border">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  <span className="text-green-400 font-semibold text-xs">LIVE PROCESSING LOG</span>
+                  <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                  <span className="text-primary font-semibold text-xs">LIVE PROCESSING LOG</span>
                 </div>
-                <div className="text-slate-400 text-xs">
+                <div className="text-muted-foreground text-xs">
                   {logs.length} entries
                 </div>
               </div>
@@ -1206,12 +1234,10 @@ export function PriceMatching() {
               {/* Enhanced log entries */}
               {logs.map((logEntry, index) => {
                 const getModelColor = (message) => {
-                  if (message.includes('🧠') || message.includes('COHERE')) return 'text-purple-400'
-                  if (message.includes('🤖') || message.includes('OPENAI')) return 'text-blue-400'
-                  if (message.includes('💻') || message.includes('LOCAL')) return 'text-green-400'
-                  if (message.includes('🌟') || message.includes('HYBRID')) return 'text-yellow-400'
-                  if (message.includes('⚡') || message.includes('ADVANCED')) return 'text-red-400'
-                  return 'text-slate-300'
+                  // Use subtle colors only for important messages
+                  if (message.includes('ERROR')) return 'text-destructive'
+                  if (message.includes('COMPLETE')) return 'text-muted-foreground'
+                  return 'text-foreground'
                 }
 
                 const getProgressBar = (message) => {
@@ -1233,11 +1259,11 @@ export function PriceMatching() {
                   <div 
                     key={index} 
                     className={`transition-all duration-300 ${
-                      isImportant ? 'bg-slate-700/50 border-l-2 border-yellow-400 pl-2' : ''
-                    } ${index === logs.length - 1 ? 'animate-pulse' : ''}`}
+                      isImportant ? 'bg-muted/30 border-l-2 border-muted-foreground/30 pl-2' : ''
+                    } ${index === logs.length - 1 ? 'opacity-90' : ''}`}
                   >
                     <div className="flex items-start gap-2">
-                      <span className="text-slate-500 text-[10px] mt-0.5 font-mono min-w-[60px]">
+                      <span className="text-muted-foreground text-[10px] mt-0.5 font-mono min-w-[60px]">
                         {logEntry.timestamp}
                       </span>
                       <div className="flex-1">
@@ -1245,31 +1271,31 @@ export function PriceMatching() {
                           {logEntry.message}
                         </div>
                         {progressBar && (
-                          <div className="text-slate-400 text-[10px] mt-1 font-mono">
+                          <div className="text-muted-foreground text-[10px] mt-1 font-mono">
                             {progressBar}
                           </div>
                         )}
                       </div>
                       {/* Status indicator */}
-                      <div className="w-1 h-1 rounded-full bg-slate-500 mt-2 flex-shrink-0"></div>
+                      <div className="w-1 h-1 rounded-full bg-muted-foreground mt-2 flex-shrink-0"></div>
                     </div>
                   </div>
                 )
               })}
               
               {logs.length === 0 && (
-                <div className="text-slate-400 text-center py-8">
+                <div className="text-muted-foreground text-center py-8">
                   <div className="flex flex-col items-center gap-2">
-                    <div className="w-8 h-8 border-2 border-slate-600 rounded-full animate-spin border-t-blue-400"></div>
+                    <div className="w-8 h-8 border-2 border-border rounded-full animate-spin border-t-primary"></div>
                     <span>Initializing AI processing engines...</span>
-                    <div className="text-[10px] text-slate-500">Waiting for log messages</div>
+                    <div className="text-[10px] text-muted-foreground">Waiting for log messages</div>
                   </div>
                 </div>
               )}
               
               {/* Scroll indicator */}
               {logs.length > 10 && (
-                <div className="absolute bottom-2 right-2 text-slate-500 text-[10px] bg-slate-800 px-2 py-1 rounded border border-slate-600">
+                <div className="absolute bottom-2 right-2 text-muted-foreground text-[10px] bg-card px-2 py-1 rounded border">
                   Scroll for more ↓
                 </div>
               )}

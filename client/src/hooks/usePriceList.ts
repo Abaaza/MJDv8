@@ -64,8 +64,8 @@ export function usePriceList() {
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(ITEMS_PER_PAGE_OPTIONS[0])
-  const [sortField, setSortField] = useState<SortField>('created_at')
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+  const [sortField, setSortField] = useState<SortField>('category')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const { user } = useAuth()
   const queryClient = useQueryClient()
   

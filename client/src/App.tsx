@@ -6,6 +6,8 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { MobileHeader } from "@/components/MobileHeader";
+import { ConnectionMonitor } from "@/components/ConnectionMonitor";
 import React, { Suspense, lazy } from 'react';
 import "./App.css";
 import { useState, useEffect } from "react";
@@ -33,6 +35,7 @@ const LazyImage = ({ src, alt, ...props }) => (
 
 function AppContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const location = useLocation();
   const isAuthPage = location.pathname === '/auth';
 
@@ -52,15 +55,19 @@ function AppContent() {
           path="/*"
           element={
             <ProtectedRoute>
-              <div className="flex w-full">
-                <CollapsibleSidebar 
-                  onCollapseChange={setIsSidebarCollapsed}
-                />
-                <main className={`flex-1 overflow-auto transition-all duration-300 ${
-                  isSidebarCollapsed ? 'ml-16' : 'ml-64'
-                }`}>
-                  <div>
-                    <Routes>
+              <div className="flex flex-col w-full h-screen">
+                <MobileHeader onMenuClick={() => setIsMobileSidebarOpen(true)} />
+                <div className="flex flex-1 overflow-hidden">
+                  <CollapsibleSidebar 
+                    onCollapseChange={setIsSidebarCollapsed}
+                    isMobileOpen={isMobileSidebarOpen}
+                    onMobileOpenChange={setIsMobileSidebarOpen}
+                  />
+                  <main className={`flex-1 overflow-auto transition-all duration-300 ${
+                    isSidebarCollapsed ? 'md:ml-16' : 'md:ml-64'
+                  }`}>
+                    <div>
+                      <Routes>
                       <Route path="/" element={<Suspense fallback={<div>Loading...</div>}><Index /></Suspense>} />
                       <Route path="/clients" element={<Suspense fallback={<div>Loading...</div>}><Clients /></Suspense>} />
                       <Route path="/projects" element={<Suspense fallback={<div>Loading...</div>}><Projects /></Suspense>} />
@@ -74,11 +81,12 @@ function AppContent() {
                   </div>
                 </main>
               </div>
-            </ProtectedRoute>
-          }
-        />
-      </Routes>
-    </div>
+            </div>
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  </div>
   );
 }
 
@@ -95,6 +103,7 @@ function App() {
               }}
             >
               <AppContent />
+              <ConnectionMonitor />
               <Toaster />
             </Router>
           </AuthProvider>

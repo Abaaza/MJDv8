@@ -76,23 +76,23 @@ export default function Index() {
       title: "Total Clients", 
       value: loading ? "..." : stats.totalClients.toString(), 
       icon: Users,
-      trend: "+5.2%",
-      trendUp: true,
+      trend: loading ? "..." : `${stats.clientsGrowth >= 0 ? '+' : ''}${stats.clientsGrowth}%`,
+      trendUp: stats.clientsGrowth >= 0,
       description: "Active clients"
     },
     { 
       title: "Price Items", 
       value: loading ? "..." : stats.activePriceItems.toLocaleString(), 
       icon: DollarSign,
-      trend: "+12.1%",
-      trendUp: true,
+      trend: loading ? "..." : `${stats.priceItemsGrowth >= 0 ? '+' : ''}${stats.priceItemsGrowth}%`,
+      trendUp: stats.priceItemsGrowth >= 0,
       description: "In database"
     },
     { 
       title: "Matching Jobs", 
       value: loading ? "..." : stats.totalMatchingJobs.toString(), 
       icon: FolderOpen,
-      trend: `${weeklyGrowth}%`,
+      trend: loading ? "..." : `${weeklyGrowth >= 0 ? '+' : ''}${weeklyGrowth}%`,
       trendUp: weeklyGrowth >= 0,
       description: `${todayJobs} today`
     },
@@ -100,9 +100,9 @@ export default function Index() {
       title: "Matched Items", 
       value: loading ? "..." : stats.totalMatchedItems.toLocaleString(), 
       icon: Zap,
-      trend: `${successRate}%`,
-      trendUp: successRate > 75,
-      description: "Success rate"
+      trend: loading ? "..." : `${stats.matchedItemsGrowth >= 0 ? '+' : ''}${stats.matchedItemsGrowth}%`,
+      trendUp: stats.matchedItemsGrowth >= 0,
+      description: `${successRate}% success rate`
     },
   ]
   
@@ -178,22 +178,22 @@ export default function Index() {
   }
 
   return (
-    <main className="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+    <main className="flex flex-1 flex-col gap-4 p-3 sm:p-4 md:gap-6 md:p-6 lg:gap-8 lg:p-8">
       {/* Main Stats */}
-      <div className="grid gap-4 md:grid-cols-2 md:gap-8 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-4 lg:gap-8">
         {dashboardStats.map((stat) => (
           <Card key={stat.title} className="hover:shadow-lg transition-shadow duration-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-center flex-1">{stat.title}</CardTitle>
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-xs sm:text-sm font-medium text-left flex-1 leading-tight">{stat.title}</CardTitle>
+              <stat.icon className="h-4 w-4 text-muted-foreground flex-shrink-0" />
             </CardHeader>
-            <CardContent className="text-center">
-              <div className="text-2xl font-bold">{stat.value}</div>
-              <div className="flex items-center justify-between mt-2">
-                <p className="text-xs text-muted-foreground text-center flex-1">{stat.description}</p>
+            <CardContent className="text-left">
+              <div className="text-xl sm:text-2xl font-bold mb-2">{stat.value}</div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2">
+                <p className="text-xs text-muted-foreground">{stat.description}</p>
                 <Badge 
                   variant={stat.trendUp ? "default" : "secondary"}
-                  className={`${stat.trendUp ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} text-xs`}
+                  className={`${stat.trendUp ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} text-xs self-start sm:self-auto`}
                 >
                   {stat.trendUp ? '↗' : '↘'} {stat.trend}
                 </Badge>
@@ -203,15 +203,15 @@ export default function Index() {
         ))}
       </div>
       
-      <div className="grid gap-4 md:gap-8 lg:grid-cols-3">
+      <div className="grid gap-3 sm:gap-4 md:gap-6 lg:gap-8 lg:grid-cols-3">
         <Card>
-          <CardHeader className="flex flex-row items-center">
-            <div className="grid gap-2">
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
+          <CardHeader className="pb-3">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                <Activity className="h-4 w-4 sm:h-5 sm:w-5" />
                 Recent Activity
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-xs sm:text-sm">
                 Latest updates across your system.
               </CardDescription>
             </div>
@@ -231,21 +231,21 @@ export default function Index() {
             ) : (
               <div className="space-y-4">
                 {activities.map((activity) => (
-                  <div key={activity.id} className="flex items-start gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors">
-                    <div className="mt-1">
+                  <div key={activity.id} className="flex items-start gap-3 p-2 sm:p-3 rounded-lg hover:bg-muted/50 transition-colors touch-manipulation">
+                    <div className="mt-0.5 flex-shrink-0">
                       {getStatusIcon(activity.type)}
                     </div>
-                    <div className="flex-1 space-y-1">
-                      <p className="text-sm font-medium leading-none">
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <p className="text-xs sm:text-sm font-medium leading-tight truncate">
                         {activity.description}
                       </p>
                       {activity.userName && (
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground truncate">
                           by {activity.userName}
                         </p>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
                       {formatDistanceToNow(new Date(activity.timestamp), { addSuffix: true })}
                     </div>
                   </div>
@@ -256,12 +256,24 @@ export default function Index() {
         </Card>
         
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Recent Clients
-            </CardTitle>
-            <CardDescription>Latest clients added to system</CardDescription>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="min-w-0">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  <Users className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
+                  Recent Clients
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">Latest clients added to system</CardDescription>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => navigate('/clients')}
+                className="h-8 touch-manipulation self-start sm:self-auto"
+              >
+                View All
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {clientsLoading ? (
@@ -271,12 +283,12 @@ export default function Index() {
             ) : recentClients && recentClients.length > 0 ? (
               <div className="space-y-3">
                 {recentClients.map((client) => (
-                  <div key={client.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => navigate('/clients')}>
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <div key={client.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer touch-manipulation" onClick={() => navigate('/clients')}>
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                       <Users className="h-4 w-4 text-primary" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{client.name}</p>
+                      <p className="font-medium text-xs sm:text-sm truncate">{client.name}</p>
                       {client.company_name && (
                         <p className="text-xs text-muted-foreground truncate">{client.company_name}</p>
                       )}
@@ -300,12 +312,24 @@ export default function Index() {
         </Card>
         
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FolderOpen className="h-5 w-5" />
-              Recent Jobs
-            </CardTitle>
-            <CardDescription>Latest matching jobs</CardDescription>
+          <CardHeader className="pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="min-w-0">
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  <FolderOpen className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
+                  Recent Jobs
+                </CardTitle>
+                <CardDescription className="text-xs sm:text-sm">Latest matching jobs</CardDescription>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => navigate('/matching-jobs')}
+                className="h-8 touch-manipulation self-start sm:self-auto"
+              >
+                View All
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {jobsLoading ? (
@@ -315,8 +339,8 @@ export default function Index() {
             ) : recentJobs && recentJobs.length > 0 ? (
               <div className="space-y-3">
                 {recentJobs.slice(0, 3).map((job) => (
-                  <div key={job.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => navigate('/matching-jobs')}>
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                  <div key={job.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer touch-manipulation" onClick={() => navigate('/matching-jobs')}>
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                       {job.status === 'completed' ? (
                         <CheckCircle className="h-4 w-4 text-green-600" />
                       ) : job.status === 'processing' ? (
@@ -328,7 +352,7 @@ export default function Index() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{job.project_name || 'Unnamed Project'}</p>
+                      <p className="font-medium text-xs sm:text-sm truncate">{job.project_name || 'Unnamed Project'}</p>
                       <p className="text-xs text-muted-foreground">
                         {job.status === 'completed' && job.matched_items ? 
                           `${job.matched_items}/${job.total_items || 0} items matched` :
@@ -355,78 +379,59 @@ export default function Index() {
         </Card>
       </div>
       
-      {/* Action Buttons Row - Aligned Horizontally */}
-      <div className="grid gap-4 md:grid-cols-2 max-w-2xl mx-auto">
-        <Button 
-          variant="outline" 
-          size="default" 
-          className="w-full"
-          onClick={() => navigate('/clients')}
-        >
-          View All Clients
-        </Button>
-        <Button 
-          variant="outline" 
-          size="default" 
-          className="w-full"
-          onClick={() => navigate('/matching-jobs')}
-        >
-          View All Jobs
-        </Button>
-      </div>
       
       {/* Quick Actions Row */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => setIsAddClientOpen(true)}>
-          <CardContent className="p-4 text-center">
-            <div className="flex flex-col items-center space-y-3">
-              <div className="p-3 rounded-lg bg-blue-50 text-blue-600">
-                <Users className="h-6 w-6" />
+      <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer touch-manipulation" onClick={() => setIsAddClientOpen(true)}>
+          <CardContent className="p-3 sm:p-4 text-center">
+            <div className="flex flex-col items-center space-y-2 sm:space-y-3">
+              <div className="p-2 sm:p-3 rounded-lg bg-blue-50 text-blue-600">
+                <Users className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium">Add Client</p>
+                <p className="text-xs sm:text-sm font-medium">Add Client</p>
                 <p className="text-xs text-muted-foreground">Create new client</p>
               </div>
             </div>
           </CardContent>
         </Card>
         
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/matching-jobs')}>
-          <CardContent className="p-4 text-center">
-            <div className="flex flex-col items-center space-y-3">
-              <div className="p-3 rounded-lg bg-purple-50 text-purple-600">
-                <Zap className="h-6 w-6" />
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer touch-manipulation" onClick={() => navigate('/matching-jobs')}>
+          <CardContent className="p-3 sm:p-4 text-center">
+            <div className="flex flex-col items-center space-y-2 sm:space-y-3">
+              <div className="p-2 sm:p-3 rounded-lg bg-purple-50 text-purple-600">
+                <Zap className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium">Start Matching</p>
+                <p className="text-xs sm:text-sm font-medium">Start Matching</p>
                 <p className="text-xs text-muted-foreground">New price matching job</p>
               </div>
             </div>
           </CardContent>
         </Card>
         
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/price-list')}>
-          <CardContent className="p-4 text-center">
-            <div className="flex flex-col items-center space-y-3">
-              <div className="p-3 rounded-lg bg-green-50 text-green-600">
-                <DollarSign className="h-6 w-6" />
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer touch-manipulation" onClick={() => navigate('/price-list')}>
+          <CardContent className="p-3 sm:p-4 text-center">
+            <div className="flex flex-col items-center space-y-2 sm:space-y-3">
+              <div className="p-2 sm:p-3 rounded-lg bg-green-50 text-green-600">
+                <DollarSign className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium">Price List</p>
+                <p className="text-xs sm:text-sm font-medium">Price List</p>
                 <p className="text-xs text-muted-foreground">Manage prices</p>
               </div>
             </div>
           </CardContent>
         </Card>
         
-        <Card className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/clients')}>
-          <CardContent className="p-4 text-center">
-            <div className="flex flex-col items-center space-y-3">
-              <div className="p-3 rounded-lg bg-orange-50 text-orange-600">
-                <Users className="h-6 w-6" />
+        <Card className="hover:shadow-lg transition-shadow cursor-pointer touch-manipulation" onClick={() => navigate('/clients')}>
+          <CardContent className="p-3 sm:p-4 text-center">
+            <div className="flex flex-col items-center space-y-2 sm:space-y-3">
+              <div className="p-2 sm:p-3 rounded-lg bg-orange-50 text-orange-600">
+                <Users className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-medium">All Clients</p>
+                <p className="text-xs sm:text-sm font-medium">All Clients</p>
                 <p className="text-xs text-muted-foreground">View all clients</p>
               </div>
             </div>
@@ -436,22 +441,22 @@ export default function Index() {
       
       {/* System Health Dashboard - Moved to bottom */}
       <div className="mb-4">
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Server className="h-5 w-5" />
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
+          <Server className="h-4 w-4 sm:h-5 sm:w-5" />
           System Health
         </h3>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
           {systemHealthMetrics.map((metric) => (
             <Card key={metric.title} className="hover:shadow-md transition-shadow duration-200">
-              <CardContent className="p-4 text-center">
-                <div className="flex flex-col items-center space-y-2">
-                  <div className={`p-2 rounded-lg ${metric.color}`}>
-                    <metric.icon className="h-5 w-5" />
+              <CardContent className="p-3 sm:p-4 text-center">
+                <div className="flex flex-col items-center space-y-1.5 sm:space-y-2">
+                  <div className={`p-1.5 sm:p-2 rounded-lg ${metric.color}`}>
+                    <metric.icon className="h-4 w-4 sm:h-5 sm:w-5" />
                   </div>
                   <div className="text-center">
-                    <p className="text-xs font-medium text-muted-foreground">{metric.title}</p>
-                    <p className="text-sm font-bold">{metric.value}</p>
-                    <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mt-1 ${
+                    <p className="text-xs font-medium text-muted-foreground leading-tight">{metric.title}</p>
+                    <p className="text-xs sm:text-sm font-bold">{metric.value}</p>
+                    <div className={`inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium mt-1 ${
                       metric.status === 'healthy' ? 'bg-green-100 text-green-800' :
                       metric.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
                       'bg-red-100 text-red-800'
@@ -461,8 +466,10 @@ export default function Index() {
                         metric.status === 'warning' ? 'bg-yellow-500' :
                         'bg-red-500'
                       }`} />
-                      {metric.status === 'healthy' ? 'Healthy' :
-                       metric.status === 'warning' ? 'Warning' : 'Critical'}
+                      <span className="text-xs hidden sm:inline">{metric.status === 'healthy' ? 'Healthy' :
+                       metric.status === 'warning' ? 'Warning' : 'Critical'}</span>
+                      <span className="text-xs sm:hidden">{metric.status === 'healthy' ? '✓' :
+                       metric.status === 'warning' ? '!' : '✗'}</span>
                     </div>
                   </div>
                 </div>

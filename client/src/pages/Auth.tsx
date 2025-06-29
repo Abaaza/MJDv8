@@ -109,8 +109,8 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white dark:bg-black py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="min-h-screen flex items-center justify-center bg-white dark:bg-black py-6 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-sm sm:max-w-md w-full space-y-6 sm:space-y-8">
         <div className="text-center">
           <h2 className="mt-6 text-3xl font-extrabold text-gray-900 dark:text-white">
             MJD Price Matching
@@ -121,9 +121,9 @@ export default function Auth() {
         </div>
 
         <Tabs defaultValue="login" className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="login">Sign In</TabsTrigger>
-            <TabsTrigger value="register">Request Access</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 h-12">
+            <TabsTrigger value="login" className="text-sm touch-manipulation">Sign In</TabsTrigger>
+            <TabsTrigger value="register" className="text-sm touch-manipulation">Request Access</TabsTrigger>
           </TabsList>
 
           <TabsContent value="login">
@@ -135,7 +135,7 @@ export default function Auth() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleLogin} className="space-y-4">
+                <form onSubmit={handleLogin} className="space-y-5">
                   <div>
                     <Input
                       type="email"
@@ -144,6 +144,8 @@ export default function Auth() {
                       onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
                       required
                       disabled={loading}
+                      className="h-12 text-base touch-manipulation"
+                      autoComplete="email"
                     />
                   </div>
                   <div>
@@ -154,11 +156,13 @@ export default function Auth() {
                       onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
                       required
                       disabled={loading}
+                      className="h-12 text-base touch-manipulation"
+                      autoComplete="current-password"
                     />
                   </div>
                   <Button 
                     type="submit" 
-                    className="w-full" 
+                    className="w-full h-12 text-base touch-manipulation" 
                     disabled={loading}
                   >
                     {loading ? (
@@ -184,7 +188,7 @@ export default function Auth() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <form onSubmit={handleRegister} className="space-y-4">
+                <form onSubmit={handleRegister} className="space-y-5">
                   <div>
                     <Input
                       type="text"
@@ -193,6 +197,8 @@ export default function Auth() {
                       onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
                       required
                       disabled={loading}
+                      className="h-12 text-base touch-manipulation"
+                      autoComplete="name"
                     />
                   </div>
                   <div>
@@ -203,6 +209,8 @@ export default function Auth() {
                       onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
                       required
                       disabled={loading}
+                      className="h-12 text-base touch-manipulation"
+                      autoComplete="email"
                     />
                   </div>
                   <div>
@@ -214,11 +222,13 @@ export default function Auth() {
                       required
                       minLength={6}
                       disabled={loading}
+                      className="h-12 text-base touch-manipulation"
+                      autoComplete="new-password"
                     />
                   </div>
                   <Button 
                     type="submit" 
-                    className="w-full" 
+                    className="w-full h-12 text-base touch-manipulation" 
                     disabled={loading}
                   >
                     {loading ? (

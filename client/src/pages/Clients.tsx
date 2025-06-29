@@ -9,7 +9,7 @@ import { Plus, Search, Edit, Trash2, Phone, Mail, Building, ExternalLink, ArrowU
 import { useClients, Client } from "@/hooks/useClients"
 import { ClientForm } from "@/components/ClientForm"
 
-type SortField = 'name' | 'email' | 'company_name' | 'created_at'
+type SortField = 'name' | 'email' | 'company_name' | 'created_at' | 'projects_count'
 type SortDirection = 'asc' | 'desc'
 
 export default function Clients() {
@@ -36,6 +36,9 @@ export default function Clients() {
       if (sortField === 'created_at') {
         aValue = new Date(aValue).getTime()
         bValue = new Date(bValue).getTime()
+      } else if (sortField === 'projects_count') {
+        aValue = a.projects_count || 0
+        bValue = b.projects_count || 0
       } else {
         aValue = aValue.toString().toLowerCase()
         bValue = bValue.toString().toLowerCase()
@@ -92,52 +95,58 @@ export default function Clients() {
   }
 
   return (
-    <div className="pt-[10px] px-6 pb-6 space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="pt-[10px] px-3 sm:px-4 md:px-6 pb-6 space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div className="text-left">
-          <h1 className="text-3xl font-bold mt-0">Clients</h1>
-          <p className="text-muted-foreground">Manage your client relationships</p>
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold mt-0">Clients</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Manage your client relationships</p>
         </div>
-        <Button onClick={() => setIsAddDialogOpen(true)}>
+        <Button 
+          onClick={() => setIsAddDialogOpen(true)} 
+          className="w-full sm:w-auto h-10 sm:h-11 text-base touch-manipulation"
+        >
           <Plus className="mr-2 h-4 w-4" />
           Add Client
         </Button>
       </div>
 
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+        <CardHeader className="space-y-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div className="text-left">
               <CardTitle>Client Directory</CardTitle>
               <CardDescription>All your clients and prospects ({filteredAndSortedClients.length} total)</CardDescription>
             </div>
-            <div className="flex items-center space-x-2">
-              <Select value={sortField} onValueChange={(value: SortField) => setSortField(value)}>
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue placeholder="Sort by" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="name">Name</SelectItem>
-                  <SelectItem value="company_name">Company</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
-                  <SelectItem value="created_at">Date Added</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button 
-                variant="outline" 
-                size="icon"
-                onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
-                title={`Sort ${sortDirection === 'asc' ? 'descending' : 'ascending'}`}
-              >
-                {sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
-              </Button>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="flex gap-2">
+                <Select value={sortField} onValueChange={(value: SortField) => setSortField(value)}>
+                  <SelectTrigger className="w-full sm:w-[150px]">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="projects_count">Matched Jobs</SelectItem>
+                    <SelectItem value="name">Name</SelectItem>
+                    <SelectItem value="company_name">Company</SelectItem>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="created_at">Date Added</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button 
+                  variant="outline" 
+                  size="icon"
+                  onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+                  title={`Sort ${sortDirection === 'asc' ? 'descending' : 'ascending'}`}
+                >
+                  {sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+                </Button>
+              </div>
               <div className="relative">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search clients..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8"
+                  className="pl-8 w-full sm:w-[200px]"
                 />
               </div>
             </div>
@@ -157,7 +166,8 @@ export default function Clients() {
               )}
             </div>
           ) : (
-            <Table>
+            <div className="overflow-x-auto">
+              <Table className="min-w-[800px]">
               <TableHeader>
                 <TableRow>
                   <TableHead 
@@ -178,7 +188,15 @@ export default function Clients() {
                       {getSortIcon('email')}
                     </div>
                   </TableHead>
-                  <TableHead className="text-left">Matched Jobs</TableHead>
+                  <TableHead 
+                    className="text-left cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort('projects_count')}
+                  >
+                    <div className="flex items-center gap-2">
+                      Matched Jobs
+                      {getSortIcon('projects_count')}
+                    </div>
+                  </TableHead>
                   <TableHead 
                     className="text-left cursor-pointer hover:bg-muted/50 select-none"
                     onClick={() => handleSort('created_at')}
@@ -194,29 +212,29 @@ export default function Clients() {
               <TableBody>
                 {filteredAndSortedClients.map((client) => (
                   <TableRow key={client.id}>
-                    <TableCell className="font-medium text-left">
+                    <TableCell className="font-medium text-left min-w-[200px]">
                       <div>
-                        <div className="font-medium">{client.name}</div>
+                        <div className="font-medium truncate max-w-[180px]">{client.name}</div>
                         {client.company_name && (
                           <div className="flex items-center text-sm text-muted-foreground">
-                            <Building className="mr-1 h-3 w-3" />
-                            {client.company_name}
+                            <Building className="mr-1 h-3 w-3 flex-shrink-0" />
+                            <span className="truncate max-w-[160px]">{client.company_name}</span>
                           </div>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-left">
+                    <TableCell className="text-left min-w-[200px]">
                       <div className="space-y-1">
                         {client.email && (
                           <div className="flex items-center text-sm">
-                            <Mail className="mr-1 h-3 w-3" />
-                            {client.email}
+                            <Mail className="mr-1 h-3 w-3 flex-shrink-0" />
+                            <span className="truncate max-w-[180px]">{client.email}</span>
                           </div>
                         )}
                         {client.phone && (
                           <div className="flex items-center text-sm text-muted-foreground">
-                            <Phone className="mr-1 h-3 w-3" />
-                            {client.phone}
+                            <Phone className="mr-1 h-3 w-3 flex-shrink-0" />
+                            <span className="truncate max-w-[160px]">{client.phone}</span>
                           </div>
                         )}
                       </div>
@@ -230,19 +248,28 @@ export default function Clients() {
                         <span className="text-muted-foreground">0</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-left">{new Date(client.created_at).toLocaleDateString()}</TableCell>
-                    <TableCell>
+                    <TableCell className="text-left min-w-[120px]">
+                      <span className="text-sm">{new Date(client.created_at).toLocaleDateString()}</span>
+                    </TableCell>
+                    <TableCell className="min-w-[100px]">
                       <div className="flex items-center space-x-1">
                         <Button 
                           variant="ghost" 
                           size="sm"
                           onClick={() => setEditingClient(client)}
+                          className="h-8 w-8 p-0 touch-manipulation"
+                          aria-label="Edit client"
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="sm">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-8 w-8 p-0 touch-manipulation"
+                              aria-label="Delete client"
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
@@ -270,6 +297,7 @@ export default function Clients() {
                 ))}
               </TableBody>
             </Table>
+          </div>
           )}
         </CardContent>
       </Card>

@@ -449,25 +449,32 @@ export default function Projects() {
               No matching jobs found. Create your first job in the "Price Matcher" section.
             </div>
           ) : (
-            <Table>
+            <div className="overflow-x-auto">
+              <Table className="min-w-[1000px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-left">Project</TableHead>
-                  <TableHead className="text-left">File</TableHead>
-                  <TableHead className="text-left">Status</TableHead>
-                  <TableHead className="text-left">Progress</TableHead>
-                  <TableHead className="text-left">Created</TableHead>
-                  <TableHead className="text-left">Confidence</TableHead>
-                  <TableHead className="text-left">Matches</TableHead>
-                  <TableHead className="text-left w-[120px]">Actions</TableHead>
+                  <TableHead className="text-left min-w-[150px]">Project</TableHead>
+                  <TableHead className="text-left min-w-[120px]">File</TableHead>
+                  <TableHead className="text-left min-w-[100px]">Status</TableHead>
+                  <TableHead className="text-left min-w-[80px]">Progress</TableHead>
+                  <TableHead className="text-left min-w-[100px]">Created</TableHead>
+                  <TableHead className="text-left min-w-[100px]">Confidence</TableHead>
+                  <TableHead className="text-left min-w-[120px]">Matches</TableHead>
+                  <TableHead className="text-left min-w-[120px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredJobs.map((job) => (
                   <TableRow key={job.id}>
-                    <TableCell className="font-medium text-left">{job.project_name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground text-left">
-                      {job.original_filename}
+                    <TableCell className="font-medium text-left min-w-[150px]">
+                      <div className="truncate max-w-[140px]" title={job.project_name}>
+                        {job.project_name}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground text-left min-w-[120px]">
+                      <div className="truncate max-w-[110px]" title={job.original_filename}>
+                        {job.original_filename}
+                      </div>
                     </TableCell>
                     <TableCell className="text-left">
                       <div className="flex items-center space-x-2">
@@ -546,7 +553,14 @@ export default function Projects() {
                             <Square className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={fetchJobs} title="Refresh">
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={fetchJobs} 
+                          title="Refresh"
+                          className="h-8 w-8 p-0 touch-manipulation"
+                          aria-label="Refresh jobs"
+                        >
                           <RefreshCw className="h-4 w-4" />
                         </Button>
                       </div>
@@ -555,21 +569,27 @@ export default function Projects() {
                 ))}
               </TableBody>
             </Table>
+          </div>
           )}
         </CardContent>
       </Card>
 
       {/* Edit Results Modal */}
       <Dialog open={!!editingJob} onOpenChange={() => setEditingJob(null)}>
-        <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Edit className="h-5 w-5" />
-              Edit Match Results - {editingJob?.project_name}
+        <DialogContent className="w-full max-w-[95vw] sm:max-w-7xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader className="pb-4">
+            <DialogTitle className="flex flex-col sm:flex-row sm:items-center gap-2 text-base sm:text-lg">
+              <div className="flex items-center gap-2">
+                <Edit className="h-5 w-5 flex-shrink-0" />
+                <span className="truncate">Edit Match Results</span>
+              </div>
+              <span className="text-sm sm:text-base text-muted-foreground truncate">
+                {editingJob?.project_name}
+              </span>
             </DialogTitle>
-            <DialogDescription className="flex items-center gap-2 text-green-600 dark:text-green-400">
-              <CheckCircle className="h-4 w-4" />
-              Changes are automatically saved as you edit. You can close this dialog anytime.
+            <DialogDescription className="flex flex-col sm:flex-row sm:items-center gap-2 text-green-600 dark:text-green-400 text-sm">
+              <CheckCircle className="h-4 w-4 flex-shrink-0" />
+              <span>Changes are automatically saved as you edit. You can close this dialog anytime.</span>
             </DialogDescription>
           </DialogHeader>
           {loadingResults ? (

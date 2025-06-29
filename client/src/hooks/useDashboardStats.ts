@@ -12,6 +12,9 @@ interface DashboardStats {
   weeklyGrowth: number
   avgProcessingTime: number
   successRate: number
+  clientsGrowth: number
+  priceItemsGrowth: number
+  matchedItemsGrowth: number
 }
 
 export function useDashboardStats() {
@@ -30,7 +33,11 @@ export function useDashboardStats() {
         matchedItemsResult,
         completedJobsResult,
         todayJobsResult,
-        weeklyJobsResult
+        weeklyJobsResult,
+        completedJobsWithTiming,
+        lastWeekClientsResult,
+        lastWeekPriceItemsResult,
+        lastWeekMatchedItemsResult
       ] = await Promise.all([
         // Fetch total clients
         supabase
@@ -69,7 +76,34 @@ export function useDashboardStats() {
         supabase
           .from('ai_matching_jobs')
           .select('*', { count: 'exact', head: true })
-          .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+          .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+        
+        // Fetch completed jobs with timing for processing time calculation
+        supabase
+          .from('ai_matching_jobs')
+          .select('created_at, completed_at')
+          .eq('status', 'completed')
+          .not('completed_at', 'is', null)
+          .limit(20), // Get recent 20 completed jobs for average
+        
+        // Get clients count from last week for growth calculation
+        supabase
+          .from('clients')
+          .select('*', { count: 'exact', head: true })
+          .lt('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+        
+        // Get price items count from last week for growth calculation
+        supabase
+          .from('price_items')
+          .select('*', { count: 'exact', head: true })
+          .lt('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+        
+        // Get matched items from last week for growth calculation
+        supabase
+          .from('ai_matching_jobs')
+          .select('matched_items')
+          .eq('status', 'completed')
+          .lt('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
       ])
 
       // Handle errors gracefully
@@ -101,6 +135,42 @@ export function useDashboardStats() {
         ? (console.error('Error fetching weekly jobs:', weeklyJobsResult.error), 0)
         : weeklyJobsResult.count || 0
 
+      // Calculate real processing time from completed jobs
+      let avgProcessingTime = 0
+      if (!completedJobsWithTiming.error && completedJobsWithTiming.data) {
+        const timings = completedJobsWithTiming.data
+          .filter(job => job.completed_at && job.created_at)
+          .map(job => {
+            const start = new Date(job.created_at!).getTime()
+            const end = new Date(job.completed_at!).getTime()
+            return (end - start) / 1000 // Convert to seconds
+          })
+          .filter(time => time > 0 && time < 3600) // Filter out unrealistic times (0 sec to 1 hour)
+        
+        if (timings.length > 0) {
+          avgProcessingTime = Math.round((timings.reduce((sum, time) => sum + time, 0) / timings.length) * 10) / 10
+        }
+      }
+      
+      // Calculate growth rates
+      const lastWeekClientsCount = lastWeekClientsResult.count || 0
+      const lastWeekPriceItemsCount = lastWeekPriceItemsResult.count || 0
+      const lastWeekMatchedItems = lastWeekMatchedItemsResult.error 
+        ? 0 
+        : lastWeekMatchedItemsResult.data?.reduce((sum, job) => sum + (job.matched_items || 0), 0) || 0
+      
+      const clientsGrowth = lastWeekClientsCount > 0 
+        ? Math.round(((clientsCount - lastWeekClientsCount) / lastWeekClientsCount) * 100)
+        : clientsCount > 0 ? 100 : 0
+      
+      const priceItemsGrowth = lastWeekPriceItemsCount > 0 
+        ? Math.round(((priceItemsCount - lastWeekPriceItemsCount) / lastWeekPriceItemsCount) * 100)
+        : priceItemsCount > 0 ? 100 : 0
+      
+      const matchedItemsGrowth = lastWeekMatchedItems > 0 
+        ? Math.round(((totalMatchedItems - lastWeekMatchedItems) / lastWeekMatchedItems) * 100)
+        : totalMatchedItems > 0 ? 100 : 0
+      
       // Calculate weekly growth (simple approximation)
       const weeklyGrowth = weeklyJobsCount > 0 ? Math.round(((todayJobsCount * 7) / weeklyJobsCount - 1) * 100) : 0
       
@@ -115,7 +185,10 @@ export function useDashboardStats() {
         completedJobs: completedJobsCount,
         todayJobs: todayJobsCount,
         weeklyGrowth: Math.max(-99, Math.min(999, weeklyGrowth)), // Clamp to reasonable range
-        avgProcessingTime: 2.3, // Placeholder - could be calculated from job timestamps
+        avgProcessingTime,
+        clientsGrowth: Math.max(-99, Math.min(999, clientsGrowth)),
+        priceItemsGrowth: Math.max(-99, Math.min(999, priceItemsGrowth)),
+        matchedItemsGrowth: Math.max(-99, Math.min(999, matchedItemsGrowth)),
         successRate
       }
     },
@@ -136,7 +209,10 @@ export function useDashboardStats() {
       todayJobs: 0,
       weeklyGrowth: 0,
       avgProcessingTime: 0,
-      successRate: 0
+      successRate: 0,
+      clientsGrowth: 0,
+      priceItemsGrowth: 0,
+      matchedItemsGrowth: 0
     },
     loading,
     refreshStats

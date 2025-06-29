@@ -441,7 +441,7 @@ export function EditableMatchResultsTable({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <h3 className="text-lg font-semibold">
           Match Results
           {isDiscountApplied && lastAppliedDiscount && (
@@ -450,40 +450,41 @@ export function EditableMatchResultsTable({
             </span>
           )}
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           {isDiscountApplied && (
             <Button 
               variant="outline" 
               onClick={handleUndoDiscount}
-              className="flex items-center gap-2 text-orange-600 hover:text-orange-700 border-orange-200 hover:border-orange-300"
+              className="flex items-center justify-center gap-2 h-10 touch-manipulation text-orange-600 hover:text-orange-700 border-orange-200 hover:border-orange-300"
             >
               <Undo2 className="h-4 w-4" />
-              Undo Discount
+              <span className="text-sm">Undo Discount</span>
             </Button>
           )}
           <Button 
             variant="outline" 
             onClick={handleOpenBulkDiscountModal}
-            className="flex items-center gap-2"
+            className="flex items-center justify-center gap-2 h-10 touch-manipulation"
             disabled={safeMatchResults.length === 0}
           >
             <Percent className="h-4 w-4" />
-            Bulk Discount
+            <span className="text-sm">Bulk Discount</span>
           </Button>
         </div>
       </div>
       
-      <Table>
+      <div className="overflow-x-auto">
+        <Table className="min-w-[1000px]">
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[30%]">Description</TableHead>
-            <TableHead className="w-[30%]">Match</TableHead>
-            <TableHead>Qty</TableHead>
-            <TableHead>Unit</TableHead>
-            <TableHead>Rate</TableHead>
-            <TableHead>Conf.</TableHead>
-            <TableHead>Total</TableHead>
-            <TableHead>Actions</TableHead>
+            <TableHead className="min-w-[200px]">Description</TableHead>
+            <TableHead className="min-w-[250px]">Match</TableHead>
+            <TableHead className="min-w-[80px]">Qty</TableHead>
+            <TableHead className="min-w-[60px]">Unit</TableHead>
+            <TableHead className="min-w-[100px]">Rate</TableHead>
+            <TableHead className="min-w-[70px]">Conf.</TableHead>
+            <TableHead className="min-w-[100px]">Total</TableHead>
+            <TableHead className="min-w-[80px]">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -552,10 +553,24 @@ export function EditableMatchResultsTable({
                           <p className="text-sm font-medium">{displayData.matched_description}</p>
                           <p className="text-xs text-muted-foreground">Rate: {getCurrencySymbol(currency)}{formatNumber(displayData.matched_rate || 0)} per {displayData.unit || 'unit'}</p>
                           <p className="text-xs text-muted-foreground">Manual Selection</p>
-                          <Button variant="outline" size="sm" onClick={() => { setSelectedResultId(result.id); setIsModalOpen(true); }} className="mt-1"><Search className="h-4 w-4 mr-2" />Change Selection</Button>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => { setSelectedResultId(result.id); setIsModalOpen(true); }} 
+                            className="mt-1 h-8 touch-manipulation text-xs"
+                          >
+                            <Search className="h-3 w-3 mr-1" />Change
+                          </Button>
                         </div>
                       ) : currentMode === 'manual' ? (
-                        <Button variant="outline" size="sm" onClick={() => { setSelectedResultId(result.id); setIsModalOpen(true); }} className="mt-2"><Search className="h-4 w-4 mr-2" />Search Price List</Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => { setSelectedResultId(result.id); setIsModalOpen(true); }} 
+                          className="mt-2 h-8 touch-manipulation text-xs"
+                        >
+                          <Search className="h-3 w-3 mr-1" />Search
+                        </Button>
                       ) : (
                         <div className={`p-2 border rounded-md ${currentMode === 'ai' ? 'bg-primary/10 border-primary/20' : 'bg-green-500/10 border-green-500/20'}`}>
                           {loadingStates[result.id] ? (
@@ -570,12 +585,36 @@ export function EditableMatchResultsTable({
                         </div>
                       )}
                     </TableCell>
-                    <TableCell><Input type="number" value={result.quantity || ''} onChange={(e) => handleFieldChange(result.id, 'quantity', parseFloat(e.target.value) || 0)} className="w-20" /></TableCell>
-                    <TableCell><Badge variant="outline">{displayData.unit || 'N/A'}</Badge></TableCell>
-                    <TableCell><Input type="number" value={displayData.matched_rate || ''} onChange={(e) => handleFieldChange(result.id, 'matched_rate', parseFloat(e.target.value) || 0)} className="w-24" /></TableCell>
-                    <TableCell><Badge variant={score > 80 ? 'default' : 'secondary'}>{Math.round(score)}%</Badge></TableCell>
-                    <TableCell className="font-medium">{getCurrencySymbol(currency)}{formatNumber(displayData.total_amount || 0)}</TableCell>
-                    <TableCell><Button variant="ghost" size="icon" onClick={() => onDeleteResult(result.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
+                    <TableCell>
+                      <Input 
+                        type="number" 
+                        value={result.quantity || ''} 
+                        onChange={(e) => handleFieldChange(result.id, 'quantity', parseFloat(e.target.value) || 0)} 
+                        className="w-20 h-9 touch-manipulation" 
+                      />
+                    </TableCell>
+                    <TableCell><Badge variant="outline" className="text-xs">{displayData.unit || 'N/A'}</Badge></TableCell>
+                    <TableCell>
+                      <Input 
+                        type="number" 
+                        value={displayData.matched_rate || ''} 
+                        onChange={(e) => handleFieldChange(result.id, 'matched_rate', parseFloat(e.target.value) || 0)} 
+                        className="w-24 h-9 touch-manipulation" 
+                      />
+                    </TableCell>
+                    <TableCell><Badge variant={score > 80 ? 'default' : 'secondary'} className="text-xs">{Math.round(score)}%</Badge></TableCell>
+                    <TableCell className="font-medium text-sm">{getCurrencySymbol(currency)}{formatNumber(displayData.total_amount || 0)}</TableCell>
+                    <TableCell>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => onDeleteResult(result.id)}
+                        className="h-8 w-8 touch-manipulation"
+                        aria-label="Delete result"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 )
               })}
@@ -583,13 +622,30 @@ export function EditableMatchResultsTable({
           ))}
         </TableBody>
       </Table>
+      </div>
       
-      <div className="flex items-center justify-between border-t pt-4">
-        <p className="text-sm text-muted-foreground">Showing {startIndex + 1} to {Math.min(endIndex, totalItems)} of {totalItems} results</p>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}><ChevronLeft className="h-4 w-4 mr-1" />Previous</Button>
-          <span className="text-sm">{currentPage} / {totalPages}</span>
-          <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next<ChevronRight className="h-4 w-4 ml-1" /></Button>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-t pt-4 gap-3">
+        <p className="text-sm text-muted-foreground text-center sm:text-left">Showing {startIndex + 1} to {Math.min(endIndex, totalItems)} of {totalItems} results</p>
+        <div className="flex items-center justify-center sm:justify-end gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+            disabled={currentPage === 1}
+            className="h-10 px-3 touch-manipulation"
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />Previous
+          </Button>
+          <span className="text-sm px-3 py-2 bg-muted rounded">{currentPage} / {totalPages}</span>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+            disabled={currentPage === totalPages}
+            className="h-10 px-3 touch-manipulation"
+          >
+            Next<ChevronRight className="h-4 w-4 ml-1" />
+          </Button>
         </div>
       </div>
       

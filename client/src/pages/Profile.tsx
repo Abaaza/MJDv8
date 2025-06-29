@@ -21,8 +21,6 @@ export default function Profile() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState("")
-  const [company, setCompany] = useState("")
-  const [phone, setPhone] = useState("")
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [selectedTheme, setSelectedTheme] = useState<Theme>(theme)
   const [showChangePassword, setShowChangePassword] = useState(false)
@@ -43,8 +41,6 @@ export default function Profile() {
   const initializeProfile = () => {
     if (user) {
       setName(user.name || '')
-      setCompany(user.company || '')
-      setPhone(user.phone || '')
       setEmailNotifications(user.preferences?.emailNotifications ?? true)
       
       if (user.preferences?.theme && ['light', 'dark', 'system'].includes(user.preferences.theme)) {
@@ -71,8 +67,6 @@ export default function Profile() {
         },
         body: JSON.stringify({
           name: name.trim(),
-          company: company.trim(),
-          phone: phone.trim(),
           preferences: {
             theme: selectedTheme,
             emailNotifications: emailNotifications
@@ -200,13 +194,13 @@ export default function Profile() {
   }
 
   return (
-    <div className="pt-[10px] px-6 pb-6 space-y-3">
-      <div className="flex items-start justify-between">
+    <div className="pt-[10px] px-4 md:px-6 pb-6 space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="text-left">
-          <h1 className="text-3xl font-bold mt-0">Profile</h1>
-          <p className="text-muted-foreground">Manage your account settings and preferences</p>
+          <h1 className="text-2xl sm:text-3xl font-bold mt-0">Profile</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">Manage your account settings and preferences</p>
         </div>
-        <Button onClick={updateProfile} disabled={saving} size="lg">
+        <Button onClick={updateProfile} disabled={saving} size="lg" className="w-full sm:w-auto">
           {saving ? 'Updating....' : 'Update Profile'}
         </Button>
       </div>
@@ -259,25 +253,6 @@ export default function Profile() {
                 </p>
               </div>
 
-              <div>
-                <Label htmlFor="company">Company</Label>
-                <Input
-                  id="company"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  placeholder="Enter your company name"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="phone">Phone</Label>
-                <Input
-                  id="phone"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Enter your phone number"
-                />
-              </div>
             </div>
           </CardContent>
         </Card>
