@@ -166,10 +166,10 @@ export default function Auth() {
                     disabled={loading}
                   >
                     {loading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-5 w-5 animate-spin" />
                         Signing in...
-                      </>
+                      </div>
                     ) : (
                       'Sign In'
                     )}
@@ -232,10 +232,10 @@ export default function Auth() {
                     disabled={loading}
                   >
                     {loading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-5 w-5 animate-spin" />
                         Submitting...
-                      </>
+                      </div>
                     ) : (
                       'Request Access'
                     )}

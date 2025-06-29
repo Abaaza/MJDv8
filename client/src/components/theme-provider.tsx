@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useContext, useEffect, useState, useRef } from "react"
 import { apiEndpoint } from "@/config/api"
 
 type Theme = "dark" | "light" | "system"
@@ -11,7 +11,7 @@ type ThemeProviderProps = {
 
 type ThemeProviderState = {
   theme: Theme
-  setTheme: (theme: Theme) => void
+  setTheme: (theme: Theme, saveToProfile?: boolean) => void
 }
 
 const initialState: ThemeProviderState = {
@@ -30,6 +30,11 @@ export function ThemeProvider({
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
   )
+  
+  // Track if we're currently saving to prevent loops
+  const isSavingRef = useRef(false)
+  // Rate limiting to prevent spam requests
+  const lastSaveTimeRef = useRef(0)
 
   useEffect(() => {
     const root = window.document.documentElement
@@ -51,7 +56,15 @@ export function ThemeProvider({
 
   // Function to save theme to user profile
   const saveThemeToProfile = async (newTheme: Theme) => {
+    // Prevent recursive calls and rate limiting (max 1 request per 2 seconds)
+    const now = Date.now()
+    if (isSavingRef.current || now - lastSaveTimeRef.current < 2000) {
+      return
+    }
+    lastSaveTimeRef.current = now
+    
     try {
+      isSavingRef.current = true
       const accessToken = localStorage.getItem('accessToken')
       
       if (!accessToken) {
@@ -79,20 +92,24 @@ export function ThemeProvider({
     } catch (error) {
       console.warn('Error saving theme to profile:', error)
       // Don't throw error - just log it so theme still works locally
+    } finally {
+      isSavingRef.current = false
     }
   }
 
   const value = {
     theme,
-    setTheme: (newTheme: Theme) => {
+    setTheme: (newTheme: Theme, saveToProfile: boolean = true) => {
       // Save to localStorage immediately
       localStorage.setItem(storageKey, newTheme)
       setTheme(newTheme)
       
-      // Save to user profile (async, non-blocking)
-      saveThemeToProfile(newTheme).catch(error => {
-        console.warn('Failed to save theme to profile:', error)
-      })
+      // Only save to user profile if explicitly requested (user action, not programmatic)
+      if (saveToProfile && !isSavingRef.current) {
+        saveThemeToProfile(newTheme).catch(error => {
+          console.warn('Failed to save theme to profile:', error)
+        })
+      }
     },
   }
 

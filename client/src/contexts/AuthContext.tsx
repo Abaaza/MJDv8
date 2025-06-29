@@ -251,10 +251,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(userData);
         setError(null);
         
-        // Apply theme safely
+        // Apply theme safely without triggering API calls (programmatic update)
         try {
           if (userData.preferences?.theme) {
-            setTheme(userData.preferences.theme as 'light' | 'dark' | 'system');
+            // Use setTheme directly without dependency to avoid loops
+            setTheme(userData.preferences.theme as 'light' | 'dark' | 'system', false);
           }
         } catch (error) {
           console.warn('Failed to update theme:', error);
@@ -275,7 +276,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError('Failed to fetch user profile');
       return null;
     }
-  }, [setTheme]);
+  }, []); // Remove setTheme dependency to prevent infinite loops
 
   const refreshProfile = useCallback(async () => {
     if (getAccessToken()) {
@@ -283,7 +284,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [fetchProfile]);
 
-  // Enhanced session management with heartbeat
+  // Enhanced session management with reduced polling frequency
   useEffect(() => {
     const initAuth = async () => {
       const accessToken = getAccessToken();
@@ -297,28 +298,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     initAuth();
 
-    // Set up periodic session validation and proactive token refresh (every 2 minutes)
+    // Reduce session check frequency to every 10 minutes (was 2 minutes)
     const sessionCheck = setInterval(async () => {
       const accessToken = getAccessToken();
-      if (accessToken && user) {
+      if (accessToken && user && !isRefreshing) {
         try {
           // Check if token needs refresh
           if (isTokenNearExpiry()) {
             await refreshTokenProactively();
           }
-          // Silent profile refresh to validate session
-          await fetchProfile();
+          // Silent profile refresh to validate session - less frequent
+          // Only do this if we haven't done it recently
+          const lastCheck = sessionStorage.getItem('lastSessionCheck');
+          const now = Date.now();
+          if (!lastCheck || now - parseInt(lastCheck) > 8 * 60 * 1000) { // 8 minutes
+            sessionStorage.setItem('lastSessionCheck', now.toString());
+            await fetchProfile();
+          }
         } catch (error) {
           console.warn('Session validation failed:', error);
         }
       }
-    }, 2 * 60 * 1000);
+    }, 10 * 60 * 1000); // Every 10 minutes instead of 2
 
-    // Set up visibility change handler to refresh on tab focus
+    // Reduce visibility change polling - only refresh if away for more than 10 minutes
     const handleVisibilityChange = () => {
-      if (!document.hidden && getAccessToken() && user) {
-        // Refresh profile when user returns to tab
-        fetchProfile();
+      if (!document.hidden && getAccessToken() && user && !isRefreshing) {
+        const lastCheck = sessionStorage.getItem('lastVisibilityCheck');
+        const now = Date.now();
+        if (!lastCheck || now - parseInt(lastCheck) > 10 * 60 * 1000) { // 10 minutes
+          sessionStorage.setItem('lastVisibilityCheck', now.toString());
+          fetchProfile();
+        }
       }
     };
 
@@ -328,7 +339,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       clearInterval(sessionCheck);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [fetchProfile, user]);
+  }, [user, isRefreshing]); // Remove fetchProfile dependency to prevent infinite loops
 
   const signOut = async () => {
     try {

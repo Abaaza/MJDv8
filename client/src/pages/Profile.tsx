@@ -46,7 +46,7 @@ export default function Profile() {
       if (user.preferences?.theme && ['light', 'dark', 'system'].includes(user.preferences.theme)) {
         const validTheme = user.preferences.theme as Theme
         setSelectedTheme(validTheme)
-        setTheme(validTheme)
+        setTheme(validTheme, false) // Don't save to profile during initialization
       }
     }
     setLoading(false)
@@ -77,8 +77,8 @@ export default function Profile() {
       const data = await response.json()
 
       if (response.ok && data.success) {
-        // Apply theme change immediately
-        setTheme(selectedTheme)
+        // Apply theme change immediately with profile saving
+        setTheme(selectedTheme, true)
         
         toast.success('Profile updated successfully!')
         await refreshProfile()
@@ -98,6 +98,8 @@ export default function Profile() {
     if (['light', 'dark', 'system'].includes(newTheme)) {
       const validTheme = newTheme as Theme
       setSelectedTheme(validTheme)
+      // Apply theme immediately when user selects it (with profile saving)
+      setTheme(validTheme, true)
     }
   }
 

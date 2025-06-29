@@ -12,8 +12,8 @@ export const ConnectionMonitor = () => {
       setIsOnline(true);
       const offlineTime = Date.now() - lastOnline;
       
-      // If user was offline for more than 30 seconds and has a session, refresh profile
-      if (offlineTime > 30000 && user) {
+      // If user was offline for more than 2 minutes and has a session, refresh profile
+      if (offlineTime > 2 * 60 * 1000 && user) {
         try {
           await refreshProfile();
           toast.success('Connection restored - session validated');
@@ -33,13 +33,17 @@ export const ConnectionMonitor = () => {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Page focus/blur listeners for session management
+    // Reduce focus refresh frequency - only if away for more than 15 minutes
     const handleFocus = async () => {
       if (isOnline && user) {
         const timeAway = Date.now() - lastOnline;
-        // If user was away for more than 5 minutes, refresh session
-        if (timeAway > 5 * 60 * 1000) {
+        const lastFocusCheck = sessionStorage.getItem('lastFocusCheck');
+        const now = Date.now();
+        
+        // Only refresh if away for more than 15 minutes AND we haven't checked recently
+        if (timeAway > 15 * 60 * 1000 && (!lastFocusCheck || now - parseInt(lastFocusCheck) > 10 * 60 * 1000)) {
           try {
+            sessionStorage.setItem('lastFocusCheck', now.toString());
             await refreshProfile();
           } catch (error) {
             console.warn('Session refresh failed on focus:', error);

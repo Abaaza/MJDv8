@@ -529,10 +529,10 @@ export default function Projects() {
                               disabled={exportingJobs.has(job.id)}
                             >
                               {exportingJobs.has(job.id) ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                <div className="flex items-center justify-center gap-2">
+                                  <Loader2 className="h-5 w-5 animate-spin" />
                                   Exporting...
-                                </>
+                                </div>
                               ) : (
                                 <>
                                   <Download className="h-4 w-4" />
@@ -594,8 +594,10 @@ export default function Projects() {
           </DialogHeader>
           {loadingResults ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin mr-2" />
-              <span>Loading results...</span>
+              <div className="flex items-center justify-center gap-3">
+                <Loader2 className="h-7 w-7 animate-spin" />
+                <span>Loading results...</span>
+              </div>
             </div>
           ) : (
             <div className="space-y-4">

@@ -1285,8 +1285,8 @@ export function PriceMatching() {
               
               {logs.length === 0 && (
                 <div className="text-muted-foreground text-center py-8">
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="w-8 h-8 border-2 border-border rounded-full animate-spin border-t-primary"></div>
+                  <div className="flex flex-col items-center justify-center gap-3">
+                    <div className="w-10 h-10 border-2 border-border rounded-full animate-spin border-t-primary"></div>
                     <span>Initializing AI processing engines...</span>
                     <div className="text-[10px] text-muted-foreground">Waiting for log messages</div>
                   </div>
@@ -1316,10 +1316,10 @@ export function PriceMatching() {
                 </div>
                 <Button onClick={exportToExcel} size="sm" variant="outline" disabled={isExporting}>
                   {isExporting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <div className="flex items-center justify-center gap-2">
+                      <Loader2 className="h-5 w-5 animate-spin" />
                       Exporting...
-                    </>
+                    </div>
                   ) : (
                     <>
                       <FileSpreadsheet className="h-4 w-4 mr-2" />

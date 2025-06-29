@@ -85,9 +85,9 @@ export default function Clients() {
     return (
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-            <p className="mt-2 text-muted-foreground">Loading clients...</p>
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary"></div>
+            <p className="text-muted-foreground">Loading clients...</p>
           </div>
         </div>
       </div>
