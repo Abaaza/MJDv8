@@ -63,14 +63,17 @@ export class OpenAIEmbeddingService {
   /**
    * Pre-compute embeddings for all price list items
    */
-  async precomputePriceListEmbeddings(priceItems, jobId, pmService) {
+  async precomputePriceListEmbeddings(priceItems, jobId, progressTracker, pmService = null) {
     console.log(`⚡ [OPENAI] Pre-computing embeddings for ${priceItems.length} price items...`)
+    console.log(`🔧 [OPENAI] Configuration: Batch size = ${this.BATCH_SIZE} items`)
     
     this.embeddings.clear()
     this.embeddingsByCategory = new Map()
     const startTime = Date.now()
     
     const totalBatches = Math.ceil(priceItems.length / this.BATCH_SIZE)
+    console.log(`📊 [OPENAI] Neural processing plan: ${totalBatches} batches total`)
+    console.log(`🚀 [OPENAI] *** OPENAI NEURAL NETWORK INITIALIZATION ***`)
     
     for (let i = 0; i < priceItems.length; i += this.BATCH_SIZE) {
       const batch = priceItems.slice(i, i + this.BATCH_SIZE)
@@ -79,9 +82,11 @@ export class OpenAIEmbeddingService {
       )
       
       const currentBatch = Math.floor(i / this.BATCH_SIZE) + 1
+      const batchStartTime = Date.now()
       
       try {
         console.log(`🔄 [OPENAI] Processing embedding batch ${currentBatch}/${totalBatches} (${batch.length} items)`)
+        console.log(`🚀 [OPENAI] *** NEURAL BATCH ${currentBatch}/${totalBatches} PROCESSING ***`)
         const embeddings = await this.generateEmbeddings(batchTexts)
         
         console.log(`✅ [OPENAI] Got embeddings for batch ${currentBatch}, storing...`)
@@ -106,18 +111,53 @@ export class OpenAIEmbeddingService {
           }
         })
         
-        // Update progress
-        if (pmService && pmService.updateJobStatus) {
-          const progress = Math.round((currentBatch / totalBatches) * 100)
-          await pmService.updateJobStatus(
+        // Enhanced progress tracking with performance metrics
+        const batchEndTime = Date.now()
+        const batchTime = batchEndTime - batchStartTime
+        const vectorsPerSecond = Math.round(batch.length / (batchTime / 1000))
+        const itemsProcessed = Math.min(i + batch.length, priceItems.length)
+        
+        if (pmService && pmService.updateJobStatus && progressTracker) {
+          // Use the progress tracker from main service for proper range coordination
+          const batchProgress = Math.round((currentBatch / totalBatches) * 100)
+          const actualProgress = progressTracker.startPercent + Math.round((batchProgress / 100) * (progressTracker.endPercent - progressTracker.startPercent))
+          
+          console.log(`📊 [OPENAI] Neural network performance: ${vectorsPerSecond} vectors/sec`)
+          console.log(`🎯 [OPENAI] Broadcasting progress to frontend dashboard...`)
+          
+          const updateResult = await pmService.updateJobStatus(
             jobId, 
             'processing', 
-            progress, 
-            `Computing embeddings... batch ${currentBatch}/${totalBatches} (${Math.min(i + batch.length, priceItems.length)}/${priceItems.length} items)`
+            actualProgress,
+            `🤖 OPENAI: Neural batch ${currentBatch}/${totalBatches} | ${itemsProcessed}/${priceItems.length} items vectorized | ${vectorsPerSecond} vectors/sec`,
+            { 
+              total_items: priceItems.length,
+              processed_items: itemsProcessed,
+              current_phase: 'embedding_computation',
+              model_type: 'openai',
+              batch_performance: {
+                vectors_per_second: vectorsPerSecond,
+                batch_time_ms: batchTime,
+                current_batch: currentBatch,
+                total_batches: totalBatches
+              }
+            }
           )
+          
+          if (!updateResult) {
+            console.error(`❌ [OPENAI] Neural network status update failed for batch ${currentBatch}`)
+          } else {
+            console.log(`✅ [OPENAI] Dashboard successfully updated with neural progress`)
+          }
         }
         
-        console.log(`📊 [OPENAI] Progress: ${Math.round((currentBatch / totalBatches) * 100)}% (${i + batch.length}/${priceItems.length} items)`)
+        const overallProgress = Math.round((currentBatch / totalBatches) * 100)
+        console.log(`🚀 [OPENAI] Embedding phase progress: ${overallProgress}% | ${itemsProcessed}/${priceItems.length} items neural-processed`)
+        console.log(`⚡ [OPENAI] Batch ${currentBatch} completed in ${(batchTime / 1000).toFixed(2)}s | ${vectorsPerSecond} vectors/sec`)
+        
+        // Enhanced delay with progress indication
+        console.log(`⏳ [OPENAI] Cooling neural processors... (200ms)`)
+        await new Promise(resolve => setTimeout(resolve, 200))
         
       } catch (error) {
         console.error(`❌ [OPENAI] Error processing batch ${currentBatch}:`, error)
@@ -126,8 +166,16 @@ export class OpenAIEmbeddingService {
     }
     
     const duration = ((Date.now() - startTime) / 1000).toFixed(1)
-    console.log(`✅ [OPENAI] Pre-computed ${this.embeddings.size} embeddings in ${duration}s`)
-    console.log(`📊 [OPENAI] Final stats: ${this.embeddings.size} embeddings, ${this.embeddingsByCategory.size} categories`)
+    const avgTimePerItem = (duration / priceItems.length * 1000).toFixed(1)
+    
+    console.log(`✅ [OPENAI] *** NEURAL NETWORK COMPUTATION COMPLETE ***`)
+    console.log(`📊 [OPENAI] Performance summary:`)
+    console.log(`   📈 Total items processed: ${priceItems.length}`)
+    console.log(`   ⏱️  Total processing time: ${duration}s`)
+    console.log(`   🚀 Average time per item: ${avgTimePerItem}ms`)
+    console.log(`   📚 Embeddings stored in memory: ${this.embeddings.size}`)
+    console.log(`   🏢 Categories indexed: ${this.embeddingsByCategory.size}`)
+    console.log(`🎯 [OPENAI] Neural network ready for hybrid matching phase`)
   }
 
   /**

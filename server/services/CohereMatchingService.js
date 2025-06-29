@@ -241,25 +241,32 @@ export class CohereMatchingService {
         
         // Update progress during embedding computation
         if (pmService && pmService.updateJobStatus && jobId) {
-          const batchProgress = Math.round((currentBatch / totalBatches) * 30); // Embedding is 30% of total
-          const itemsProcessed = Math.min(i + batch.length, priceItems.length);
-          const vectorsPerSecond = Math.round(batch.length / (batchTime / 1000));
+          const batchProgress = Math.round((currentBatch / totalBatches) * 100)
+          const actualProgress = progressTracker.startPercent + Math.round((batchProgress / 100) * (progressTracker.endPercent - progressTracker.startPercent))
+          const itemsProcessed = Math.min(i + batch.length, priceItems.length)
+          const vectorsPerSecond = Math.round(batch.length / (batchTime / 1000))
           
-          console.log(`📊 [COHERE AI] Neural network performance: ${vectorsPerSecond} vectors/sec`);
-          console.log(`🎯 [COHERE AI] Broadcasting progress to frontend dashboard...`);
+          console.log(`📊 [COHERE AI] Neural network performance: ${vectorsPerSecond} vectors/sec`)
+          console.log(`🎯 [COHERE AI] Broadcasting progress to frontend dashboard...`)
           
           const embeddingUpdateResult = await pmService.updateJobStatus(
             jobId, 
             'processing', 
-            15 + batchProgress, // Start at 15% for embedding phase
+            actualProgress,
             `🧠 COHERE AI: Neural batch ${currentBatch}/${totalBatches} | ${itemsProcessed}/${priceItems.length} items vectorized | ${vectorsPerSecond} vectors/sec`,
             { 
               total_items: priceItems.length,
               processed_items: itemsProcessed,
               current_phase: 'embedding_computation',
-              model_type: 'cohere-ai'
+              model_type: 'cohere-ai',
+              batch_performance: {
+                vectors_per_second: vectorsPerSecond,
+                batch_time_ms: batchTime,
+                current_batch: currentBatch,
+                total_batches: totalBatches
+              }
             }
-          );
+          )
           
           if (!embeddingUpdateResult) {
             console.error(`❌ [COHERE AI] Neural network status update failed for batch ${currentBatch}`)

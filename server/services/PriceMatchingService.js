@@ -1231,12 +1231,13 @@ export class PriceMatchingService {
     }
     
     try {
-      await this.openAIMatcher.precomputePriceListEmbeddings(priceList, jobId, openaiProgressTracker)
+      await this.openAIMatcher.precomputePriceListEmbeddings(priceList, jobId, openaiProgressTracker, this)
       console.log(`✅ OpenAI embeddings completed in ${((Date.now() - openaiStart) / 1000).toFixed(1)}s`)
       openaiSuccessful = true
       
       // Update to exactly 30% after OpenAI completion
-      await updateJobStatusWithThrottle(jobId, 'processing', 30, 'OpenAI embeddings completed')
+      console.log(`🎯 [PROGRESS] Transitioning from OpenAI phase (10-30%) to Cohere phase (30-50%)`)
+      await updateJobStatusWithThrottle(jobId, 'processing', 30, '🤖 OpenAI neural embeddings completed, starting Cohere phase...')
     } catch (openaiError) {
       console.error(`⚠️ OpenAI embeddings failed:`, openaiError.message);
       console.log(`📊 Continuing with Cohere-only matching due to OpenAI failure`)
@@ -1268,7 +1269,8 @@ export class PriceMatchingService {
     }
     
     // Update to exactly 50% after Cohere completion
-    await updateJobStatusWithThrottle(jobId, 'processing', 50, 'Cohere embeddings completed')
+    console.log(`🎯 [PROGRESS] Transitioning from Cohere embedding phase (30-50%) to matching preparation (50-55%)`)
+    await updateJobStatusWithThrottle(jobId, 'processing', 50, '🧠 Cohere neural embeddings completed, preparing for matching...')
     
     // Check if job was cancelled after embeddings but before matching
     if (isJobCancelled(jobId)) {
@@ -1277,9 +1279,17 @@ export class PriceMatchingService {
       return { matches: [], totalMatched: 0, averageConfidence: 0, outputPath: null }
     }
     
-    await updateJobStatusWithThrottle(jobId, 'processing', 55, 'AI embeddings ready, starting matching...', {
+    // Explain the 50% to 55% transition
+    console.log(`🎯 [PROGRESS] Initializing dual AI matching engines...`)
+    console.log(`⚡ [PROGRESS] OpenAI embeddings: ${openaiSuccessful ? '✅ Ready' : '❌ Failed'}`)
+    console.log(`⚡ [PROGRESS] Cohere embeddings: ✅ Ready`)
+    console.log(`🚀 [PROGRESS] Starting hybrid AI matching phase (55-85%)`)
+    
+    await updateJobStatusWithThrottle(jobId, 'processing', 55, '⚡ AI neural networks ready, initializing hybrid matching...', {
       total_items: boqItems.length,
-      matched_items: 0
+      matched_items: 0,
+      openai_ready: openaiSuccessful,
+      cohere_ready: true
     })
     
     // Create matching progress trackers (55-85%) - FIXED range

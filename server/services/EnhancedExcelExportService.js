@@ -260,34 +260,49 @@ export class EnhancedExcelExportService {
       originalRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
         const newCell = newRow.getCell(colNumber)
         
-        // Enhanced rate cell population - ONLY use existing rate column
+        // Enhanced rate cell population - ONLY use existing rate column at correct row
         if (match && rateColumnIndex > 0 && colNumber === rateColumnIndex && rowNumber !== headerRowNum) {
-          // Populate the existing rate cell with matched rate
-          newCell.value = match.matched_rate !== undefined && match.matched_rate !== null ? match.matched_rate : 0
+          // Ensure we're on the correct data row that matches the quantity
+          const isCorrectDataRow = rowNumber >= analysis.dataStartRow && 
+                                 (match.row_number === rowNumber || 
+                                  match.row_number === rowNumber - 1 || 
+                                  match.row_number === rowNumber + 1)
           
-          console.log(`   💰 Populating existing rate cell (row ${rowNumber}, col ${colNumber}): ${match.matched_rate}`)
-          
-          // Preserve original formatting but add highlighting
-          if (cell.style) {
-            newCell.style = JSON.parse(JSON.stringify(cell.style))
-          }
-          // Add highlighting to show it was updated
-          newCell.style = {
-            ...newCell.style,
-            fill: {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb: 'E8F5E9' } // Light green background
-            },
-            border: {
-              top: { style: 'thin', color: { argb: '4CAF50' } },
-              left: { style: 'thin', color: { argb: '4CAF50' } },
-              bottom: { style: 'thin', color: { argb: '4CAF50' } },
-              right: { style: 'thin', color: { argb: '4CAF50' } }
+          if (isCorrectDataRow) {
+            // Populate the existing rate cell with matched rate
+            newCell.value = match.matched_rate !== undefined && match.matched_rate !== null ? match.matched_rate : 0
+            
+            console.log(`   💰 Populating existing rate cell at correct row (row ${rowNumber}, col ${colNumber}): ${match.matched_rate}`)
+            console.log(`   📍 Match details - Sheet row: ${match.row_number}, Excel row: ${rowNumber}`)
+            
+            // Preserve original formatting but add highlighting
+            if (cell.style) {
+              newCell.style = JSON.parse(JSON.stringify(cell.style))
             }
-          }
-          if (cell.numFmt || !newCell.numFmt) {
-            newCell.numFmt = cell.numFmt || '#,##0.00'
+            // Add highlighting to show it was updated
+            newCell.style = {
+              ...newCell.style,
+              fill: {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'E8F5E9' } // Light green background
+              },
+              border: {
+                top: { style: 'thin', color: { argb: '4CAF50' } },
+                left: { style: 'thin', color: { argb: '4CAF50' } },
+                bottom: { style: 'thin', color: { argb: '4CAF50' } },
+                right: { style: 'thin', color: { argb: '4CAF50' } }
+              }
+            }
+            if (cell.numFmt || !newCell.numFmt) {
+              newCell.numFmt = cell.numFmt || '#,##0.00'
+            }
+          } else {
+            // Copy original value without modification
+            newCell.value = cell.value
+            if (cell.style) {
+              newCell.style = JSON.parse(JSON.stringify(cell.style))
+            }
           }
         } else {
           // Copy value and formatting as-is
@@ -399,12 +414,15 @@ export class EnhancedExcelExportService {
         alignment: { wrapText: true }
       }
       
-      const unitCell = newRow.getCell(startCol + 1)
-      unitCell.value = match.unit || match.matched_unit || ''
-      unitCell.style = {
-        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E0' } },
-        border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } },
-        alignment: { horizontal: 'center' }
+      // Only add unit cell if there's no existing unit column
+      if (!analysis.unitColumnIndex || analysis.unitColumnIndex <= 0) {
+        const unitCell = newRow.getCell(startCol + 1)
+        unitCell.value = match.unit || match.matched_unit || ''
+        unitCell.style = {
+          fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E0' } },
+          border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } },
+          alignment: { horizontal: 'center' }
+        }
       }
     }
   }

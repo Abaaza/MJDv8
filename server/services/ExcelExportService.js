@@ -357,55 +357,78 @@ export class ExcelExportService {
         if (match && rateColumnIndex > 0 && colNumber === rateColumnIndex && rowNumber !== headerRowNum) {
           // Check if this rate has already been populated for this match
           if (!match._ratePopulated) {
-            // Populate the existing rate cell with matched rate (ONLY ONCE)
-            newCell.value = match.matched_rate !== undefined && match.matched_rate !== null ? match.matched_rate : 0
-            match._ratePopulated = true // Mark as populated to prevent duplicates
+            // Ensure we're on the correct data row that matches the quantity
+            const isCorrectDataRow = rowNumber >= analysis.dataStartRow && 
+                                   (match.row_number === rowNumber || 
+                                    match.row_number === rowNumber - 1 || 
+                                    match.row_number === rowNumber + 1)
             
-            console.log(`   💰 Populating rate cell ONCE (row ${rowNumber}, col ${colNumber}): ${match.matched_rate}`)
-            console.log(`   📍 Match details - Sheet row: ${match.row_number}, Excel row: ${rowNumber}, Target row: ${targetRowNumber}`)
-          
-            // COMPLETE style preservation with enhancement
-            this.copyCompleteStyle(cell, newCell)
-            // Add highlighting to show it was updated
-            newCell.style = {
-              ...newCell.style,
-              fill: {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'E8F5E9' } // Light green background
-              },
-              border: {
-                top: { style: 'thin', color: { argb: '4CAF50' } },
-                left: { style: 'thin', color: { argb: '4CAF50' } },
-                bottom: { style: 'thin', color: { argb: '4CAF50' } },
-                right: { style: 'thin', color: { argb: '4CAF50' } }
+            if (isCorrectDataRow) {
+              // Populate the existing rate cell with matched rate (ONLY ONCE)
+              newCell.value = match.matched_rate !== undefined && match.matched_rate !== null ? match.matched_rate : 0
+              match._ratePopulated = true // Mark as populated to prevent duplicates
+              
+              console.log(`   💰 Populating rate cell ONCE (row ${rowNumber}, col ${colNumber}): ${match.matched_rate}`)
+              console.log(`   📍 Match details - Sheet row: ${match.row_number}, Excel row: ${rowNumber}, Target row: ${targetRowNumber}`)
+              console.log(`   📊 Data starts at row: ${analysis.dataStartRow}, Header at row: ${analysis.headerRowNum}`)
+            
+              // COMPLETE style preservation with enhancement
+              this.copyCompleteStyle(cell, newCell)
+              // Add highlighting to show it was updated
+              newCell.style = {
+                ...newCell.style,
+                fill: {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'E8F5E9' } // Light green background
+                },
+                border: {
+                  top: { style: 'thin', color: { argb: '4CAF50' } },
+                  left: { style: 'thin', color: { argb: '4CAF50' } },
+                  bottom: { style: 'thin', color: { argb: '4CAF50' } },
+                  right: { style: 'thin', color: { argb: '4CAF50' } }
+                }
               }
-            }
-            if (cell.numFmt || !newCell.numFmt) {
-              newCell.numFmt = cell.numFmt || '#,##0.00'
+              if (cell.numFmt || !newCell.numFmt) {
+                newCell.numFmt = cell.numFmt || '#,##0.00'
+              }
+            } else {
+              // Copy original with COMPLETE preservation
+              this.copyCompleteCell(cell, newCell)
             }
           } else {
             // Copy original with COMPLETE preservation
             this.copyCompleteCell(cell, newCell)
           }
         } else if (match && analysis.unitColumnIndex > 0 && colNumber === analysis.unitColumnIndex && rowNumber !== headerRowNum) {
-          // Populate unit cell with matched unit
+          // Populate unit cell with matched unit - only once and on correct row
           if (!match._unitPopulated) {
-            newCell.value = match.unit || match.matched_unit || cell.value || ''
-            match._unitPopulated = true // Mark as populated
+            // Ensure we're on the correct data row that matches the quantity
+            const isCorrectDataRow = rowNumber >= analysis.dataStartRow && 
+                                   (match.row_number === rowNumber || 
+                                    match.row_number === rowNumber - 1 || 
+                                    match.row_number === rowNumber + 1)
             
-            console.log(`   📏 Populating unit cell (row ${rowNumber}, col ${colNumber}): ${match.unit || match.matched_unit}`)
-            
-            // COMPLETE style preservation with enhancement
-            this.copyCompleteStyle(cell, newCell)
-            // Add subtle highlighting for unit updates
-            newCell.style = {
-              ...newCell.style,
-              fill: {
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: 'FFF3E0' } // Light orange background
+            if (isCorrectDataRow) {
+              newCell.value = match.unit || match.matched_unit || cell.value || ''
+              match._unitPopulated = true // Mark as populated
+              
+              console.log(`   📏 Populating unit cell ONCE (row ${rowNumber}, col ${colNumber}): ${match.unit || match.matched_unit}`)
+              
+              // COMPLETE style preservation with enhancement
+              this.copyCompleteStyle(cell, newCell)
+              // Add subtle highlighting for unit updates
+              newCell.style = {
+                ...newCell.style,
+                fill: {
+                  type: 'pattern',
+                  pattern: 'solid',
+                  fgColor: { argb: 'FFF3E0' } // Light orange background
+                }
               }
+            } else {
+              // Copy original with COMPLETE preservation
+              this.copyCompleteCell(cell, newCell)
             }
           } else {
             // Copy original with COMPLETE preservation
@@ -615,12 +638,15 @@ export class ExcelExportService {
         alignment: { wrapText: true }
       }
       
-      const unitCell = newRow.getCell(startCol + 1)
-      unitCell.value = match.unit || match.matched_unit || ''
-      unitCell.style = {
-        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E0' } },
-        border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } },
-        alignment: { horizontal: 'center' }
+      // Only add unit cell if there's no existing unit column being populated
+      if (!analysis.unitColumnIndex || analysis.unitColumnIndex <= 0) {
+        const unitCell = newRow.getCell(startCol + 1)
+        unitCell.value = match.unit || match.matched_unit || ''
+        unitCell.style = {
+          fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3E0' } },
+          border: { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } },
+          alignment: { horizontal: 'center' }
+        }
       }
     }
   }
